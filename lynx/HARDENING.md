@@ -1,0 +1,93 @@
+# Durcissement — revue adversariale (45 constats confirmés)
+
+Revue multi-agents (58 agents) de tous les modules, chaque constat vérifié de façon adversariale.
+
+## Corrigés (critiques + perf)
+
+- **critique** · `extract.py` — _normalize ne remplace aucun espace insecable (no-op) : troncature silencieuse des nombres
+- **critique** · `extract.py` — Separateur de milliers + decimale : _THOUSANDS_RE ne couvre pas la decimale, le 1er groupe est perdu
+- **critique** · `embeddings.py` — Alignement du batch : l'ordre des embeddings retournés est supposé identique à l'entrée (champ `index` OpenAI ignoré)
+- **critique** · `telemetry.py` — Journaux JSONL (telemetry/feedback/roi) écrits sans verrou: corruption en concurrence
+- **critique** · `run_eval.py` — validate_case ne valide jamais le label `expected` (fiabilite du label)
+- **majeur** · `audit.py` — _embedding_duplicates n'utilise pas le batch : N appels HTTP séquentiels au lieu d'un seul
+
+## Backlog (par sévérité)
+
+- **majeur** · `extract.py` @ _UNIT_PAT ligne 87-88 (classe finale [gt — Collision d'unites mono-lettre : la preposition francaise 'a'/'a' captee comme Ampere
+  - *Correctif* : Exiger une frontiere de mot reelle (?![\wA-Za-z]) au lieu de (?![a-z]) pour bloquer 'v2'. Surtout, ne pas traiter 'a' comme unite par defaut dans une chaine non accentuee, ou exiger un contexte (symbo
+- **majeur** · `extract.py` @ _NUM_RE ligne 89, extract_quantities lig — Plage (range) : la borne basse perd son unite et est ignoree, ou prend une fausse unite
+  - *Correctif* : Detecter explicitement le patron de plage ('entre X et Y U', 'de X a Y U', 'X U +/- Y U') et propager l'unite de la borne portant l'unite vers la borne nue, en produisant un Quantity range structure (
+- **majeur** · `extract.py` @ _CLAUSE_SEP ligne 99, _clause lignes 102 — Classification max/min faussee par les separateurs ':' et ',' qui coupent le mot-cle de la valeur
+  - *Correctif* : Ne pas utiliser ':' (et idealement ',') comme separateur de proposition pour la classification, ou elargir la fenetre de contexte (regarder aussi le debut de phrase / le segment precedant le ':'). Ver
+- **majeur** · `extract.py` @ _FAMILY ligne 41 (bar:1.0, Pa:1.0) — Famille 'pression' : bar et Pa partagent le facteur 1.0 : conversion silencieusement fausse
+  - *Correctif* : Donner des facteurs corrects : 'bar' -> ('pression', 100000.0), 'Pa' -> ('pression', 1.0). Ajouter un test to_base(1,'bar')==100000*to_base(1,'Pa').
+- **majeur** · `extract.py` @ allocation_rollup lignes 187-194 (select — Roll-up : un enfant avec plusieurs valeurs n'en compte qu'une (sous-comptage)
+  - *Correctif* : Definir explicitement la semantique : sommer toutes les valeurs 'measure' d'un enfant (ou la valeur d'allocation designee), et decider du traitement des enfants 'min'/'range'/'max' (au moins les signa
+- **majeur** · `embeddings.py` @ embeddings_available, lignes 25-34 — Dégradation si serveur absent : `embeddings_available()` mémorise l'échec de façon permanente pour tout le process
+  - *Correctif* : Ne cacher que le succès, pas l'échec : sur exception/résultat falsy, ne pas écrire `_available['ok']=False` (ou y stocker un timestamp et réessayer après un court TTL, p.ex. 30s). Ainsi un serveur qui
+- **majeur** · `audit.py` @ _embedding_duplicates, lignes 155-168 (e — Complexité N² en Python pur sur la détection de doublons cross-corpus
+  - *Correctif* : Normaliser les vecteurs une fois (L2) puis utiliser un produit matriciel : empiler en numpy `M = normalize(np.array(vecs))`, calculer `S = M @ M.T`, et extraire `np.argwhere(np.triu(S,1) >= EMBED_DUP_
+- **majeur** · `analyzers.py` @ analyze_pertinence, lignes 204-209 — Vote self-consistency : le décompte ignore les votes BLOCKING basés sur niveau_gravite et traite l'égalité comme une non-confirmation
+  - *Correctif* : Recalculer le vote sur la même grille de sévérité que le verdict initial : compter `incoh = sum(1 for v in votes if _sev_from(v, ...) == Severity.BLOCKING or v.get("est_coherent") is False)`. Et rendr
+- **majeur** · `analyzers.py` @ analyze_couverture, lignes 251-264 — Couverture delta-aware : la lacune préexistante est jugée sur le booléen est_complet, pas sur les concepts — masque les nouvelles lacunes
+  - *Correctif* : Comparer les ensembles de concepts non couverts avant/après : ne considérer la lacune comme préexistante que si `set(gaps_after) <= set(gaps_before)`. Si `gaps_after - gaps_before` est non vide, émett
+- **majeur** · `analyzers.py` @ analyze_redondance, ligne 312 — analyze_redondance : le parent passé au LLM n'utilise que parent_id (mono-parent) alors que les sœurs proviennent du DAG complet
+  - *Correctif* : Récupérer le(s) parent(s) via `tree.parents(target.id)` et choisir le parent commun aux sœurs considérées (ou passer la liste des parents au skill). A minima : `parents = tree.parents(target.id); pare
+- **majeur** · `audit.py` @ _structural_findings, lignes 53-63 — Détection de doublons d'ID cassée par la déduplication préalable (et ids manquants)
+  - *Correctif* : Filtrer/valider les ids en amont : signaler explicitement les ids manquants (axe DOUBLON ou un axe LIEN/STRUCTURE dédié) et utiliser r.get('id') partout au lieu de r['id']. Construire by_id sans écras
+- **majeur** · `audit.py` @ _structural_findings, lignes 71-76 — Intégrité des liens typés : objets Link ignorés et liens VERIFIES/ALLOCATES_TO mal traités
+  - *Correctif* : Normaliser le corpus en objets Requirement (ou en dicts) une seule fois en tête d'audit, puis itérer sur req.links de façon typée. Afficher ltype.value pour les enums. Décider explicitement quels type
+- **majeur** · `audit.py` @ _structural_findings, lignes 78-87 — Détection de cycles : ne couvre que parent_id et émet un constat par nœud du cycle
+  - *Correctif* : Construire le graphe complet (parent_id + liens _DECOMP) et détecter les composantes fortement connexes / cycles une seule fois (DFS avec pile, ou via le RequirementTree déjà disponible). Émettre un s
+- **majeur** · `audit.py` @ _audit_one l.121-122, audit_matrix l.193 — NON_AUDITE pénalisé à 0 : un corpus entièrement non audité obtient un score de 100
+  - *Correctif* : Soit calculer le score sur la base des exigences réellement auditées (score conditionné à une couverture), soit exposer une couverture explicite (audited/total) à côté du score et refuser d'afficher 1
+- **majeur** · `audit.py` @ audit_matrix, lignes 202-203 ; deep gate — Calcul du score non déterministe et non borné par le bas (saturation à 0)
+  - *Correctif* : Normaliser le score par la taille/structure (ex. pénalité moyenne par exigence) plutôt qu'un compteur absolu plafonné à 0/100, et le rendre déterministe en l'exprimant relativement à la couverture d'a
+- **majeur** · `audit.py` @ _embedding_duplicates, lignes 152-169 — Doublons par embeddings : O(n²) cosinus et embeddings récupérés un par un (passage à l'échelle)
+  - *Correctif* : Récupérer tous les vecteurs en un (ou quelques) appel(s) via get_embeddings(textes) avec gestion du cache. Pour la recherche de quasi-doublons à l'échelle, remplacer le O(n²) par une recherche approxi
+- **majeur** · `llm.py` @ _result_cache lignes 31,94-98 ; _availab — Cache LLM (_result_cache / _available_cache) non thread-safe et non borne
+  - *Correctif* : Proteger _result_cache et _available_cache par un threading.Lock (ou utiliser un cache thread-safe borne type lru). Ajouter un TTL au cache de disponibilite (re-tester apres N secondes) au lieu de mem
+- **majeur** · `corpus_io.py` @ save_corpus lignes 103-110 — Ecriture 'atomique' du corpus sans fsync: durabilite non garantie
+  - *Correctif* : fsync le fichier temporaire avant replace: ecrire via open(tmp,'w'), fh.write(...), fh.flush(), os.fsync(fh.fileno()), puis tmp.replace(path), puis fsync du repertoire parent. Utiliser un nom de .tmp 
+- **majeur** · `llm.py` @ stream_agent lignes 157-185 — Streaming LLM: erreurs reseau avalees silencieusement, aucune trace ni telemetrie
+  - *Correctif* : Dans le except de stream_agent, appeler telemetry.record({'model':_MODEL,'ok':False,'error':...,'stream':True}) avant de return, et logger un warning. Distinguer fin normale ([DONE]) d'une interruptio
+- **majeur** · `store.py` @ _file_lock lignes 30-42, _HAS_FCNTL 19-2 — Verrou inutile et trompeur sur Windows / absence de fcntl
+  - *Correctif* : Fournir un fallback msvcrt.locking sur Windows, ou au minimum un verrou intra-process (threading.Lock) toujours actif pour proteger les threads d'un meme process, et documenter clairement la limite in
+- **majeur** · `app.py` @ process_action, lignes 301-306 (puis _ap — Le replay depuis le cache ré-applique l'action et ré-écrit l'historique à chaque clic, sans journaliser le ROI
+  - *Correctif* : Distinguer 'recalcul évité' (afficher le verdict) de 'application de l'action'. N'appliquer (_apply + append_history + save_working) qu'une seule fois pour une action donnée, par exemple en marquant l
+- **majeur** · `app.py` @ process_action, lignes 316-342 ; _cb_cre — Aucune protection contre une action invalide non rattrapée dans process_action (collision d'ID CREATE, cible introuvable)
+  - *Correctif* : Interdire la dérogation pour les BLOQUANT d'origine STRUCTURE (collision d'ID, cycle, niveau hors borne) : ne montrer le formulaire 'Appliquer malgré tout' que si aucun finding de scope STRUCTURE n'es
+- **majeur** · `run_eval.py` @ validate_case CREATE ligne 67 ; boucle d — Erreur structurelle d'un cas comptee silencieusement comme faux negatif
+  - *Correctif* : Soit faire echouer validate_case sur les cas dont l'action produirait une erreur structurelle (verifier niveau/parent comme le fait build_candidate_tree), soit dans la boucle de scoring detecter la pr
+- **mineur** · `extract.py` @ allocation_rollup lignes 189-196 — Enfants 'min'/'range' ni comptes ni signales : roll-up faussement 'complet'
+  - *Correctif* : Comptabiliser ou au minimum lister les enfants de bonne famille non sommables (min/range) dans un champ dedie (ex. 'partiels') et l'exposer dans _allocation_findings, comme pour non_comparables.
+- **mineur** · `embeddings.py` @ is_duplicate, ligne 107 — is_duplicate fige le seuil par défaut à l'import (override d'environnement tardif ignoré)
+  - *Correctif* : Utiliser `threshold: Optional[float] = None` puis `thr = EMBED_DUP_THRESHOLD if threshold is None else threshold` dans le corps, en référant `config.EMBED_DUP_THRESHOLD` (via le module) si une reconfi
+- **mineur** · `config.py` @ EMBED_DISTINCT_THRESHOLD ligne 40 ; usag — Seuil 'distinct' (0.62) probablement trop bas pour bge-m3 : zone ambiguë écrasée -> faux 'distinct'
+  - *Correctif* : Calibrer le seuil distinct sur le modèle réellement utilisé (mesurer la distribution cosinus sur un échantillon bge-m3 : souvent il faut monter le seuil distinct vers ~0.75-0.80 pour bge-m3 dont l'amp
+- **mineur** · `orchestrator.py` @ _safe lignes 75-84 ; recompute_status mo — _safe émet ses erreurs en Scope.STRUCTURE avec severity INFO, contournant la dérogation force_override et l'agrégation de gravité
+  - *Correctif* : Émettre les erreurs `_safe` en `Severity.WARNING` (analyse incomplète, à relancer) plutôt qu'INFO, et idéalement réutiliser un scope dédié au lieu de STRUCTURE pour ne pas se faire passer pour un verd
+- **mineur** · `analyzers.py` @ analyze_couverture, ligne 244 — Parsing couverture : fallback `list(resp.get("concepts_non_couverts"))` peut réintroduire des dicts non normalisés
+  - *Correctif* : Pour la couverture, traiter `concepts_non_couverts` comme une liste de chaînes : `gaps = [str(g.get('concept', g)) if isinstance(g, dict) else str(g) for g in (resp.get('concepts_non_couverts') or [])
+- **mineur** · `audit.py` @ _embedding_duplicates l.167-168 ; Matrix — Constat de doublon d'embedding attribué à un seul id : flagged_ids et counts faussés
+  - *Correctif* : Stocker les deux ids (ex. ajouter un champ impacted_ids/cible au MatrixFinding et l'inclure dans flagged_ids), ou émettre le constat pour les deux membres. Éventuellement distinguer l'axe (REDONDANCE_
+- **mineur** · `audit.py` @ _audit_one l.124-125 (sev inutilisé) ; a — Concurrence : verdict 'gravite' du LLM ignoré et accès cache LLM/embeddings sous ThreadPool
+  - *Correctif* : Utiliser resp['gravite'] (déjà validé contre _PENALTY) pour fixer la gravité des findings sémantiques au lieu de constantes en dur, ou supprimer le code mort. Pour les caches partagés, protéger les éc
+- **mineur** · `audit.py` @ _audit_one l.110-117 et l.140-144 ; tree — Constats sémantiques de redondance ne sont pas corroborés et 'siblings' des racines = O(n²)
+  - *Correctif* : Limiter les sœurs envoyées au LLM (top-k par similarité d'embedding via most_similar, ou plafond), ce qui borne la taille du prompt et corrobore la redondance avec le signal déterministe. Pour les rac
+- **mineur** · `store.py` @ load_initial lignes 49-56 — load_initial lit le working hors verrou et accepte un JSON 'vide' comme fallback silencieux
+  - *Correctif* : Distinguer 'fichier absent' de 'fichier present mais toutes exigences invalides': dans le second cas, remonter un avertissement (via load_corpus_report) plutot que de retomber silencieusement sur le c
+- **mineur** · `feedback.py` @ export_dataset lignes 55-66 — export_dataset suppose des cles presentes et ecrit sans atomicite
+  - *Correctif* : Utiliser r.get(...) avec valeurs par defaut et ignorer/loguer les lignes incompletes au lieu de planter. Ecrire via .tmp + os.fsync + replace pour ne pas detruire l'export precedent en cas d'echec.
+- **mineur** · `app.py` @ render_value_panel lignes 84-103 ; page_ — Le panneau de télémétrie/valeur et l'audit lisent des fichiers JSONL à chaque rerun, sur le thread de rendu
+  - *Correctif* : Mémoriser ces agrégats avec @st.cache_data (clé sur mtime/taille du fichier) ou ne les recalculer que lorsque l'expander 'Valeur de l'assistant' est ouvert. Au minimum, borner/agréger les journaux.
+- **mineur** · `app.py` @ main, lignes 543-554 ; vs page_graph lig — Le préchauffage en thread peut écraser le modèle courant et fausse la condition de garde
+  - *Correctif* : Faire du modèle un paramètre explicite des appels LLM plutôt qu'un global mutable, ou n'attacher le warm-up qu'après sélection effective du modèle. Idéalement, appeler set_model(ss.model) dans main() 
+- **mineur** · `app.py` @ _select_node lignes 69-71 ; clic graphe  — Doublon de logique de mise à jour du verdict entre le clic de nœud et _select_node
+  - *Correctif* : Centraliser la sélection dans une seule fonction qui remet verdict=None et feedback_done=False, et n'appliquer le clic graphe que s'il est réellement nouveau (comparer à une valeur 'dernier clic trait
+- **mineur** · `app.py` @ process_action lignes 322-329 ; orchestr — stream_synthesis peut ne rien émettre et laisser un bloc de réponse vide non géré
+  - *Correctif* : Ne mettre en cache et n'afficher la synthèse que si elle paraît complète (ex. flux terminé proprement, longueur minimale), sinon basculer sur _fallback_message. Distinguer 'flux terminé' de 'flux inte
+- **mineur** · `run_eval.py` @ lignes 114-115 (affichage) vs 128-129 (l — Calcul precision/rappel duplique entre l'affichage et l'ecriture JSON (risque de derive)
+  - *Correctif* : Stocker les precision/rappel par axe deja calcules dans des dictionnaires (ex. prec[a], rec[a]) au moment de l'affichage et reutiliser ces memes valeurs pour serialiser last_eval.json, eliminant la du
+- **mineur** · `run_eval.py` @ load_cases lignes 76-83 ; main lignes 88 — Cas non valides perdus dans le decompte mais pas dans le run interrompu
+  - *Correctif* : Logguer le nom et la raison de chaque cas ecarte dans validate_case (retour structure ou print). Pour les exceptions runtime, tenir un compteur 'errors' et reporter 'cases evalues = len(cases) - error

@@ -1,0 +1,26 @@
+# ===================================================================
+# Accélération GPU NVIDIA (CUDA 12.x) — OPTIONNEL
+# ===================================================================
+# Installer APRÈS la base, sur une machine avec GPU NVIDIA + drivers CUDA 12 :
+#
+#     pip install -r requirements.txt
+#     pip install -r requirements-gpu.txt
+#
+# Remplace torch/onnxruntime CPU par les builds CUDA et ajoute CuPy (spaCy GPU).
+# Gain mesuré : génération/rerank ~10× plus rapides qu'en CPU.
+#
+# macOS / CPU-only : NE PAS installer ce fichier (la base CPU suffit ; sur Mac,
+# torch utilisera automatiquement le backend MPS si disponible).
+# ===================================================================
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
+torchvision==0.20.1+cu121
+
+# ONNX Runtime GPU — remplace onnxruntime (CPU).
+# Si après coup `onnxruntime.get_available_providers()` ne liste pas CUDAExecutionProvider :
+#   pip uninstall onnxruntime onnxruntime-gpu -y && pip install onnxruntime-gpu --no-deps
+onnxruntime-gpu>=1.24.0
+
+# CuPy — accélération GPU de spaCy (NER).
+cupy-cuda12x>=14.0.0

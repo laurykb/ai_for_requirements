@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+data/neo4j/
+*.log
+.streamlit/secrets.toml
+.pytest_cache/
+
+corpus/working.json
+corpus/history.jsonl
+corpus/telemetry.jsonl
+corpus/feedback.jsonl
+corpus/feedback_dataset.jsonl
+corpus/roi.jsonl
+eval/last_eval.json

@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "version": "eval-clean-1.0",
+    "description": "Corpus d'évaluation PROPRE et contrôlé : bien rédigé, couverture complète, allocation équilibrée, aucune redondance. Sert de base saine ; chaque cas de test y injecte UN défaut connu."
+  },
+  "exigences": [
+    {"id": "E-L0-001", "niveau": 0, "type": "Besoin", "domaine": "Systeme",
+     "texte": "Le drone doit réaliser une mission de surveillance optique d'une durée d'au moins 2 heures.",
+     "parent_id": null, "test_status": "PENDING"},
+
+    {"id": "E-L1-END", "niveau": 1, "type": "Spec", "domaine": "Energie",
+     "texte": "Le drone doit disposer d'une endurance de vol d'au moins 2 heures en croisière.",
+     "parent_id": "E-L0-001", "test_status": "PENDING"},
+    {"id": "E-L1-PAY", "niveau": 1, "type": "Spec", "domaine": "Optronique",
+     "texte": "Le drone doit embarquer une charge utile optique capable d'identifier une cible au sol.",
+     "parent_id": "E-L0-001", "test_status": "PENDING"},
+    {"id": "E-L1-LINK", "niveau": 1, "type": "Spec", "domaine": "Liaison",
+     "texte": "Le drone doit transmettre le flux vidéo à la station sol en temps réel.",
+     "parent_id": "E-L0-001", "test_status": "PENDING"},
+
+    {"id": "E-L2-BAT", "niveau": 2, "type": "Concept", "domaine": "Energie",
+     "texte": "La masse de la chaîne énergétique ne doit pas dépasser 5 kg.",
+     "parent_id": "E-L1-END", "test_status": "PENDING"},
+    {"id": "E-L3-CELL", "niveau": 3, "type": "Detail", "domaine": "Energie",
+     "texte": "Le pack de cellules lithium-ion a une masse mesurée à 3 kg.",
+     "parent_id": "E-L2-BAT", "test_status": "OK"},
+    {"id": "E-L3-BMS", "niveau": 3, "type": "Detail", "domaine": "Energie",
+     "texte": "Le module de gestion de batterie a une masse mesurée à 1 kg.",
+     "parent_id": "E-L2-BAT", "test_status": "OK"},
+
+    {"id": "E-L2-CAM", "niveau": 2, "type": "Concept", "domaine": "Optronique",
+     "texte": "La charge utile doit fournir une caméra jour d'une résolution d'au moins 4 mégapixels.",
+     "parent_id": "E-L1-PAY", "test_status": "PENDING"},
+    {"id": "E-L2-IR", "niveau": 2, "type": "Concept", "domaine": "Optronique",
+     "texte": "La charge utile doit fournir une voie infrarouge pour la vision de nuit.",
+     "parent_id": "E-L1-PAY", "test_status": "PENDING"}
+  ]
+}

@@ -1,14 +1,49 @@
-# RAG souverain & mesurable — implémentation de référence (PoC)
+# AI for SSH — suite souveraine pour l'ingénierie de sécurité (PoC)
 
-Pipeline **RAG hybride 100 % local** (aucune API externe) sur des documents techniques
-de cybersécurité (cibles de sécurité ANSSI / Critères Communs), avec interface Streamlit,
-agent ReAct, serveur MCP, observabilité et **harnais d'évaluation chiffré**.
+**AI for SSH** réunit dans une **seule application Streamlit 100 % locale** (aucune API
+externe) deux outils complémentaires pour le travail sur les dossiers de sécurité
+(ANSSI / Critères Communs) :
+
+| Outil | Rôle | Documentation |
+|---|---|---|
+| **Outil RAG** (RAG documentaire) | Questions/réponses **sourcées** sur des cibles de sécurité : retrieval hybride, agent ReAct, serveur MCP, observabilité, **éval chiffrée**. | ce README |
+| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). | [`lynx/README.md`](lynx/README.md) |
+
+Les deux outils partagent la même pile locale (Ollama : `mistral-small3.2` + `bge-m3`,
+MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par outil**.
+
+> **Genèse — le merge.** AI for SSH est l'**unification de deux projets** auparavant
+> distincts : le RAG documentaire (dépôt `rag_project`) et **LynX / AI for Requirements**.
+> L'app hôte (`app/app.py`) embarque LynX **sans modifier son code** — voir
+> [Intégration des deux outils](#intégration-des-deux-outils).
 
 > **Ce que c'est** : une implémentation de référence **réutilisable et multi-OS** qui
 > couvre l'essentiel de la feuille de route « AI Engineer » (RAG → agents → prod), avec
 > une discipline *mesure-avant-d'optimiser*. **Ce que ce n'est pas** : une plateforme
 > déployée à l'échelle. C'est un PoC abouti, pas un service en production (voir
 > [Limites assumées](#limites-assumées)).
+
+---
+
+## Intégration des deux outils
+
+`app/app.py` est l'**hôte** « AI for SSH ». Il expose l'Outil RAG (Accueil, Chat,
+Documents, Graphe d'entités, Observabilité, Paramètres) via sa barre latérale, et l'**AI
+for Requirements** en plein écran :
+
+- **Chargement non intrusif** : `_load_lynx()` importe `lynx/app.py` via `importlib` sous
+  le nom de module unique `lynx_main`, avec `lynx/` ajouté au `sys.path` → les
+  `from src import …` de LynX se résolvent dans `lynx/src`. **Le code de LynX n'est pas
+  modifié** (il reste exploitable en standalone, cf. `lynx/README.md`).
+- **Même process, mono-poste** : pas de second serveur ni d'appel réseau ; LynX conserve
+  sa navigation interne (`ss.page`).
+- **Thème** : `_LYNX_DARK_CSS` corrige uniquement les fonds clairs / textes quasi-noirs
+  que LynX code en dur, pour l'aligner sur le sombre de l'hôte.
+- **Navigation** : `view == "requirements"` (bouton d'accueil « AI for Requirements »)
+  rend LynX ; le retour « AI for SSH » est un bouton intégré dans l'UI de LynX.
+
+Chaque outil garde sa propre **évaluation chiffrée** : RAG → `evals/` (hit@k 0.93,
+recall 0.90) ; LynX → `lynx/eval/` (F1 micro 0.95 sur 196 cas).
 
 ---
 
@@ -81,13 +116,14 @@ Couches agentiques au-dessus : `tools/rag_tool.py` (RAG-comme-outil) → `rag_mc
 ## Démarrage rapide
 
 ```bash
-git clone <repo> rag_project && cd rag_project
+git clone https://github.com/laurykb/ai_for_requirements.git && cd ai_for_requirements
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\Activate.ps1
 pip install -r requirements.txt                      # + requirements-gpu.txt si GPU NVIDIA
+pip install -r lynx/requirements.txt                 # dépendances du module AI for Requirements
 python -m spacy download fr_core_news_sm
-ollama pull llama3.1:8b && ollama pull bge-m3:567m
+ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.1:8b, llama3.2:3b en option)
 cp .env.example .env
-python serve.py            # démarre MongoDB + Ollama + l'app d'un coup
+python serve.py            # démarre MongoDB + Ollama + l'app (Outil RAG + AI for Requirements)
 # (ou, si les services tournent déjà : streamlit run app/app.py)
 ```
 

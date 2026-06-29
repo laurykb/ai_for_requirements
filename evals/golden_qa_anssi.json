@@ -1,0 +1,57 @@
+{
+  "dataset": "ANSSI-CC-cible_2011 (Mistral TRC7535/TRC7539)",
+  "source_doc": "ANSSI-CC-cible_2011-1-20.md",
+  "description": "Jeu de questions/réponses doré ancré dans la cible de sécurité Mistral. Réponses vérifiées dans le document. expected_keywords sert à la métrique retrieval pure (hit@k).",
+  "items": [
+    {
+      "question": "Quel est le niveau d'évaluation EAL de la TOE Mistral ?",
+      "answer": "EAL3 augmenté (EAL3+), avec ALC_FLR.3 et AVA_VLA.2, ainsi que ADV_LLD.1, ALC_TAT.1 et ADV_IMP.1 pour les mécanismes cryptographiques.",
+      "expected_keywords": ["EAL3", "ALC_FLR.3", "AVA_VLA.2"]
+    },
+    {
+      "question": "Quelle est la version du boîtier Mistral TRC7535 ?",
+      "answer": "La version 4.7.0.2.",
+      "expected_keywords": ["4.7.0.2", "TRC7535"]
+    },
+    {
+      "question": "Quel est le niveau de résistance des fonctions de sécurité de la TOE ?",
+      "answer": "SOF-élevé (résistance des fonctions élevée).",
+      "expected_keywords": ["SOF"]
+    },
+    {
+      "question": "À quelle version des Critères Communs cette cible de sécurité est-elle conforme ?",
+      "answer": "Aux Critères Communs version 2.3 d'août 2005.",
+      "expected_keywords": ["v2.3", "2005"]
+    },
+    {
+      "question": "La TOE est-elle conforme à un Profil de Protection existant ?",
+      "answer": "Non, elle ne revendique aucune conformité à un Profil de Protection existant.",
+      "expected_keywords": ["Profil de Protection"]
+    },
+    {
+      "question": "Que désigne l'acronyme CGM dans le système Mistral ?",
+      "answer": "Le Centre de Gestion Mistral, le logiciel d'administration des chiffreurs.",
+      "expected_keywords": ["Centre de Gestion Mistral", "CGM"]
+    },
+    {
+      "question": "Quels sont les deux produits de chiffrement du système Mistral ?",
+      "answer": "Le boîtier Mistral (TRC7535/TRC7539), chiffreur IP de site, et le logiciel Mistral Nomade (TRC7955), chiffreur IP pour les PC portables.",
+      "expected_keywords": ["boîtier Mistral", "Nomade", "TRC7955"]
+    },
+    {
+      "question": "À quoi sert le Centre d'Élaboration des Clés (CEC) ?",
+      "answer": "C'est le générateur de clés certifiées du système Mistral.",
+      "expected_keywords": ["CEC", "clés"]
+    },
+    {
+      "question": "Quelle technologie le système Mistral utilise-t-il pour sécuriser les échanges sur les réseaux IP ?",
+      "answer": "La technologie VPN (réseaux privés virtuels) sur IP, avec chiffrement IPsec.",
+      "expected_keywords": ["VPN"]
+    },
+    {
+      "question": "Pour quels types de réseaux le Mistral est-il principalement conçu ?",
+      "answer": "Pour sécuriser les réseaux d'entreprises, les réseaux bancaires et les réseaux d'organismes étatiques.",
+      "expected_keywords": ["entreprises", "bancaires"]
+    }
+  ]
+}

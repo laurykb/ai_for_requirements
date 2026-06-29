@@ -1,0 +1,62 @@
+# ===================================================================
+# Requirements — base CROSS-PLATFORM (Linux / macOS / Windows, CPU)
+# ===================================================================
+# Cette base s'installe PARTOUT, y compris sans GPU et sur macOS :
+#
+#     python -m venv .venv
+#     # Linux/macOS :  source .venv/bin/activate
+#     # Windows     :  .venv\Scripts\activate
+#     pip install -r requirements.txt
+#     python -m spacy download fr_core_news_sm   # modèle NER français
+#
+# ACCÉLÉRATION GPU NVIDIA (optionnelle, ~10× sur la génération/rerank) :
+#     pip install -r requirements-gpu.txt        # remplace torch/onnxruntime par les builds CUDA
+#
+# Python 3.11+ recommandé. Services requis au runtime : Ollama + MongoDB (voir README).
+# ===================================================================
+
+# ─────────────── Deep Learning (CPU par défaut ; GPU via requirements-gpu.txt) ───────────────
+torch>=2.2
+torchvision>=0.17
+transformers>=4.45.0
+sentence-transformers>=5.0.0
+accelerate>=1.0.0
+# ONNX Runtime CPU (utilisé par ChromaDB/Docling). Remplacé par onnxruntime-gpu en mode GPU.
+onnxruntime>=1.18.0
+
+# ─────────────── Embeddings & LLM (Ollama) ───────────────
+requests>=2.31.0
+langchain-core>=0.3.0
+langchain-ollama>=0.3.0
+langchain-community>=0.3.0
+
+# ─────────────── Indexation & Recherche ───────────────
+chromadb>=1.0.0           # backend vectoriel par défaut
+qdrant-client>=1.18.0     # 2e backend (mode :memory:/local sans serveur)
+rank-bm25>=0.2.2          # recherche par mots-clés (BM25)
+
+# ─────────────── PDF → Markdown (Docling) ───────────────
+docling>=2.40.0
+docling-core>=2.40.0
+easyocr>=1.7.0
+
+# ─────────────── NLP ───────────────
+spacy>=3.8.0
+# + le modèle français :  python -m spacy download fr_core_news_sm
+semantic-text-splitter>=0.27.0
+
+# ─────────────── Base de données ───────────────
+pymongo>=4.10.0
+
+# ─────────────── Interface Web ───────────────
+streamlit>=1.40.0
+streamlit-autorefresh>=1.0.1
+markdown2>=2.5.0
+
+# ─────────────── Utilitaires ───────────────
+joblib>=1.3.0
+pillow>=10.0.0
+python-dotenv>=1.0.0  # configuration portable via .env
+
+# ─────────────── Tests (dev) ───────────────
+pytest>=8.0
