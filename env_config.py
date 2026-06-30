@@ -1,5 +1,5 @@
 """
-env_config.py — Gestion centralisée et portable des variables d'environnement.
+env_config.py - Gestion centralisée et portable des variables d'environnement.
 
 Ce module remplace les hardcoded paths/URLs par un système flexible :
 - Charge les vars depuis .env
@@ -22,11 +22,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Robustesse encodage (Windows) ────────────────────────────────────────────
-# Le code émet des caractères Unicode dans ses print() (⏱, ✓, →…). Sur une
+# -- Robustesse encodage (Windows) --------------------------------------------
+# Le code émet des caractères Unicode dans ses print() (, , ->...). Sur une
 # console Windows cp1252 sans PYTHONUTF8, cela lève UnicodeEncodeError et casse
 # une requête. On force UTF-8 (errors="replace" en filet) sur stdout/stderr,
-# indépendamment des variables d'environnement — fix définitif et portable.
+# indépendamment des variables d'environnement - fix définitif et portable.
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")
@@ -42,7 +42,7 @@ _ENV_EXAMPLE_FILE = _PROJECT_ROOT / ".env.example"
 
 if _ENV_FILE.exists():
     load_dotenv(_ENV_FILE, verbose=False)
-    logger.debug(f"✓ Chargé .env depuis {_ENV_FILE}")
+    logger.debug(f" Chargé .env depuis {_ENV_FILE}")
 elif _ENV_EXAMPLE_FILE.exists():
     # Fallback utile pour un clone GitHub sans .env local.
     load_dotenv(_ENV_EXAMPLE_FILE, verbose=False)
@@ -130,7 +130,7 @@ def get_config() -> Dict[str, Any]:
     
     num_gpus = _detect_available_gpus()
     
-    # ───────────────────── PATHS (relatifs au projet) ───────────────────
+    # --------------------- PATHS (relatifs au projet) -------------------
     paths_config = {
         "PROJECT_ROOT": str(_PROJECT_ROOT),
         "DATA_DIR": str(_PROJECT_ROOT / "data"),
@@ -140,8 +140,8 @@ def get_config() -> Dict[str, Any]:
         "MODELS_DIR": str(_PROJECT_ROOT / "models"),
     }
     
-    # ───────────────────── DATABASE ───────────────────
-    # MongoDB — tous les défauts viennent de .env.example
+    # --------------------- DATABASE -------------------
+    # MongoDB - tous les défauts viennent de .env.example
     mongo_host = os.environ.get("MONGO_HOST", "localhost")
     mongo_port = os.environ.get("MONGO_PORT", "27017")
     mongo_user = os.environ.get("MONGO_USER", "").strip()
@@ -170,33 +170,33 @@ def get_config() -> Dict[str, Any]:
     if mongo_pass:
         db_config["MONGO_PASSWORD"] = mongo_pass
     
-    # ───────────────────── EMBEDDING & LLM (Ollama) ───────────────────
+    # --------------------- EMBEDDING & LLM (Ollama) -------------------
     ollama_host = os.environ.get("OLLAMA_HOST", "").strip().rstrip("/")
     if not ollama_host:
-        logger.warning("OLLAMA_HOST manquant en .env — utilisation du fallback interne")
+        logger.warning("OLLAMA_HOST manquant en .env - utilisation du fallback interne")
         ollama_host = "http://localhost:11434"
 
     ollama_available = _check_service_available(ollama_host.replace("http://", ""))
 
     embed_model = os.environ.get("EMBED_MODEL", "")
     if not embed_model:
-        logger.warning("EMBED_MODEL manquant en .env — utilisation du fallback interne")
+        logger.warning("EMBED_MODEL manquant en .env - utilisation du fallback interne")
         embed_model = "bge-m3:567m"
 
     # Timeout HTTP des embeddings. Sur VRAM contrainte (8 Go), le 1er appel à bge-m3
     # déclenche un SWAP de modèle (décharge llama, charge bge-m3) qui peut dépasser
-    # 60 s → l'ancien timeout court retombait silencieusement sur un vecteur nul
+    # 60 s -> l'ancien timeout court retombait silencieusement sur un vecteur nul
     # (jambe sémantique morte). 180 s couvre le swap à froid documenté.
     embed_timeout_s = int(os.environ.get("EMBED_TIMEOUT_S", "180"))
 
     rewriter_model = os.environ.get("REWRITER_MODEL", "")
     if not rewriter_model:
-        logger.warning("REWRITER_MODEL manquant en .env — fallback interne utilisé")
+        logger.warning("REWRITER_MODEL manquant en .env - fallback interne utilisé")
         rewriter_model = "llama3.1:latest"
 
     gen_model = os.environ.get("GEN_MODEL", "")
     if not gen_model:
-        logger.warning("GEN_MODEL manquant en .env — fallback interne utilisé")
+        logger.warning("GEN_MODEL manquant en .env - fallback interne utilisé")
         gen_model = "llama3.1:latest"
     
     llm_config = {
@@ -213,7 +213,7 @@ def get_config() -> Dict[str, Any]:
         "ENHANCE_NUM_CTX": int(os.environ.get("ENHANCE_NUM_CTX", "4096")),
     }
     
-    # ───────────────────── CROSS-ENCODER (GPU) ───────────────────
+    # --------------------- CROSS-ENCODER (GPU) -------------------
     use_cross_encoder = os.environ.get("USE_CROSS_ENCODER", "true").lower() in ("true", "1", "yes")
     
     # Fallback smart pour device du cross-encoder
@@ -238,12 +238,8 @@ def get_config() -> Dict[str, Any]:
         "CE_RELEVANCE_THRESHOLD": float(os.environ.get("CE_RELEVANCE_THRESHOLD", "0.505")),
     }
     
-    # ───────────────────── RETRIEVAL & RANKING ───────────────────
+    # --------------------- RETRIEVAL & RANKING -------------------
     retrieval_config = {
-        # GraphRAG au moment de la requête. OFF par défaut : l'A/B mesuré montre
-        # 0 gain de retrieval sur questions factuelles et +0.56 s/requête. Reste
-        # activable (utile pour des questions relationnelles/multi-sauts).
-        "GRAPH_RAG_ENABLED": os.environ.get("GRAPH_RAG_ENABLED", "false").lower() in ("true", "1", "yes"),
         "NUM_CHUNKS": int(os.environ.get("NUM_CHUNKS", "15")),
         "RRF_K": int(os.environ.get("RRF_K", "60")),
         "WEIGHT_SEMANTIC": float(os.environ.get("WEIGHT_SEMANTIC", "0.3")),
@@ -252,7 +248,7 @@ def get_config() -> Dict[str, Any]:
         "MAX_QUERY_CHARS": int(os.environ.get("MAX_QUERY_CHARS", "512")),
     }
     
-    # ───────────────────── CHUNKING & ENHANCEMENT ───────────────────
+    # --------------------- CHUNKING & ENHANCEMENT -------------------
     enhancement_config = {
         "CHUNKING_MODE": os.environ.get("CHUNKING_MODE", "technical"),
         "AUTO_KEYWORDS": int(os.environ.get("AUTO_KEYWORDS", "5")),
@@ -264,15 +260,12 @@ def get_config() -> Dict[str, Any]:
         # Fusionner mots-clés + questions en un seul appel LLM (JSON). true = 1 appel
         # (rapide) ; false = 2 appels dédiés (historique). À comparer via le harnais d'éval.
         "ENHANCE_COMBINED": os.environ.get("ENHANCE_COMBINED", "true").lower() in ("true", "1", "yes"),
-        # GraphRAG : extraction LLM des relations typées (1 appel/chunk, coûteux).
-        # Désactivé par défaut — les relations de co-occurrence sont construites gratuitement.
-        "GRAPH_USE_LLM_RELATIONS": os.environ.get("GRAPH_USE_LLM_RELATIONS", "false").lower() in ("true", "1", "yes"),
         "RAPTOR_SUMMARIES": os.environ.get("RAPTOR_SUMMARIES", "true").lower() in ("true", "1", "yes"),
         "RAPTOR_MIN_CHUNKS": int(os.environ.get("RAPTOR_MIN_CHUNKS", "3")),
         "RAPTOR_MAX_INPUT_CHUNKS": int(os.environ.get("RAPTOR_MAX_INPUT_CHUNKS", "15")),
     }
     
-    # ───────────────────── AGENT ReAct ───────────────────
+    # --------------------- AGENT ReAct -------------------
     # Agent ReAct : modèle de raisonnement, séparable du modèle de génération.
     # Par défaut le même que GEN_MODEL, mais surchargeable indépendamment.
     agent_config = {
@@ -280,16 +273,16 @@ def get_config() -> Dict[str, Any]:
         "AGENT_MAX_ITERATIONS": int(os.environ.get("AGENT_MAX_ITERATIONS", "4")),
     }
 
-    # ───────────────────── MODE RAPIDE (latence) ───────────────────
+    # --------------------- MODE RAPIDE (latence) -------------------
     # Levier de latence : sur petit GPU, la GÉNÉRATION = ~85 % du temps,
-    # car un modèle 8B + contexte 16k déborde la VRAM → offload CPU lent. Activer
+    # car un modèle 8B + contexte 16k déborde la VRAM -> offload CPU lent. Activer
     # RAG_FAST_MODE bascule sur un prompt système ÉPURÉ (un 3B se NOIE dans le prompt
     # détaillé tuné pour le 8B). Recette « rapide » dans .env : RAG_FAST_MODE=true +
-    # GEN_MODEL=llama3.2:3b → ~5-6× plus rapide (mesuré 27 s vs 150 s).
+    # GEN_MODEL=llama3.2:3b -> ~5-6x plus rapide (mesuré 27 s vs 150 s).
     # COMPROMIS : un 3B est moins fiable qu'un 8B sur l'extraction critique (peut se
-    # tromper de niveau EAL p.ex.) → mode pour l'exploratoire ; 8B (défaut) pour
+    # tromper de niveau EAL p.ex.) -> mode pour l'exploratoire ; 8B (défaut) pour
     # l'autoritatif. NB mesuré : plafonner les chunks ne gagne RIEN en vitesse (la
-    # latence vient de la TAILLE du modèle) et risque d'éjecter la bonne info → on
+    # latence vient de la TAILLE du modèle) et risque d'éjecter la bonne info -> on
     # garde tous les chunks par défaut ; GEN_NUM_CHUNKS reste réglable manuellement.
     fast_mode = os.environ.get("RAG_FAST_MODE", "false").lower() in ("true", "1", "yes")
     fast_config = {
@@ -297,7 +290,7 @@ def get_config() -> Dict[str, Any]:
         "GEN_NUM_CHUNKS": int(os.environ.get("GEN_NUM_CHUNKS", str(retrieval_config["NUM_CHUNKS"]))),
     }
 
-    # ───────────────────── AFFINAGE DU CONTEXTE (précision → fidélité) ───────────
+    # --------------------- AFFINAGE DU CONTEXTE (précision -> fidélité) -----------
     # Passes déterministes (sans LLM) sur les passages AVANT la génération, pour
     # réduire le bruit envoyé au modèle (maillon faible mesuré = génération/precision).
     # Activables pour un A/B (faithfulness/precision) via le harnais d'éval.
@@ -309,43 +302,35 @@ def get_config() -> Dict[str, Any]:
         "CONTEXT_REORDER": os.environ.get("CONTEXT_REORDER", "true").lower() in ("true", "1", "yes"),
     }
 
-    # ───────────────────── SELF-RAG ───────────────────
+    # --------------------- SELF-RAG -------------------
     self_rag_config = {
         "SELF_RAG_ENABLED": os.environ.get("SELF_RAG_ENABLED", "false").lower() in ("true", "1", "yes"),
         "SELF_RAG_THRESHOLD": float(os.environ.get("SELF_RAG_THRESHOLD", "0.55")),
         "SELF_RAG_MAX_RETRIES": int(os.environ.get("SELF_RAG_MAX_RETRIES", "1")),
     }
     
-    # ───────────────────── PARENT-CHILD ───────────────────
+    # --------------------- PARENT-CHILD -------------------
     parent_child_config = {
         "PARENT_CHILD_ENABLED": os.environ.get("PARENT_CHILD_ENABLED", "false").lower() in ("true", "1", "yes"),
         "PARENT_CHILD_MAX_CHARS": int(os.environ.get("PARENT_CHILD_MAX_CHARS", "4000")),
         "NUM_CHUNKS_PARENT_CHILD": int(os.environ.get("NUM_CHUNKS_PARENT_CHILD", "8")),
     }
     
-    # ───────────────────── COLLECTION CHROMA DB ───────────────────
+    # --------------------- COLLECTION CHROMA DB -------------------
     chroma_config = {
         "COLLECTION_NAME": os.environ.get("COLLECTION_NAME", "test_rag"),
-        # Backend du magasin vectoriel (abstraction prod). 'chroma' (embarqué) par
-        # défaut ; 'qdrant' = 2e adaptateur (client-serveur, scalable) derrière la
-        # même interface — bascule par config sans toucher au pipeline.
-        "VECTOR_STORE_BACKEND": os.environ.get("VECTOR_STORE_BACKEND", "chroma").strip().lower(),
-        # Emplacement Qdrant : ':memory:' (éphémère, tests), un chemin local
-        # (mono-process), ou une URL 'http://host:6333' (serveur, multi-process prod).
-        "QDRANT_LOCATION": os.environ.get("QDRANT_LOCATION", ":memory:").strip(),
     }
     
-    # ───────────────────── MESSAGES ───────────────────
+    # --------------------- MESSAGES -------------------
     messages_config = {
         "OUT_OF_SCOPE_MESSAGE": os.environ.get(
             "OUT_OF_SCOPE_MESSAGE",
-            "Je n'ai pas trouvé de passage pertinent dans le(s) document(s) sélectionné(s) pour répondre à cette "
-            "question. Le terme recherché n'y figure peut-être pas — vérifiez le périmètre documentaire, "
-            "ou recherchez-le directement dans Documents → Exploration."
+            "Je n'ai pas trouvé d'information sur ce sujet dans vos documents. "
+            "Essayez de reformuler la question, ou choisissez d'autres documents à interroger."
         ),
     }
     
-    # ───────────────────── MERGE ALL ───────────────────
+    # --------------------- MERGE ALL -------------------
     full_config = {
         **paths_config,
         **db_config,
@@ -409,7 +394,6 @@ CROSS_ENCODER_LOCAL_PATH = CONFIG["CROSS_ENCODER_LOCAL_PATH"]
 CE_DEVICE = CONFIG["CE_DEVICE"]
 CE_RELEVANCE_THRESHOLD = CONFIG["CE_RELEVANCE_THRESHOLD"]
 
-GRAPH_RAG_ENABLED = CONFIG["GRAPH_RAG_ENABLED"]
 NUM_CHUNKS = CONFIG["NUM_CHUNKS"]
 RRF_K = CONFIG["RRF_K"]
 WEIGHT_SEMANTIC = CONFIG["WEIGHT_SEMANTIC"]
@@ -423,7 +407,6 @@ AUTO_QUESTIONS = CONFIG["AUTO_QUESTIONS"]
 ENHANCEMENT_MODEL = CONFIG["ENHANCEMENT_MODEL"]
 ENHANCE_MAX_WORKERS = CONFIG["ENHANCE_MAX_WORKERS"]
 ENHANCE_COMBINED = CONFIG["ENHANCE_COMBINED"]
-GRAPH_USE_LLM_RELATIONS = CONFIG["GRAPH_USE_LLM_RELATIONS"]
 CHUNKING_MODE = CONFIG["CHUNKING_MODE"]
 RAPTOR_SUMMARIES = CONFIG["RAPTOR_SUMMARIES"]
 RAPTOR_MIN_CHUNKS = CONFIG["RAPTOR_MIN_CHUNKS"]
@@ -438,8 +421,6 @@ PARENT_CHILD_MAX_CHARS = CONFIG["PARENT_CHILD_MAX_CHARS"]
 NUM_CHUNKS_PARENT_CHILD = CONFIG["NUM_CHUNKS_PARENT_CHILD"]
 
 COLLECTION_NAME = CONFIG["COLLECTION_NAME"]
-VECTOR_STORE_BACKEND = CONFIG["VECTOR_STORE_BACKEND"]
-QDRANT_LOCATION = CONFIG["QDRANT_LOCATION"]
 
 OUT_OF_SCOPE_MESSAGE = CONFIG["OUT_OF_SCOPE_MESSAGE"]
 NUM_GPUS = CONFIG["NUM_GPUS"]
@@ -450,7 +431,7 @@ LOG_LEVEL = CONFIG["LOG_LEVEL"]
 try:
     from utils.logging_config import setup_logging
     setup_logging(LOG_LEVEL)
-except Exception:  # pragma: no cover — le logging ne doit jamais bloquer le démarrage
+except Exception:  # pragma: no cover - le logging ne doit jamais bloquer le démarrage
     pass
 
 

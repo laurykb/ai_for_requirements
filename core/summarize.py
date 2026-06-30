@@ -16,7 +16,7 @@ from utils.logging_config import get_logger
 
 logger = get_logger("rag.summarize")
 
-# Garde-fous fenêtre de contexte (generate = num_ctx 16k ≈ 50-60k chars).
+# Garde-fous fenêtre de contexte (generate = num_ctx 16k ~ 50-60k chars).
 _MAX_SECTION_SUMMARIES = 50
 _MAX_FALLBACK_CHUNKS = 60
 _MAX_MATERIAL_CHARS = 24000
@@ -33,7 +33,7 @@ _SUMMARY_PROMPT = """[RÔLE] Tu produis le RÉSUMÉ d'un document technique.
 - Factuel, neutre, concis. Conserve les identifiants/niveaux/valeurs exacts (ex: EAL4, ALC_FLR.3).
 - Si le matériau est insuffisant pour résumer, dis-le clairement.
 
-[MATÉRIAU — {n} élément(s) du document « {source} »]
+[MATÉRIAU - {n} élément(s) du document « {source} »]
 {material}
 
 [RÉSUMÉ]"""

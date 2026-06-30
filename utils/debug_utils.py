@@ -6,7 +6,7 @@ from typing import Dict, Any, List
 def _short(txt: str, n: int = 120) -> str:
     """Tronque un texte en une seule ligne."""
     t = (txt or "").replace("\n", " ")
-    return t[:n] + ("…" if len(t) > n else "")
+    return t[:n] + ("..." if len(t) > n else "")
 
 
 def _format_value(value):

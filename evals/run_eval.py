@@ -1,13 +1,13 @@
 """
-Harnais d'évaluation du RAG — exécutable.
+Harnais d'évaluation du RAG - exécutable.
 
 Charge un jeu de Q/R doré, lance le pipeline, calcule les métriques et compare
 au run précédent (non-régression). S'appuie sur core/evaluation.py.
 
 Deux modes :
-  • retrieval : retrieval seul (rapide, sans génération) → métriques de RECHERCHE
+  - retrieval : retrieval seul (rapide, sans génération) -> métriques de RECHERCHE
                 (hit@k mots-clés, rappel/précision du contexte).
-  • full      : pipeline complet → métriques de RÉPONSE (fidélité, pertinence,
+  - full      : pipeline complet -> métriques de RÉPONSE (fidélité, pertinence,
                 exact match, F1) en plus des métriques de recherche.
 
 Usage (depuis la racine du projet) :
@@ -53,8 +53,7 @@ def _aggregate(results: list) -> dict:
     return agg
 
 
-def _evaluate_item(item: dict, mode: str, source_filter: str, use_judge: bool, judge,
-                   rewrite_enabled: bool = True, graph_rag_enabled: bool = True) -> dict:
+def _evaluate_item(item: dict, mode: str, source_filter: str, use_judge: bool, judge) -> dict:
     from core.ask import process_query, retrieve_only
     from core.evaluation import (
         evaluate_single, keyword_hit_rate, context_recall, context_precision,
@@ -67,9 +66,7 @@ def _evaluate_item(item: dict, mode: str, source_filter: str, use_judge: bool, j
     t0 = time.time()
     try:
         if mode == "retrieval":
-            _q_main, chunks = retrieve_only(question, source_filter=source_filter,
-                                            rewrite_enabled=rewrite_enabled,
-                                            graph_rag_enabled=graph_rag_enabled)
+            _q_main, chunks = retrieve_only(question, source_filter=source_filter)
             chunks = chunks or []
             metrics = {
                 "question": question,
@@ -110,12 +107,12 @@ def _fmt(v) -> str:
 
 def _print_report(dataset_name: str, mode: str, results: list, agg: dict):
     print("\n" + "=" * 78)
-    print(f"  ÉVALUATION RAG — {dataset_name}  [mode={mode}]")
+    print(f"  ÉVALUATION RAG - {dataset_name}  [mode={mode}]")
     print("=" * 78)
     for i, r in enumerate(results, 1):
         q = (r.get("question") or "")[:54]
         if r.get("status") != "ok":
-            print(f"{i:2}. ❌ {q}  →  {r.get('status')}")
+            print(f"{i:2}.  {q}  ->  {r.get('status')}")
             continue
         hit = _fmt(r.get("keyword_hit_rate"))
         rec = _fmt(r.get("context_recall"))
@@ -133,7 +130,7 @@ def _print_report(dataset_name: str, mode: str, results: list, agg: dict):
 
 def _print_regression(previous: dict, agg: dict):
     if not previous:
-        print("\n[non-régression] Aucun run précédent en base — référence établie par ce run.")
+        print("\n[non-régression] Aucun run précédent en base - référence établie par ce run.")
         return
     prev_agg = previous.get("aggregate", {}) or {}
     print(f"\n[non-régression] vs run précédent « {previous.get('run_name')} » "
@@ -147,13 +144,13 @@ def _print_regression(previous: dict, agg: dict):
         if abs(delta) < 1e-6:
             arrow = "="
         elif k in ("latency_s", "num_chunks_retrieved"):
-            arrow = "▲" if delta > 0 else "▼"
+            arrow = "^" if delta > 0 else "v"
         else:
-            arrow = "▲" if delta > 0 else "▼"
+            arrow = "^" if delta > 0 else "v"
         flag = ""
         if k not in ("latency_s", "num_chunks_retrieved"):
-            flag = "  ⚠ régression" if delta < -0.02 else ("  ✓ amélioration" if delta > 0.02 else "")
-        print(f"    {k:<22} {prev:7.3f} → {cur:7.3f}  ({delta:+.3f}) {arrow}{flag}")
+            flag = "   régression" if delta < -0.02 else ("   amélioration" if delta > 0.02 else "")
+        print(f"    {k:<22} {prev:7.3f} -> {cur:7.3f}  ({delta:+.3f}) {arrow}{flag}")
 
 
 def main():
@@ -165,10 +162,6 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="N'évalue que les N premières questions (0 = toutes).")
     parser.add_argument("--source-filter", default=None, help="Restreint le retrieval à un document source.")
     parser.add_argument("--no-save", action="store_true", help="Ne sauvegarde pas le run dans MongoDB.")
-    parser.add_argument("--no-rewrite", action="store_true",
-                        help="Désactive la réécriture LLM (retrieval déterministe — pour A/B).")
-    parser.add_argument("--no-graph", action="store_true",
-                        help="Désactive GraphRAG (pour mesurer l'apport du graphe).")
     parser.add_argument("--name", default=None, help="Nom du run (défaut : horodatage).")
     args = parser.parse_args()
 
@@ -203,9 +196,7 @@ def main():
     results = []
     for i, item in enumerate(items, 1):
         logger.info("  [%d/%d] %s", i, len(items), (item.get("question") or "")[:60])
-        results.append(_evaluate_item(item, args.mode, source_filter, use_judge, judge,
-                                      rewrite_enabled=not args.no_rewrite,
-                                      graph_rag_enabled=not args.no_graph))
+        results.append(_evaluate_item(item, args.mode, source_filter, use_judge, judge))
 
     agg = _aggregate(results)
     _print_report(data.get("dataset", args.dataset), args.mode, results, agg)
@@ -228,7 +219,7 @@ def main():
         for k in ("keyword_hit_rate", "faithfulness", "answer_relevance"):
             cur, prev = agg.get(k), prev_agg.get(k)
             if cur is not None and prev is not None and cur - prev < -0.05:
-                print(f"\n[CI] Régression nette sur {k} ({prev:.3f} → {cur:.3f}).")
+                print(f"\n[CI] Régression nette sur {k} ({prev:.3f} -> {cur:.3f}).")
                 return 1
     return 0
 

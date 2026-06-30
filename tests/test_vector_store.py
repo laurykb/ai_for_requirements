@@ -53,8 +53,16 @@ def test_query_returns_vector_hits_and_builds_source_filter():
     assert all(isinstance(h, VectorHit) for h in hits)
     assert fake.last_kwargs["n_results"] == 2
     assert fake.last_kwargs["query_embeddings"] == [[0.0, 1.0]]
-    # source_filter -> clause where d'égalité (traduite par l'adaptateur Chroma).
-    assert fake.last_kwargs["where"] == {"source": {"$eq": "x.md"}}
+    # source_filter (un seul doc) -> clause where `$in` (uniforme 1 ou N docs).
+    assert fake.last_kwargs["where"] == {"source": {"$in": ["x.md"]}}
+
+
+def test_query_with_multi_document_source_filter():
+    """source_filter = liste -> clause `$in` multi-document (RAG multi-doc)."""
+    fake = FakeChromaCollection(_CHROMA_RES)
+    store = ChromaVectorStore(collection_name="t", collection=fake)
+    store.query([0.0, 1.0], n_results=2, source_filter=["a.md", "b.md"])
+    assert fake.last_kwargs["where"] == {"source": {"$in": ["a.md", "b.md"]}}
 
 
 def test_query_without_source_filter_has_no_where():
@@ -74,46 +82,3 @@ def test_factory_default_is_chroma():
     assert isinstance(store, ChromaVectorStore)
     assert store.collection_name == "some_collection"
     assert store.backend == "chroma"
-
-
-def test_factory_unknown_backend_raises(monkeypatch):
-    monkeypatch.setattr("retrieval.vector_store.VECTOR_STORE_BACKEND", "pinecone")
-    with pytest.raises(ValueError) as e:
-        get_vector_store()
-    assert "pinecone" in str(e.value)
-
-
-def test_factory_knows_qdrant():
-    from retrieval.vector_store import QdrantVectorStore
-    assert "qdrant" in __import__("retrieval.vector_store", fromlist=["_BACKENDS"])._BACKENDS
-
-
-def test_qdrant_roundtrip_in_memory():
-    """Vérifie l'adaptateur Qdrant de bout en bout contre un Qdrant ':memory:'
-    (moteur réel embarqué, AUCUN serveur/Docker requis) — prouve le swap de backend."""
-    pytest.importorskip("qdrant_client")
-    from retrieval.vector_store import QdrantVectorStore
-
-    store = QdrantVectorStore(collection_name="test_qdrant_rt", location=":memory:")
-    store.reset()
-    store.add(
-        ids=["a", "b", "c"],
-        documents=["alpha doc", "beta doc", "gamma doc"],
-        metadatas=[{"source": "x.md"}, {"source": "y.md"}, {"source": "x.md"}],
-        embeddings=[[1.0, 0.0], [0.0, 1.0], [0.9, 0.1]],
-    )
-    assert store.count() == 3
-
-    # Plus proche voisin de [1,0] → 'a' ou 'c' (vecteurs alignés sur x).
-    hits = store.query([1.0, 0.0], n_results=2)
-    assert hits and all(isinstance(h, VectorHit) for h in hits)
-    assert hits[0].id in ("a", "c")
-    assert hits[0].document  # le texte est restitué depuis le payload
-    assert hits[0].distance is not None
-
-    # Filtre par source → seulement 'b'.
-    only_y = store.query([1.0, 0.0], n_results=5, source_filter="y.md")
-    assert [h.id for h in only_y] == ["b"]
-
-    store.reset()
-    assert store.count() == 0

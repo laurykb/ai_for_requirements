@@ -1,4 +1,4 @@
-"""Pipeline de retrieval hybride : semantic + BM25 + GraphRAG."""
+"""Pipeline de retrieval hybride : sémantique + BM25, fusion RRF, rerank, parent-child."""
 
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -7,7 +7,6 @@ from retrieval.semantic_search import run_semantic_for_query
 from retrieval.keyword_bm25 import run_bm25_for_query
 from retrieval.rrf import fuse_with_rrf
 from retrieval.cross_encoder import rerank_cross_encoder
-from retrieval.graph_retrieve import graph_retrieve_to_lookup
 from retrieval.parent_child import expand_to_parent
 from utils.debug_utils import print_simple_results
 from utils.logging_config import get_logger
@@ -27,9 +26,9 @@ from env_config import (
 logger = get_logger("rag.retrieval")
 
 
-def _run_parallel_retrievers(collection, query, bm25_tuple, topk_chunks, entity_graph, source_filter):
-    """Lance semantic, BM25 et graph retrieval en parallèle."""
-    with ThreadPoolExecutor(max_workers=3) as executor:
+def _run_parallel_retrievers(collection, query, bm25_tuple, topk_chunks, source_filter):
+    """Lance les recherches sémantique et BM25 en parallèle."""
+    with ThreadPoolExecutor(max_workers=2) as executor:
         fut_sem = executor.submit(
             run_semantic_for_query,
             collection,
@@ -44,20 +43,11 @@ def _run_parallel_retrievers(collection, query, bm25_tuple, topk_chunks, entity_
             topn=topk_chunks,
             source_filter=source_filter,
         ) if bm25_tuple else None
-        fut_graph = executor.submit(
-            graph_retrieve_to_lookup,
-            entity_graph,
-            query,
-            chunks_collection=None,
-            max_hops=2,
-            max_chunks=topk_chunks,
-        ) if entity_graph is not None else None
 
         sem_ids, sem_lookup = fut_sem.result()
         bm_ids, bm_lookup = fut_bm25.result() if fut_bm25 else ([], {})
-        graph_ids, graph_lookup = fut_graph.result() if fut_graph else ([], {})
 
-    return sem_ids, sem_lookup, bm_ids, bm_lookup, graph_ids, graph_lookup
+    return sem_ids, sem_lookup, bm_ids, bm_lookup
 
 
 def _maybe_apply_cross_encoder(query, fused, rerank_on, topk_chunks, debug):
@@ -88,7 +78,6 @@ def hybrid_retrieve(
     debug=True,
     weight_semantic=WEIGHT_SEMANTIC,
     weight_bm25=WEIGHT_BM25,
-    entity_graph=None,
     source_filter: str = None,
     parent_child_on: bool = None,
 ):
@@ -100,21 +89,19 @@ def hybrid_retrieve(
     _t_start = time.perf_counter()
 
     with span("parallel_search") as _sp:
-        sem_ids, sem_lookup, bm_ids, bm_lookup, graph_ids, graph_lookup = _run_parallel_retrievers(
+        sem_ids, sem_lookup, bm_ids, bm_lookup = _run_parallel_retrievers(
             collection=collection,
             query=query,
             bm25_tuple=bm25_tuple,
             topk_chunks=topk_chunks,
-            entity_graph=entity_graph,
             source_filter=source_filter,
         )
     if _sp is not None:
         _sp.set("sem", len(sem_ids))
         _sp.set("bm25", len(bm_ids))
-        _sp.set("graph", len(graph_ids))
     _t_retrieval = time.perf_counter()
-    logger.debug("parallel search : %.0fms  (sem=%d bm25=%d graph=%d)",
-                 (_t_retrieval - _t_start) * 1000, len(sem_ids), len(bm_ids), len(graph_ids))
+    logger.debug("parallel search : %.0fms  (sem=%d bm25=%d)",
+                 (_t_retrieval - _t_start) * 1000, len(sem_ids), len(bm_ids))
 
     # 1) Post-processing sémantique
     for i in sem_ids:
@@ -127,26 +114,12 @@ def hybrid_retrieve(
     if debug and bm_ids:
         print_simple_results("BM25 results", [bm_lookup.get(i, {}) for i in bm_ids], max_items=topk_chunks)
 
-    # 3) Debug GraphRAG
-    if debug and entity_graph is not None:
-        if graph_ids:
-            exclusive = [gid for gid in graph_ids if gid not in sem_ids and gid not in bm_ids]
-            logger.debug("[graph] %d chunks total, %d exclusifs (non trouvés par sémantique/BM25)",
-                         len(graph_ids), len(exclusive))
-            print_simple_results("GraphRAG results", [graph_lookup.get(i, {}) for i in graph_ids], max_items=topk_chunks)
-        else:
-            logger.debug("[graph] Aucun chunk trouvé via le graphe")
-
-    if not sem_ids and not bm_ids and not graph_ids:
+    if not sem_ids and not bm_ids:
         return [], None
 
-    # 4) Fusion RRF — le graphe est fusionné comme source supplémentaire côté sémantique
-    #    (les chunks graph sont des "bonus" qui enrichissent le pool sémantique)
-    all_sem_ids = sem_ids + [gid for gid in graph_ids if gid not in sem_ids]
-    all_sem_lookup = {**sem_lookup, **graph_lookup}
-
+    # 3) Fusion RRF (sémantique + BM25)
     fused = fuse_with_rrf(
-        lists_a=[all_sem_ids], lookups_a=[all_sem_lookup],
+        lists_a=[sem_ids], lookups_a=[sem_lookup],
         lists_b=[bm_ids] if bm_ids else None, lookups_b=[bm_lookup] if bm_lookup else None,
         rrf_k=rrf_k, topk_final=topk_chunks,
         weight_semantic=weight_semantic, weight_bm25=weight_bm25
@@ -166,7 +139,7 @@ def hybrid_retrieve(
         _rr.set("max_ce", round(max_ce_score, 3))
 
     # 6) Parent-Child : remplace le contenu enfant par la section parente complète
-    # parent_child_on=None → utilise la valeur de config ; True/False → override
+    # parent_child_on=None -> utilise la valeur de config ; True/False -> override
     _pc_active = PARENT_CHILD_ENABLED if parent_child_on is None else parent_child_on
     if _pc_active and fused:
         fused = expand_to_parent(fused)
@@ -175,5 +148,5 @@ def hybrid_retrieve(
             logger.debug("[parent_child] %d/%d chunks étendus au contexte parent", expanded, len(fused))
 
     _t_end = time.perf_counter()
-    logger.debug("TOTAL pipeline retrieval : %.0fms → %d chunks", (_t_end - _t_start) * 1000, len(fused))
+    logger.debug("TOTAL pipeline retrieval : %.0fms -> %d chunks", (_t_end - _t_start) * 1000, len(fused))
     return fused, max_ce_score

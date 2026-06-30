@@ -10,11 +10,10 @@ from indexing.keyword_index import build_bm25_index, save_bm25_to_mongo
 from env_config import (COLLECTION_NAME, AUTO_KEYWORDS, AUTO_QUESTIONS,
                     ENHANCEMENT_MODEL, CHUNKING_MODE,
                     RAPTOR_SUMMARIES, RAPTOR_MIN_CHUNKS, RAPTOR_MAX_INPUT_CHUNKS,
-                    VOCAB_SAVE_DIR, GRAPH_USE_LLM_RELATIONS)
+                    VOCAB_SAVE_DIR)
 
 from nlp.vocab_builder import save_vocab, build_vocab
 from nlp.chunk_enhancer import enhance_chunks, build_raptor_summaries
-from nlp.graph_builder import build_entity_graph, save_graph_to_mongo, graph_stats
 from indexing.store_mongo import save_chunks_to_mongo
 from utils.logging_config import get_logger
 
@@ -61,7 +60,6 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
                     num_keywords: int = None, num_questions: int = None,
                     enhancement_model: str = None, chunking_mode: str = None,
                     raptor_summaries: bool = None,
-                    graph_llm_relations: bool = None,
                     progress_callback=None):
     """
     Pipeline d'ingestion complet :
@@ -148,8 +146,8 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
             }
             logger.info("Enrichissement terminé : %d chunks enrichis", stats["enhancement"]["chunks_enhanced"])
             if chunks_with_table_desc:
-                logger.info("  → %d descriptions de tableaux générées", chunks_with_table_desc)
-            logger.info("  → %d chunks avec entités nommées", chunks_with_entities)
+                logger.info("  -> %d descriptions de tableaux générées", chunks_with_table_desc)
+            logger.info("  -> %d chunks avec entités nommées", chunks_with_entities)
         else:
             stats["enhancement"] = {"num_keywords": 0, "num_questions": 0, "chunks_enhanced": 0}
             # S'assurer que les métadonnées existent même sans enrichissement
@@ -194,7 +192,7 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
             }
             # Ajouter les résumés à la liste des documents
             docs.extend(summary_docs)
-            logger.info("RAPTOR : %d résumés ajoutés → %d docs total", len(summary_docs), len(docs))
+            logger.info("RAPTOR : %d résumés ajoutés -> %d docs total", len(summary_docs), len(docs))
         else:
             stats["raptor"] = {"enabled": False, "summaries_generated": 0}
         
@@ -234,32 +232,13 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         bm25_tuple = build_bm25_index(docs)
         # Sauvegarde MongoDB (multi-document)
         save_bm25_to_mongo(bm25_tuple, source_doc=Path(md_path).name)
-        # Sauvegarde .pkl (fallback global — conservé pour compatibilité)
+        # Sauvegarde .pkl (fallback global - conservé pour compatibilité)
         _bm25_pkl = Path(__file__).resolve().parent.parent / "data" / "bm25_index.pkl"
         _bm25_pkl.parent.mkdir(parents=True, exist_ok=True)
         with open(_bm25_pkl, "wb") as f:
             pickle.dump(bm25_tuple, f)
         logger.info("Index BM25 sauvegardé (MongoDB + pkl)")
 
-        # 9) Étape 8 : Construction du graphe d'entités (GraphRAG)
-        _notify_progress(progress_callback, "Construction du graphe d'entites (GraphRAG)...", 92)
-
-        def _graph_progress(current, total):
-            pct = 92 + int(6 * current / max(total, 1))
-            _notify_progress(progress_callback, f"GraphRAG {current}/{total}...", pct)
-
-        _use_llm_rel = GRAPH_USE_LLM_RELATIONS if graph_llm_relations is None else graph_llm_relations
-        entity_graph = build_entity_graph(
-            docs,
-            use_llm_relations=_use_llm_rel,
-            model=enhancement_model,
-            progress_callback=_graph_progress
-        )
-        save_graph_to_mongo(entity_graph, source_doc=Path(md_path).name)
-        g_stats = graph_stats(entity_graph)
-        stats["graph"] = g_stats
-        logger.info("GraphRAG : %d entités, %d relations", g_stats["nodes"], g_stats["edges"])
-        
         _notify_progress(progress_callback, "Termine", 100)
         
         stats["status"] = "success"

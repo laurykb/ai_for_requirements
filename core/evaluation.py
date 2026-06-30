@@ -1,19 +1,19 @@
 # core/evaluation.py
 """
-Pipeline d'évaluation automatique du RAG — inspiré de RAGAS, 100% local (Ollama).
+Pipeline d'évaluation automatique du RAG - inspiré de RAGAS, 100% local (Ollama).
 
 Deux niveaux de métriques :
-────────────────────────────────────────────────────────────────────────────────
-NIVEAU 1 — Heuristiques rapides (sans LLM, instantanées) :
-  • exact_match        : la référence est-elle contenue dans la réponse ?
-  • f1_token           : overlap token SQuAD entre réponse générée et référence
-  • context_recall     : les chunks couvrent-ils les tokens de la référence ?
-  • context_precision  : les topK chunks sont-ils pertinents (F1 > seuil) ?
+--------------------------------------------------------------------------------
+NIVEAU 1 - Heuristiques rapides (sans LLM, instantanées) :
+  - exact_match        : la référence est-elle contenue dans la réponse ?
+  - f1_token           : overlap token SQuAD entre réponse générée et référence
+  - context_recall     : les chunks couvrent-ils les tokens de la référence ?
+  - context_precision  : les topK chunks sont-ils pertinents (F1 > seuil) ?
 
-NIVEAU 2 — LLM-as-a-judge local (Ollama, comme RAGAS) :
-  • faithfulness_llm       : la réponse ne contient-elle que ce qui est dans le contexte ?
-  • answer_relevance_llm   : la réponse répond-elle à la question ?
-  • context_relevance_llm  : les chunks récupérés sont-ils pertinents à la question ?
+NIVEAU 2 - LLM-as-a-judge local (Ollama, comme RAGAS) :
+  - faithfulness_llm       : la réponse ne contient-elle que ce qui est dans le contexte ?
+  - answer_relevance_llm   : la réponse répond-elle à la question ?
+  - context_relevance_llm  : les chunks récupérés sont-ils pertinents à la question ?
 
 Stratégie d'évaluation :
   On évalue les réponses BRUTES du LLM (pas besoin de référence pour les métriques LLM).
@@ -33,9 +33,9 @@ from utils.logging_config import get_logger
 logger = get_logger("rag.eval")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  Helpers tokenisation
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower().strip())
@@ -44,9 +44,9 @@ def _tokens(text: str) -> set:
     return set(re.findall(r"\w+", _normalize(text), flags=re.UNICODE))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  NIVEAU 1 — Métriques heuristiques (sans LLM)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  NIVEAU 1 - Métriques heuristiques (sans LLM)
+# -----------------------------------------------------------------------------
 
 def exact_match(generated: str, reference: str) -> float:
     return float(_normalize(reference) in _normalize(generated))
@@ -103,12 +103,12 @@ def keyword_hit_rate(chunks: list, expected_keywords: list, topk: int = 10) -> O
     return hits / len(expected_keywords)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  NIVEAU 2 — LLM-as-a-judge local (Ollama, style RAGAS)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  NIVEAU 2 - LLM-as-a-judge local (Ollama, style RAGAS)
+# -----------------------------------------------------------------------------
 
 def _get_judge_llm(model: str = None):
-    """LLM-as-judge (rôle 'judge' — voir core.model_router). `model` force un modèle dédié."""
+    """LLM-as-judge (rôle 'judge' - voir core.model_router). `model` force un modèle dédié."""
     from core.model_router import build_llm
     return build_llm("judge", model=model)
 
@@ -208,12 +208,12 @@ Score de pertinence du contexte :"""
     return _ask_judge(llm, prompt)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Vérificateur fusionné — multi-axes + preuves EN UN SEUL appel LLM
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  Vérificateur fusionné - multi-axes + preuves EN UN SEUL appel LLM
+# -----------------------------------------------------------------------------
 #
 # Les 3 métriques LLM ci-dessus font 3 appels séparés (lent sur petit GPU). Le
-# vérificateur les fusionne en UN appel (≈3× moins de latence) et, à la manière d'un
+# vérificateur les fusionne en UN appel (~3x moins de latence) et, à la manière d'un
 # agent évaluateur, CITE les extraits problématiques (preuves) au lieu d'un score nu.
 # Utilisé en temps réel (UI à la demande, Self-RAG) ; le harnais batch garde les 3
 # appels séparés (rigueur du benchmark) via evaluate_single.
@@ -236,7 +236,7 @@ Note 3 axes, chacun entre 0.0 et 1.0 :
 - faithfulness : la réponse est-elle entièrement fondée sur les passages, sans rien inventer ?
 - answer_relevance : répond-elle directement et complètement à la question ?
 - context_relevance : les passages contiennent-ils de quoi répondre ?
-Pour CHAQUE axe < 1.0, ajoute dans "issues" un extrait COURT (≤ 20 mots) de la réponse qui pose
+Pour CHAQUE axe < 1.0, ajoute dans "issues" un extrait COURT (<= 20 mots) de la réponse qui pose
 problème, ou la nature du manque. N'invente pas d'extrait.
 
 Réponds UNIQUEMENT en JSON valide, sans texte autour :
@@ -277,8 +277,8 @@ def _parse_verify_json(raw: str) -> dict:
 
 
 def verify_answer(question: str, generated: str, chunks: list, llm=None) -> dict:
-    """Vérificateur fusionné : UN appel LLM-as-judge → les 3 axes + des « issues » qui citent
-    les extraits problématiques. ~3× moins de latence que les 3 appels séparés, et plus
+    """Vérificateur fusionné : UN appel LLM-as-judge -> les 3 axes + des « issues » qui citent
+    les extraits problématiques. ~3x moins de latence que les 3 appels séparés, et plus
     actionnable. Retourne {faithfulness, answer_relevance, context_relevance, issues:[...]}.
     Le LLM (rôle 'judge') est injectable pour les tests / la réutilisation batch."""
     base = {ax: 0.0 for ax in _VERIFY_AXES}
@@ -297,12 +297,12 @@ def verify_answer(question: str, generated: str, chunks: list, llm=None) -> dict
     return _parse_verify_json(raw)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Correspondance clé → label français (pour l'affichage UI)
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  Correspondance clé -> label français (pour l'affichage UI)
+# -----------------------------------------------------------------------------
 
 METRIC_LABELS_FR = {
-    "faithfulness":       "Fidélité (réponse ↔ contexte)",
+    "faithfulness":       "Fidélité (réponse <-> contexte)",
     "answer_relevance":   "Pertinence de la réponse",
     "context_relevance":  "Pertinence du contexte récupéré",
     "exact_match":        "Correspondance exacte",
@@ -372,9 +372,9 @@ def evaluate_single(
     return metrics
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  Pipeline d'évaluation batch
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def run_evaluation_batch(
     qa_pairs: list,
@@ -462,9 +462,9 @@ def aggregate_metrics(results: list) -> dict:
     return agg
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  MongoDB persistence
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def save_eval_run_to_mongo(results: list, run_name: str,
                            db_name: str = "ragdb",

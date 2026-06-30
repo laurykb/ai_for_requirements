@@ -30,7 +30,7 @@ def _ok_tool(answer="L'EAL est EAL2+ [1].", sources=None, hors_scope=False):
     return _runner
 
 
-# ── parsing ─────────────────────────────────────────────────────────────────
+# -- parsing -----------------------------------------------------------------
 def test_parse_action_input_json():
     assert _parse_action_input('{"query": "EAL de la TOE"}') == {"query": "EAL de la TOE"}
 
@@ -45,7 +45,7 @@ def test_extract_json_object_handles_nesting_and_garbage():
     assert _extract_json_object("pas de json ici") is None
 
 
-# ── boucle nominale ───────────────────────────────────────────────────────────
+# -- boucle nominale -----------------------------------------------------------
 def test_single_tool_call_then_final_answer():
     llm = ScriptedLLM([
         'Pensée: je dois chercher.\nAction: rag_search\nAction Input: {"query": "EAL de la TOE"}',
@@ -90,18 +90,18 @@ def test_sources_are_deduplicated_across_calls():
     ])
     res = ReActAgent(llm=llm, tool_runner=runner, max_iterations=5).run("question composée")
     assert res["tool_calls"] == 2
-    # 3 sources renvoyées au total mais (a.md,1) dédupliquée → 2 uniques.
+    # 3 sources renvoyées au total mais (a.md,1) dédupliquée -> 2 uniques.
     assert len(res["sources"]) == 2
 
 
-# ── robustesse ────────────────────────────────────────────────────────────────
+# -- robustesse ----------------------------------------------------------------
 def test_max_iterations_guardrail_falls_back_to_best_tool_answer():
     # LLM qui n'aboutit jamais (boucle infinie sans 'Réponse finale').
     llm = ScriptedLLM(['Action: rag_search\nAction Input: {"query": "x"}'])
     res = ReActAgent(llm=llm, tool_runner=_ok_tool(answer="meilleure trouvaille [1]"),
                      max_iterations=3).run("question")
     assert res["stopped_reason"] == "max_iterations"
-    # 3 tours mais requête identique → la dédup n'exécute l'outil qu'une fois.
+    # 3 tours mais requête identique -> la dédup n'exécute l'outil qu'une fois.
     assert res["tool_calls"] == 1
     assert res["answer"] == "meilleure trouvaille [1]"  # repli sur la meilleure obs
 
@@ -118,7 +118,7 @@ def test_repeated_identical_call_breaks_early():
                 "num_chunks": 1, "hors_scope": False}
     llm = ScriptedLLM([
         'Action: rag_search\nAction Input: {"query": "même question"}',
-        'Action: rag_search\nAction Input: {"query": "même question"}',  # doublon → break
+        'Action: rag_search\nAction Input: {"query": "même question"}',  # doublon -> break
         "Réponse finale: jamais atteinte.",
     ])
     res = ReActAgent(llm=llm, tool_runner=counting_runner, max_iterations=5,
@@ -163,7 +163,7 @@ def test_empty_question_is_rejected():
 def test_retrieve_only_gathers_passages_then_synthesizes():
     # Mode retrieve-only : l'outil renvoie des PASSAGES (pas de génération) ;
     # l'agent les cumule, les numérote GLOBALEMENT [1..], puis une SYNTHÈSE finale
-    # unique produit la réponse ancrée. Synthétiseur injecté → 100 % hors-ligne.
+    # unique produit la réponse ancrée. Synthétiseur injecté -> 100 % hors-ligne.
     calls = {"n": 0}
     def passages_runner(name, args):
         assert args.get("mode") == "passages"          # l'agent force le mode passages
@@ -216,7 +216,7 @@ def test_retrieve_only_exposes_integral_chunks_for_ui():
                     "passages": [{"source": "a.md", "section": "S1", "page": 1, "text": "alpha"},
                                  {"source": "a.md", "section": "S2", "page": 2, "text": "beta"}],
                     "chunks": [c_alpha, c_beta]}
-        # 2e recherche : renvoie de nouveau c_alpha (même id) → doit être dédupliqué.
+        # 2e recherche : renvoie de nouveau c_alpha (même id) -> doit être dédupliqué.
         return {"ok": True, "mode": "passages", "num_chunks": 1, "hors_scope": False,
                 "passages": [{"source": "a.md", "section": "S1", "page": 1, "text": "alpha"}],
                 "chunks": [c_alpha]}
@@ -229,7 +229,7 @@ def test_retrieve_only_exposes_integral_chunks_for_ui():
                      synthesizer=lambda q, g: ("r [1]", []), max_iterations=5).run("q composée")
 
     chunks = res["chunks"]
-    assert [c["meta"]["id"] for c in chunks] == ["x1", "x2"]   # dédup par id (x1 vu 2×)
+    assert [c["meta"]["id"] for c in chunks] == ["x1", "x2"]   # dédup par id (x1 vu 2x)
     assert chunks[0]["doc"] == "A" * 1500                       # contenu INTÉGRAL préservé
     assert chunks[0]["meta"]["keywords_str"] == "k1"            # métadonnées enrichies conservées
 
@@ -275,7 +275,7 @@ def test_run_stream_empty_question():
 
 
 def test_retrieve_only_can_be_disabled():
-    # retrieve_only=False → l'agent n'injecte pas le mode passages (relais d'une réponse).
+    # retrieve_only=False -> l'agent n'injecte pas le mode passages (relais d'une réponse).
     def answer_runner(name, args):
         assert "mode" not in args
         return {"ok": True, "answer": "réponse complète [1]",

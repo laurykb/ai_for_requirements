@@ -27,17 +27,15 @@ def search_from_result(res):
     return out
 
 
-def run_bm25_for_query(bm25_tuple, query, topn=NUM_CHUNKS, source_filter: str = None):
-    """Lance une recherche BM25 sur le corpus complet ou filtré par source."""
+def run_bm25_for_query(bm25_tuple, query, topn=NUM_CHUNKS, source_filter=None):
+    """Lance une recherche BM25 sur le corpus complet ou filtré par source.
+
+    Le filtrage par `source_filter` est délégué à `bm25_search`, qui l'applique
+    sur les scores de l'index complet (alignement positions <-> ids préservé).
+    Indispensable sur l'index global multi-document : découper `ids` ici
+    désalignerait les positions et casserait le classement.
+    """
     bm25_index, ids, texts, metadatas = bm25_tuple
-    if source_filter:
-        filtered = [(i, t, m) for i, t, m in zip(ids, texts, metadatas) if m.get("source") == source_filter]
-        if filtered:
-            ids_f, texts_f, metas_f = zip(*filtered)
-            res = bm25_search(bm25_index, list(ids_f), list(texts_f), list(metas_f), query, topn=topn)
-        else:
-            return [], {}
-    else:
-        res = bm25_search(bm25_index, ids, texts, metadatas, query, topn=topn)
+    res = bm25_search(bm25_index, ids, texts, metadatas, query, topn=topn, source_filter=source_filter)
     return _ranked_ids_from_result(res), search_from_result(res)
 

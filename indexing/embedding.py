@@ -14,12 +14,12 @@ _INVALID_EMBED_ABORT_RATIO = 0.5
 
 def build_embeddings(docs):
     """
-    Génère les embeddings (vecteurs) pour une liste de documents langchain à l'aide du modèle OllamaEmbedding.
+    Génère les embeddings (vecteurs) pour une liste de Documents à l'aide du modèle OllamaEmbedding.
     
     Stratégie d'embedding (inspirée RAGFlow) :
     - Si le chunk a des questions générées (auto_questions), l'embedding est calculé
-      sur les questions plutôt que le contenu brut, car question↔question matching
-      est un signal de pertinence plus fort que contenu↔question.
+      sur les questions plutôt que le contenu brut, car question<->question matching
+      est un signal de pertinence plus fort que contenu<->question.
     - Sinon, fallback sur le contenu brut.
     
     Retourne les textes, les vecteurs, les métadonnées et les identifiants associés à chaque chunk.
@@ -41,7 +41,7 @@ def build_embeddings(docs):
 
     texts = [d.page_content.strip() for d in docs]
 
-    # Priorise les questions générées : meilleur signal pour le matching question↔question.
+    # Priorise les questions générées : meilleur signal pour le matching question<->question.
     texts_to_embed = []
     for d in docs:
         questions_str = d.metadata.get("questions_str", "")
@@ -59,15 +59,15 @@ def build_embeddings(docs):
         ratio = len(invalid_idx) / max(1, len(vecs))
         sample_ids = [docs[i].metadata.get("id", "<unknown>") for i in invalid_idx[:10]]
         if ratio > _INVALID_EMBED_ABORT_RATIO:
-            # Trop d'échecs → problème systémique, on abandonne sans rien indexer.
+            # Trop d'échecs -> problème systémique, on abandonne sans rien indexer.
             raise RuntimeError(
                 f"Embeddings invalides pour {len(invalid_idx)}/{len(vecs)} documents "
-                f"({int(ratio * 100)}%) — problème systémique probable (Ollama/modèle). "
+                f"({int(ratio * 100)}%) - problème systémique probable (Ollama/modèle). "
                 f"Exemples : {sample_ids}. Vérifiez le service Ollama et relancez l'ingestion."
             )
         # Sinon : on retire les quelques chunks en échec et on indexe le reste.
         logger.warning(
-            "%d/%d embeddings invalides — chunks ignorés (ex: %s)",
+            "%d/%d embeddings invalides - chunks ignorés (ex: %s)",
             len(invalid_idx), len(vecs), sample_ids,
         )
         keep = [i for i in range(len(vecs)) if i not in set(invalid_idx)]
@@ -99,8 +99,8 @@ def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_N
     Indexe (ids, textes, métadonnées, embeddings) dans le magasin vectoriel abstrait.
     Si clean_collection=True, vide la collection avant d'ajouter (évite les doublons).
 
-    Le nom historique `index_chroma` est conservé (appelé par l'ingestion) mais le
-    backend est désormais choisi par `VECTOR_STORE_BACKEND` (Chroma par défaut).
+    Le nom historique `index_chroma` est conservé (appelé par l'ingestion) ; il écrit
+    dans le magasin vectoriel ChromaDB via l'interface VectorStore.
 
     Args:
         ids (list[str]): Identifiants uniques des chunks

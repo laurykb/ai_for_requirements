@@ -1,6 +1,6 @@
 # nlp/ner_extractor.py
 """
-Étape 7 — Extraction d'entités nommées (NER).
+Étape 7 - Extraction d'entités nommées (NER).
 
 Combine :
 - spaCy NER (fr_core_news_sm) pour PER, ORG, LOC, MISC
@@ -21,7 +21,7 @@ from utils.logging_config import get_logger
 
 logger = get_logger("rag.ner")
 
-# ──────────────── Chargement spaCy (lazy, une seule fois) ────────────────
+# ---------------- Chargement spaCy (lazy, une seule fois) ----------------
 
 _nlp = None
 # spaCy n'est pas garanti thread-safe sur un même pipeline : on sérialise
@@ -36,7 +36,7 @@ def _get_spacy_model():
         import spacy
         try:
             _nlp = spacy.load("fr_core_news_sm", disable=["parser", "lemmatizer"])
-            # Désactiver parser/lemmatizer pour accélérer — on n'a besoin que du NER
+            # Désactiver parser/lemmatizer pour accélérer - on n'a besoin que du NER
             logger.info("[ner] Modèle spaCy fr_core_news_sm chargé")
         except OSError:
             logger.error("[ner] modèle fr_core_news_sm introuvable. "
@@ -45,7 +45,7 @@ def _get_spacy_model():
     return _nlp if _nlp else None
 
 
-# ──────────────── Regex pour entités techniques ────────────────
+# ---------------- Regex pour entités techniques ----------------
 
 # Normes et référentiels (CC, ANSSI, ISO, RFC, NIST, etc.)
 _RE_NORMS = re.compile(
@@ -68,7 +68,7 @@ _RE_NORMS = re.compile(
     re.IGNORECASE
 )
 
-# Acronymes en majuscules (3+ lettres) — typiques cybersec / IT
+# Acronymes en majuscules (3+ lettres) - typiques cybersec / IT
 _RE_ACRONYMS = re.compile(
     r"\b([A-Z][A-Z0-9]{2,}(?:[-/][A-Z0-9]+)*)\b"
 )
@@ -84,7 +84,7 @@ _RE_VERSIONS = re.compile(
     re.IGNORECASE
 )
 
-# ──────────────── Listes de stop-acronymes (faux positifs) ────────────────
+# ---------------- Listes de stop-acronymes (faux positifs) ----------------
 
 _STOP_ACRONYMS = {
     # Mots courants en majuscules qui ne sont pas des entités
@@ -94,7 +94,7 @@ _STOP_ACRONYMS = {
     # Marqueurs markdown
     "HTTP", "HTTPS", "HTML", "CSS", "PDF", "URL", "API",
 }
-# ──────────────── Extraction principale ────────────────
+# ---------------- Extraction principale ----------------
 
 def extract_entities(text: str, max_entities: int = 20) -> dict[str, list[str]]:
     """
@@ -122,7 +122,7 @@ def extract_entities(text: str, max_entities: int = 20) -> dict[str, list[str]]:
         "MISC": set(),
     }
 
-    # ── 1) spaCy NER ──
+    # -- 1) spaCy NER --
     nlp = _get_spacy_model()
     if nlp:
         # Limiter la taille pour éviter les ralentissements
@@ -164,7 +164,7 @@ def extract_entities(text: str, max_entities: int = 20) -> dict[str, list[str]]:
                     continue
                 entities["MISC"].add(entity_text)
 
-    # ── 2) Regex : normes techniques ──
+    # -- 2) Regex : normes techniques --
     for match in _RE_NORMS.finditer(text):
         norm = match.group(1).strip()
         if len(norm) >= 3:
@@ -172,7 +172,7 @@ def extract_entities(text: str, max_entities: int = 20) -> dict[str, list[str]]:
             if not any(w in norm.lower() for w in ("recommande", "considère", "définit")):
                 entities["NORM"].add(norm)
 
-    # ── 3) Regex : acronymes ──
+    # -- 3) Regex : acronymes --
     for match in _RE_ACRONYMS.finditer(text):
         acro = match.group(1)
         if acro not in _STOP_ACRONYMS and len(acro) >= 3:
@@ -180,16 +180,16 @@ def extract_entities(text: str, max_entities: int = 20) -> dict[str, list[str]]:
             if acro not in entities["NORM"] and acro not in entities["ORG"]:
                 entities["ACRO"].add(acro)
 
-    # ── 3b) Regex : identifiants CC avec underscores (FCS_CKM, FDP_ITC.1, etc.) ──
+    # -- 3b) Regex : identifiants CC avec underscores (FCS_CKM, FDP_ITC.1, etc.) --
     for match in _RE_CC_IDS.finditer(text):
         cc_id = match.group(1)
         entities["NORM"].add(cc_id)
 
-    # ── 4) Dédoublonner : si un acronyme est aussi dans MISC ou ORG, le retirer de ACRO ──
+    # -- 4) Dédoublonner : si un acronyme est aussi dans MISC ou ORG, le retirer de ACRO --
     for cat in ("ORG", "MISC", "NORM"):
         entities["ACRO"] -= entities[cat]
 
-    # ── 5) Construire le résultat final (trié, limité) ──
+    # -- 5) Construire le résultat final (trié, limité) --
     result = {}
     total = 0
     for cat in ("PER", "ORG", "LOC", "NORM", "ACRO", "MISC"):

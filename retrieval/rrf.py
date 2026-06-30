@@ -20,7 +20,7 @@ def normalize_scores(scores):
 def rrf(rank_lists, k=60):
     """
     Applique la Reciprocal Rank Fusion (RRF) sur plusieurs listes d'IDs classés.
-    Chaque ID reçoit un score basé sur la somme des inverses de son rang dans chaque liste :
+    Chaque ID reçoit un score basé sur la somme des inverses de son rang dans chaque liste :
         score = sum(1 / (k + rang))
     Plus k est grand, plus la fusion est lissée (les premiers rangs sont moins favorisés).
     Retourne une liste triée (id, score RRF décroissant).
@@ -86,7 +86,7 @@ def fuse_with_rrf(
             item["sim_norm"] = sim_norms[j]
             j += 1
 
-    # Rassemble toutes les listes d’IDs ordonnées pour RRF (semantic + bm25)
+    # Rassemble toutes les listes d'IDs ordonnées pour RRF (semantic + bm25)
     rank_lists = list(lists_a or [])
     if lists_b:
         rank_lists.extend(lists_b)

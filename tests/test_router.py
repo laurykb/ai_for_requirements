@@ -1,5 +1,5 @@
 """
-Tests unitaires du routeur de requêtes (core/router) — 100 % hors-ligne, déterministe.
+Tests unitaires du routeur de requêtes (core/router) - 100 % hors-ligne, déterministe.
 
 On vérifie que les questions complexes (comparaison, relationnel, multi-documents,
 multi-questions) partent vers l'agent, que les questions factuelles directes restent
@@ -12,7 +12,7 @@ def test_norm_strips_accents_and_case():
     assert _norm("Différence ÉVALuée") == "difference evaluee"
 
 
-# ── route_query → agent (complexité) ──────────────────────────────────────────
+# -- route_query -> agent (complexité) ------------------------------------------
 def test_comparison_routes_to_agent():
     d = route_query("Quelle est la différence entre EAL3 et EAL4 ?")
     assert d["mode"] == "agent"
@@ -36,7 +36,7 @@ def test_multi_questions_routes_to_agent():
     assert "multi_questions" in d["signals"]
 
 
-# ── route_query → rag (cas courant) ───────────────────────────────────────────
+# -- route_query -> rag (cas courant) -------------------------------------------
 def test_direct_factual_routes_to_rag():
     d = route_query("Quel est le niveau EAL de la TOE ?")
     assert d["mode"] == "rag"
@@ -48,7 +48,7 @@ def test_simple_lookup_routes_to_rag():
     assert d["mode"] == "rag"
 
 
-# ── should_verify ─────────────────────────────────────────────────────────────
+# -- should_verify -------------------------------------------------------------
 def test_high_stake_question_triggers_verification():
     assert should_verify("Quel niveau d'assurance EAL est visé ?")["verify"] is True
     assert should_verify("Quelle version exacte est certifiée ?")["verify"] is True

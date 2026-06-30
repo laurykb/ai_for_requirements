@@ -1,6 +1,6 @@
 # core/self_rag.py
 """
-Self-RAG — pipeline RAG avec auto-évaluation et retry.
+Self-RAG - pipeline RAG avec auto-évaluation et retry.
 
 Principe :
   1. Retrieval + génération classique (via ask._prepare_retrieval + llm_answer.answer)
@@ -14,9 +14,9 @@ Principe :
   4. On retourne la MEILLEURE réponse parmi les tentatives (score le plus élevé).
 
 Paramètres configurables via env_config (.env / .env.example) :
-  SELF_RAG_ENABLED    : bool  — active/désactive le Self-RAG (défaut : False)
-  SELF_RAG_THRESHOLD  : float — seuil de score moyen sous lequel on retente (défaut : 0.55)
-  SELF_RAG_MAX_RETRIES: int   — nombre maximum de tentatives supplémentaires (défaut : 1)
+  SELF_RAG_ENABLED    : bool  - active/désactive le Self-RAG (défaut : False)
+  SELF_RAG_THRESHOLD  : float - seuil de score moyen sous lequel on retente (défaut : 0.55)
+  SELF_RAG_MAX_RETRIES: int   - nombre maximum de tentatives supplémentaires (défaut : 1)
 
 Intégration :
   Utilisé par process_query() et process_query_stream() dans ask.py
@@ -37,13 +37,13 @@ from utils.logging_config import get_logger
 logger = get_logger("rag.self_rag")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  Score global : moyenne pondérée des 3 métriques
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 _WEIGHTS = {
     "context_relevance": 0.30,   # qualité du retrieval
-    "faithfulness":       0.45,   # pas d'hallucination — critère le plus important
+    "faithfulness":       0.45,   # pas d'hallucination - critère le plus important
     "answer_relevance":   0.25,   # utilité de la réponse
 }
 
@@ -60,9 +60,9 @@ def _weighted_score(metrics: dict) -> float:
     return total / total_w if total_w > 0 else 0.0
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  Reformulation alternative pour le retry
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _alternative_rewrite(question: str, attempt: int, llm) -> str:
     """
@@ -90,16 +90,16 @@ Question reformulée :""",
     try:
         result = llm.invoke(strategy).strip()
         if result and len(result) > 5 and result != question:
-            logger.debug("[self-rag] Tentative %s — reformulation : '%s'", attempt, result)
+            logger.debug("[self-rag] Tentative %s - reformulation : '%s'", attempt, result)
             return result
     except Exception as e:
         logger.warning("[self-rag] Erreur reformulation alternative : %s", e)
     return question
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  Évaluation rapide d'une tentative
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _evaluate_attempt(
     question: str,
@@ -109,7 +109,7 @@ def _evaluate_attempt(
 ) -> tuple[dict, float]:
     """
     Évalue une tentative via le vérificateur FUSIONNÉ (1 appel LLM au lieu de 3) :
-    ~3× moins de latence par tentative, et des « issues » qui citent les extraits
+    ~3x moins de latence par tentative, et des « issues » qui citent les extraits
     problématiques (utiles pour diagnostiquer un score bas).
     Retourne (metrics_dict, weighted_score).
     """
@@ -119,13 +119,13 @@ def _evaluate_attempt(
     score = _weighted_score(metrics)
     logger.debug("[self-rag] Score : %.2f (faith=%.2f, ans_rel=%.2f, ctx_rel=%.2f)%s",
                  score, metrics["faithfulness"], metrics["answer_relevance"], metrics["context_relevance"],
-                 f" — issues: {metrics['issues']}" if metrics.get("issues") else "")
+                 f" - issues: {metrics['issues']}" if metrics.get("issues") else "")
     return metrics, score
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Point d'entrée principal — non-streaming
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
+#  Point d'entrée principal - non-streaming
+# -----------------------------------------------------------------------------
 
 def self_rag_query(
     user_q: str,
@@ -155,9 +155,9 @@ def self_rag_query(
     current_q = user_q
 
     for attempt in range(SELF_RAG_MAX_RETRIES + 1):
-        logger.debug("[self-rag] ── Tentative %d/%d ──", attempt + 1, SELF_RAG_MAX_RETRIES + 1)
+        logger.debug("[self-rag] -- Tentative %d/%d --", attempt + 1, SELF_RAG_MAX_RETRIES + 1)
 
-        # ── Retrieval ─────────────────────────────────────────────────────────
+        # -- Retrieval ---------------------------------------------------------
         q_main, chunks = _prepare_retrieval(
             current_q,
             source_filter=source_filter,
@@ -168,14 +168,14 @@ def self_rag_query(
             logger.debug("[self-rag] Aucun chunk trouvé, arrêt.")
             break
 
-        # ── Génération ────────────────────────────────────────────────────────
+        # -- Génération --------------------------------------------------------
         response, citations = llm_answer(
             q_main, chunks,
             system_prompt=system_prompt,
             conversation_history=conversation_history,
         )
 
-        # ── Évaluation ────────────────────────────────────────────────────────
+        # -- Évaluation --------------------------------------------------------
         metrics, score = _evaluate_attempt(user_q, response, chunks, judge_llm)
 
         # Garde la meilleure tentative
@@ -186,14 +186,14 @@ def self_rag_query(
             best_citations = citations
             best_metrics   = metrics
 
-        # Seuil atteint → inutile de continuer
+        # Seuil atteint -> inutile de continuer
         if score >= SELF_RAG_THRESHOLD:
-            logger.debug("[self-rag] Seuil atteint (%.2f >= %s) — réponse acceptée.", score, SELF_RAG_THRESHOLD)
+            logger.debug("[self-rag] Seuil atteint (%.2f >= %s) - réponse acceptée.", score, SELF_RAG_THRESHOLD)
             break
 
-        # Dernier essai échoué → on garde quand même la meilleure réponse
+        # Dernier essai échoué -> on garde quand même la meilleure réponse
         if attempt >= SELF_RAG_MAX_RETRIES:
-            logger.debug("[self-rag] Score insuffisant (%.2f < %s) après %d tentative(s) — "
+            logger.debug("[self-rag] Score insuffisant (%.2f < %s) après %d tentative(s) - "
                          "on renvoie la meilleure réponse disponible.", best_score, SELF_RAG_THRESHOLD, attempt + 1)
             break
 

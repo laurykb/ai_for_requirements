@@ -8,7 +8,7 @@ from collections import Counter
 from env_config import VOCAB_JSON_PATH
 
 # Expression régulière pour extraire les mots et acronymes (mots, tirets, apostrophes)
-TOKEN_RE = re.compile(r"\b[\w\-’']+\b", flags=re.UNICODE)
+TOKEN_RE = re.compile(r"\b[\w\-’']+\b", flags=re.UNICODE)  # garde l'apostrophe typographique
 
 
 def build_vocab(docs, top_k_terms=3000):

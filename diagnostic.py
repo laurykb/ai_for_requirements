@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-diagnostic.py — Vérifier la portabilité et la config du projet RAG
+diagnostic.py - Vérifier la portabilité et la config du projet RAG
 Utile pour troubleshooting avant de lancer l'app
 """
 
@@ -14,7 +14,7 @@ def print_header(title):
     print(f"{'='*70}")
 
 def print_status(label, value, ok=True):
-    symbol = "✓" if ok else "✗"
+    symbol = "" if ok else ""
     color_start = "\033[92m" if ok else "\033[91m"  # Green or Red
     color_end = "\033[0m"
     print(f"  {color_start}{symbol}{color_end} {label:<40} {value}")
@@ -24,9 +24,9 @@ def main():
     
     cfg = get_config()
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 1. PROJET & CHEMINS
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("1. Projet & Chemins")
     
     project_root = Path(cfg["PROJECT_ROOT"])
@@ -34,9 +34,9 @@ def main():
     print_status("   Chroma DB", cfg["CHROMA_PATH"], Path(cfg["CHROMA_PATH"]).exists())
     print_status("   Vocab", cfg["VOCAB_JSON_PATH"], Path(cfg["VOCAB_JSON_PATH"]).exists())
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 2. GPU & RESSOURCES
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("2. GPU & Ressources")
     
     num_gpus = cfg["NUM_GPUS"]
@@ -45,14 +45,14 @@ def main():
                  cfg["CUDA_AVAILABLE"])
     print_status("   CE Device", cfg["CE_DEVICE"], True)
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 3. OLLAMA
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("3. Ollama Services")
     
     ollama_ok = cfg["OLLAMA_AVAILABLE"]
     print_status(" Ollama", 
-                f"{'✓ Online' if ollama_ok else '✗ Offline'} ({cfg['OLLAMA_HOST']})", 
+                f"{' Online' if ollama_ok else ' Offline'} ({cfg['OLLAMA_HOST']})", 
                 ollama_ok)
     print_status("   Embed model", cfg["EMBED_MODEL"], True)
     print_status("   Embed timeout", f"{cfg['EMBED_TIMEOUT_S']}s (tolère le swap à froid)", True)
@@ -65,9 +65,9 @@ def main():
     if not ollama_ok:
         print(f"    Ollama not reachable. Start it or update OLLAMA_HOST in .env")
 
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 3b. ROUTAGE DE MODÈLES
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("3b. Routage de modèles")
     try:
         from core.model_router import routing_table
@@ -76,18 +76,18 @@ def main():
         for role, model in table.items():
             print_status(f"   rôle '{role}'", model, True)
         note = "1 modèle (uniforme)" if len(distinct) == 1 else f"{len(distinct)} modèles distincts"
-        print_status("   Politique", note + " — cycle de vie laissé à OLLAMA_KEEP_ALIVE", True)
+        print_status("   Politique", note + " - cycle de vie laissé à OLLAMA_KEEP_ALIVE", True)
     except Exception as e:
         print_status("   Routage", f"introspection indisponible : {e}", False)
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 4. MONGODB
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("4. MongoDB")
     
     mongo_ok = cfg["MONGO_AVAILABLE"]
     print_status("  MongoDB",
-                f"{'Online' if mongo_ok else '✗ Offline'} ({cfg['MONGO_HOST']}:{cfg['MONGO_PORT']})",
+                f"{'Online' if mongo_ok else ' Offline'} ({cfg['MONGO_HOST']}:{cfg['MONGO_PORT']})",
                 mongo_ok)
     print_status("   DB name", cfg["MONGO_DB"], True)
     print_status("   Full URI", cfg["MONGO_URI"], True)
@@ -95,9 +95,9 @@ def main():
     if not mongo_ok:
         print(f"    MongoDB not reachable. Start it or update MONGO_HOST in .env")
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 5. CROSS-ENCODER
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("5. Cross-Encoder Reranking")
     
     ce_enabled = cfg["USE_CROSS_ENCODER"]
@@ -112,9 +112,9 @@ def main():
         print(f"       To download: cd /path/to/project/models")
         print(f"                   huggingface-cli download BAAI/bge-reranker-v2-m3")
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 6. RETRIEVAL CONFIG
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("6. Retrieval Configuration")
     
     print_status("   Num chunks", str(cfg["NUM_CHUNKS"]), True)
@@ -123,24 +123,22 @@ def main():
     print_status("   BM25 weight", f"{cfg['WEIGHT_BM25']:.1%}", True)
     print_status("   Max chunk length", f"{cfg['MAX_CHUNK_LENGTH']:,}" + " chars", True)
 
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 6b. MAGASIN VECTORIEL
-    # ──────────────────────────────────────────────────────────
-    print_header("6b. Magasin vectoriel (abstraction prod)")
-    backend = cfg["VECTOR_STORE_BACKEND"]
-    print_status("   Backend", f"{backend} (surchargeable via VECTOR_STORE_BACKEND)", True)
+    # ----------------------------------------------------------
+    print_header("6b. Magasin vectoriel (ChromaDB)")
     try:
         from retrieval.vector_store import get_vector_store
         n = get_vector_store().count()
         print_status("   Vecteurs indexés", f"{n:,}", n > 0)
         if n == 0:
-            print(f"    Collection vide → lancez une ingestion (onglet Documents).")
+            print(f"    Collection vide -> lancez une ingestion (onglet Documents).")
     except Exception as e:
         print_status("   Vecteurs indexés", f"indisponible : {e}", False)
 
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # 7. FEATURES
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("7. Advanced Features")
     
     print_status(" Parent-Child", "Enabled" if cfg["PARENT_CHILD_ENABLED"] else "Disabled", True)
@@ -148,9 +146,9 @@ def main():
     print_status(" Chunking mode", cfg["CHUNKING_MODE"], True)
     print_status(" Raptor summaries", "Enabled" if cfg["RAPTOR_SUMMARIES"] else "Disabled", True)
     
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     # SUMMARY
-    # ──────────────────────────────────────────────────────────
+    # ----------------------------------------------------------
     print_header("Summary")
     
     issues = []
@@ -164,10 +162,10 @@ def main():
     if issues:
         print(f"   {len(issues)} issue(s) detected:")
         for issue in issues:
-            print(f"     • {issue}")
+            print(f"     - {issue}")
     else:
         print("  All systems operational!")
-        print("  Ready to run: streamlit run app/app.py")
+        print("  Ready to run: streamlit run app/main.py")
     
     print(f"\n  Edit .env to customize, or use defaults (auto-detection)")
     print(f"  See SETUP_PORTABLE.md for detailed guide\n")

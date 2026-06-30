@@ -69,7 +69,7 @@ async def rag_search(
         str : JSON. En cas de succès :
             {
               "ok": true,
-              "answer": str,                 # réponse rédigée, avec citations [1], [2]…
+              "answer": str,                 # réponse rédigée, avec citations [1], [2]...
               "sources": [ {"idx": int, "source": str, "section": str|null, "page": int|null} ],
               "num_chunks": int,
               "hors_scope": bool,            # true si rien de pertinent dans le corpus
@@ -78,12 +78,12 @@ async def rag_search(
         En cas d'erreur : { "ok": false, "error": str }.
 
     Exemples :
-        - « Quel est le niveau EAL de la TOE Mistral ? » → query="Quel est le niveau EAL de la TOE Mistral ?"
-        - « Quelles sont les fonctions de sécurité ? » (sur un doc précis) → document="ANSSI-CC-cible_2011-1-20.md"
+        - « Quel est le niveau EAL de la TOE Mistral ? » -> query="Quel est le niveau EAL de la TOE Mistral ?"
+        - « Quelles sont les fonctions de sécurité ? » (sur un doc précis) -> document="ANSSI-CC-cible_2011-1-20.md"
     """
     def _work():
         # stdout est RÉSERVÉ au JSON-RPC en transport stdio : on redirige les print()
-        # du pipeline (rewrite/graph/ner…) vers stderr pour ne pas corrompre le protocole.
+        # du pipeline (rewrite/graph/ner...) vers stderr pour ne pas corrompre le protocole.
         with contextlib.redirect_stdout(sys.stderr):
             return run_tool(
                 "rag_search",

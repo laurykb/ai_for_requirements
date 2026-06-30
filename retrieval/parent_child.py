@@ -91,7 +91,7 @@ def expand_to_parent(fused_items: list[dict]) -> list[dict]:
       3. Grouper les résultats par (source, section_idx) en mémoire.
       4. Pour chaque item, construire le texte parent depuis le groupe.
 
-    Les scores (ce_score, rrf, sim_est...) sont conservés — seul 'doc' change.
+    Les scores (ce_score, rrf, sim_est...) sont conservés - seul 'doc' change.
     """
     if not fused_items:
         return fused_items
@@ -122,7 +122,7 @@ def expand_to_parent(fused_items: list[dict]) -> list[dict]:
         return fused_items
 
     # 2) UNE SEULE requête MongoDB avec $or exact sur les paires (source, section_idx)
-    #    Évite le produit cartésien source × section_idx qui ramènerait des sections hors-scope.
+    #    Évite le produit cartésien source x section_idx qui ramènerait des sections hors-scope.
     try:
         col = _get_collection()
         or_clauses = [{"source": src, "section_idx": sidx} for src, sidx in to_fetch]

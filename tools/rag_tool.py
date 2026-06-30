@@ -23,7 +23,7 @@ TOOL_DESCRIPTION = (
     "Ne pas utiliser pour des connaissances générales hors de ces documents."
 )
 
-# Schéma JSON des paramètres (JSON Schema — format universel du tool calling).
+# Schéma JSON des paramètres (JSON Schema - format universel du tool calling).
 TOOL_PARAMETERS = {
     "type": "object",
     "properties": {
@@ -32,9 +32,10 @@ TOOL_PARAMETERS = {
             "description": "La question, en langage naturel.",
         },
         "document": {
-            "type": "string",
-            "description": "Nom exact du document pour restreindre la recherche "
-                           "(optionnel ; sinon, recherche sur tout l'index).",
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Nom exact du document - ou liste de noms - pour restreindre "
+                           "la recherche (optionnel ; sinon, recherche sur tout l'index).",
         },
     },
     "required": ["query"],
@@ -52,14 +53,14 @@ def openai_tool_spec() -> dict:
     return {"type": "function", "function": tool_spec()}
 
 
-def rag_search(query: str, document: str = None, system_prompt: str = None,
+def rag_search(query: str, document=None, system_prompt: str = None,
                mode: str = "answer", max_passages: int = 8) -> dict:
     """
     Exécuteur de l'outil rag_search : interroge le RAG et renvoie un résultat structuré.
 
     mode="answer" (défaut) : pipeline complet (retrieval + GÉNÉRATION d'une réponse
         rédigée). Retour : { ok, answer, sources, num_chunks, hors_scope, latency_s }.
-    mode="passages" : RÉCUPÉRATION SEULE (sans génération) — bien plus rapide. Pour
+    mode="passages" : RÉCUPÉRATION SEULE (sans génération) - bien plus rapide. Pour
         l'agent ReAct, qui RAISONNE sur les passages et rédige LUI-MÊME la réponse
         finale (une seule génération en fin de boucle au lieu d'une par appel d'outil).
         Retour : { ok, passages: [{source, section, page, text}], num_chunks,
@@ -90,7 +91,7 @@ def rag_search(query: str, document: str = None, system_prompt: str = None,
             "ok": True,
             "mode": "passages",
             "passages": passages,            # texte TRONQUÉ : contexte vu par le LLM agent
-            # Chunks INTÉGRAUX (doc complet + métadonnées enrichies), pour l'UI/persistance —
+            # Chunks INTÉGRAUX (doc complet + métadonnées enrichies), pour l'UI/persistance -
             # JAMAIS réinjectés au LLM (sinon on noierait son contexte). Voir core.agent.
             "chunks": [
                 {"doc": c.get("doc", ""), "ce_score": c.get("ce_score"), "meta": c.get("meta", {})}

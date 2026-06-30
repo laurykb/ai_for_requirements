@@ -16,7 +16,7 @@ import os
 import logging
 
 # NB : les imports Docling (lourds : modèles de layout/TableFormer) sont PARESSEUX,
-# faits dans les fonctions de conversion — le module s'importe instantanément (tests,
+# faits dans les fonctions de conversion - le module s'importe instantanément (tests,
 # chunking) sans charger Docling, qui n'est requis qu'au moment de convertir.
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 PAGE_BATCH = 50
 
 # Valeurs de label du « mobilier de page » (en-têtes/pieds récurrents) que Docling
-# étiquette par layout → on les retire À LA SOURCE (plus fiable que la détection
+# étiquette par layout -> on les retire À LA SOURCE (plus fiable que la détection
 # statistique a posteriori de clean_md, qui reste un filet de sécurité). Comparé par
 # valeur (str) pour éviter d'importer docling_core au niveau module.
 _SKIP_LABEL_VALUES = {"page_header", "page_footer"}
@@ -38,8 +38,8 @@ _SKIP_LABEL_VALUES = {"page_header", "page_footer"}
 def _pdf_pipeline_options(do_ocr: bool = False):
     """Options Docling pour les PDF.
 
-    do_ocr=False par défaut : mesuré sans effet sur un PDF NATIF (OCR off vs on = 1.0×,
-    +0.8 % de texte) — Docling saute déjà l'OCR sur le texte natif. On l'active en repli
+    do_ocr=False par défaut : mesuré sans effet sur un PDF NATIF (OCR off vs on = 1.0x,
+    +0.8 % de texte) - Docling saute déjà l'OCR sur le texte natif. On l'active en repli
     si un document s'avère scanné (cf. doc_to_md). On désactive la génération d'images
     (mémoire) et on garde TableFormer en mode rapide.
     """
@@ -65,7 +65,7 @@ def _get_converter(do_ocr: bool = False):
 
 
 def _pdf_page_count(path: str) -> int | None:
-    """Nombre de pages d'un PDF (via pypdfium2, dépendance de Docling) — pour le batching."""
+    """Nombre de pages d'un PDF (via pypdfium2, dépendance de Docling) - pour le batching."""
     try:
         import pypdfium2 as pdfium
         return len(pdfium.PdfDocument(str(path)))
@@ -74,9 +74,9 @@ def _pdf_page_count(path: str) -> int | None:
         return None
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # Extraction du numero de page d'un DocItem via sa provenance
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def _item_page(item) -> int | None:
     """Renvoie le numero de page (1-based) d'un DocItem Docling, ou None."""
     try:
@@ -123,9 +123,9 @@ def _item_text(item, doc) -> str:
     return getattr(item, "text", "") or ""
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ETAPE 1 : Conversion PDF -> Markdown brut avec marqueurs de page
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def _emit_items(doc, md_lines: list[str], state: dict, pages_seen: set) -> None:
     """Émet les DocItem d'un document Docling en lignes Markdown (marqueurs de page +
     headings + texte/tableaux/figures). Partagé entre les lots de pages pour garder un
@@ -161,7 +161,7 @@ def _emit_items(doc, md_lines: list[str], state: dict, pages_seen: set) -> None:
 
 
 def _looks_scanned(md_text: str) -> bool:
-    """Vrai si le markdown extrait est quasi vide → PDF probablement scanné (images)."""
+    """Vrai si le markdown extrait est quasi vide -> PDF probablement scanné (images)."""
     text_only = re.sub(r"<!--.*?-->", "", md_text)
     text_only = re.sub(r"\[Figure:.*?\]", "", text_only).strip()
     return len(text_only) < 100
@@ -170,7 +170,7 @@ def _looks_scanned(md_text: str) -> bool:
 def doc_to_md(src: str, out_dir: str = "./out", do_ocr: bool = False,
               page_batch: int = PAGE_BATCH) -> str:
     """
-    Convertit un document (PDF, DOCX, PPTX, HTML…) en Markdown via Docling avec :
+    Convertit un document (PDF, DOCX, PPTX, HTML...) en Markdown via Docling avec :
     - Marqueurs de page <!-- page:N --> (pour les formats paginés)
     - Headings Markdown corrects (## pour les titres), tableaux, figures
     - Retrait des en-têtes/pieds de page (labels Docling)
@@ -210,7 +210,7 @@ def doc_to_md(src: str, out_dir: str = "./out", do_ocr: bool = False,
 
     # Repli OCR : document scanné (texte natif quasi absent) et OCR pas encore tenté.
     if _looks_scanned(md_text) and is_pdf and not do_ocr:
-        log.warning("[doc_to_md] Très peu de texte natif → nouvelle passe avec OCR activé.")
+        log.warning("[doc_to_md] Très peu de texte natif -> nouvelle passe avec OCR activé.")
         return doc_to_md(str(src), out_dir=out_dir, do_ocr=True, page_batch=page_batch)
     if _looks_scanned(md_text):
         log.warning("[doc_to_md] Document quasi vide après extraction (%d chars utiles).",
@@ -222,7 +222,7 @@ def doc_to_md(src: str, out_dir: str = "./out", do_ocr: bool = False,
         if missing:
             log.warning("[doc_to_md] %d/%d pages SANS contenu extrait : %s%s",
                         len(missing), npages, missing[:20],
-                        " …" if len(missing) > 20 else "")
+                        " ..." if len(missing) > 20 else "")
 
     out_md.write_text(md_text, encoding="utf-8")
     log.info(f"[doc_to_md] MD brut écrit -> {out_md} ({len(md_lines)} blocs, "
@@ -249,9 +249,9 @@ def _heading_depth_from_text(text: str) -> int:
     return 2  # par defaut, ## pour les titres non numerotes
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # ETAPE 2 : Nettoyage avance du Markdown
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 
 # ---- Amelioration 1 : Detection statistique des headers/footers ------
 def _detect_repeated_blocks(lines: list[str], min_length: int = 25,
@@ -338,7 +338,7 @@ def _clean_parasitic_lines(lines: list[str]) -> list[str]:
             continue
 
         # Supprimer les numeros de page isoles : '15', 'Page 7', '- 15 -'
-        if re.match(r"^[-–—]?\s*\d{1,4}\s*[-–—]?$", stripped):
+        if re.match(r"^[-–—]?\s*\d{1,4}\s*[-–—]?$", stripped):  # tirets/cadratins de pagination
             continue
         if re.match(r"^[Pp]age\s+\d+", stripped):
             continue
@@ -379,7 +379,7 @@ def _merge_broken_paragraphs(lines: list[str]) -> list[str]:
         # Chercher si cette ligne doit etre fusionnee avec la suivante
         # Condition : finit sans ponctuation terminale
         ends_without_punct = bool(
-            stripped and stripped[-1] not in ".!?;:»\")]}–—"
+            stripped and stripped[-1] not in ".!?;:»\")]}--"
             and not stripped.endswith("---")
             and len(stripped) > 20
         )
@@ -552,9 +552,9 @@ def _mark_orphan_references(text: str) -> str:
     return "\n".join(result)
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # Fonction principale de nettoyage (combine les 6 ameliorations)
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def clean_md(md_path: str, save_as: str = None) -> str:
     """
     Nettoyage avance d'un fichier Markdown produit par Docling.
@@ -624,9 +624,9 @@ def clean_md(md_path: str, save_as: str = None) -> str:
     return txt
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 # Pipeline complet : PDF -> MD brut -> MD nettoye
-# ═══════════════════════════════════════════════════════════════════════
+# =======================================================================
 def convert_and_clean(src_pdf: str, out_dir: str = "./out",
                       clean_dir: str = None) -> str:
     """

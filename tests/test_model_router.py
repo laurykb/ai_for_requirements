@@ -10,7 +10,7 @@ import pytest
 from core.model_router import model_for, routing_table, llm_kwargs, ollama_options
 from env_config import (
     REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, ENHANCEMENT_MODEL,
-    NUM_CHUNKS, LLM_NUM_CTX,
+    NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX,
 )
 
 
@@ -27,6 +27,22 @@ def test_model_for_maps_roles_to_configured_models():
     assert model_for("judge") == REWRITER_MODEL  # défaut historique du juge
     # enhance : override explicite ENHANCEMENT_MODEL, sinon repli sur REWRITER_MODEL.
     assert model_for("enhance") == (ENHANCEMENT_MODEL or REWRITER_MODEL)
+
+
+def test_generate_model_runtime_override():
+    """Le bouton « Charger le modèle » (UI) change le modèle de génération à chaud."""
+    from core.model_router import set_generate_model, get_generate_model
+    try:
+        assert get_generate_model() == GEN_MODEL          # défaut = .env
+        set_generate_model("mon-modele:latest")
+        assert get_generate_model() == "mon-modele:latest"
+        assert model_for("generate") == "mon-modele:latest"  # effet immédiat sur le rôle
+        # Les autres rôles ne sont pas affectés.
+        assert model_for("rewrite") == REWRITER_MODEL
+        set_generate_model(None)                          # reset -> retombe sur .env
+        assert get_generate_model() == GEN_MODEL
+    finally:
+        set_generate_model(None)                          # garde-fou : pas de fuite d'état
 
 
 def test_model_for_unknown_role_raises():
@@ -54,18 +70,20 @@ def test_generate_keep_alive_override_for_streaming():
 
 def test_rewrite_and_agent_params():
     # keep_alive n'est PLUS forcé (anti-wedge VRAM) : le cycle de vie est au serveur.
+    # num_ctx est plafonné par rôle (anti-wedge KV-cache) : rewrite=8192, agent=LLM_NUM_CTX.
     rw = llm_kwargs("rewrite")
-    assert rw == {"temperature": 0.2, "model": REWRITER_MODEL}
+    assert rw == {"temperature": 0.2, "num_ctx": 8192, "model": REWRITER_MODEL}
     ag = llm_kwargs("agent")
-    assert ag == {"temperature": 0.1, "model": AGENT_MODEL}
+    assert ag == {"temperature": 0.1, "num_ctx": LLM_NUM_CTX, "model": AGENT_MODEL}
 
 
 def test_enhance_options_match_legacy_tuning():
-    # Non-régression : ollama_options('enhance') reproduit EXACTEMENT les options
-    # qui étaient codées en dur dans nlp/chunk_enhancer._call_ollama, et n'expose
-    # pas le nom du modèle (le transport HTTP le pose lui-même).
+    # Non-régression : ollama_options('enhance') reproduit les options qui étaient
+    # codées en dur dans nlp/chunk_enhancer._call_ollama, plus le num_ctx plafonné
+    # (ENHANCE_NUM_CTX), et n'expose pas le nom du modèle (le transport HTTP le pose).
     opts = ollama_options("enhance")
-    assert opts == {"temperature": 0.1, "top_p": 0.9, "num_predict": 300}
+    assert opts == {"temperature": 0.1, "top_p": 0.9, "num_predict": 300,
+                    "num_ctx": ENHANCE_NUM_CTX}
     assert "model" not in opts
 
 

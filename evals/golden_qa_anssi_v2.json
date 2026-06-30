@@ -1,0 +1,253 @@
+{
+  "dataset": "ANSSI-CC-cible_2011 (Mistral TRC7535/TRC7539) (v2 élargi)",
+  "source_doc": "ANSSI-CC-cible_2011-1-20.md",
+  "description": "Jeu de questions/réponses doré ancré dans la cible de sécurité Mistral. Réponses vérifiées dans le document. expected_keywords sert à la métrique retrieval pure (hit@k).",
+  "items": [
+    {
+      "question": "Quel est le niveau d'évaluation EAL de la TOE Mistral ?",
+      "answer": "EAL3 augmenté (EAL3+), avec ALC_FLR.3 et AVA_VLA.2, ainsi que ADV_LLD.1, ALC_TAT.1 et ADV_IMP.1 pour les mécanismes cryptographiques.",
+      "expected_keywords": [
+        "EAL3",
+        "ALC_FLR.3",
+        "AVA_VLA.2"
+      ]
+    },
+    {
+      "question": "Quelle est la version du boîtier Mistral TRC7535 ?",
+      "answer": "La version 4.7.0.2.",
+      "expected_keywords": [
+        "4.7.0.2",
+        "TRC7535"
+      ]
+    },
+    {
+      "question": "Quel est le niveau de résistance des fonctions de sécurité de la TOE ?",
+      "answer": "SOF-élevé (résistance des fonctions élevée).",
+      "expected_keywords": [
+        "SOF"
+      ]
+    },
+    {
+      "question": "À quelle version des Critères Communs cette cible de sécurité est-elle conforme ?",
+      "answer": "Aux Critères Communs version 2.3 d'août 2005.",
+      "expected_keywords": [
+        "v2.3",
+        "2005"
+      ]
+    },
+    {
+      "question": "La TOE est-elle conforme à un Profil de Protection existant ?",
+      "answer": "Non, elle ne revendique aucune conformité à un Profil de Protection existant.",
+      "expected_keywords": [
+        "Profil de Protection"
+      ]
+    },
+    {
+      "question": "Que désigne l'acronyme CGM dans le système Mistral ?",
+      "answer": "Le Centre de Gestion Mistral, le logiciel d'administration des chiffreurs.",
+      "expected_keywords": [
+        "Centre de Gestion Mistral",
+        "CGM"
+      ]
+    },
+    {
+      "question": "Quels sont les deux produits de chiffrement du système Mistral ?",
+      "answer": "Le boîtier Mistral (TRC7535/TRC7539), chiffreur IP de site, et le logiciel Mistral Nomade (TRC7955), chiffreur IP pour les PC portables.",
+      "expected_keywords": [
+        "boîtier Mistral",
+        "Nomade",
+        "TRC7955"
+      ]
+    },
+    {
+      "question": "À quoi sert le Centre d'Élaboration des Clés (CEC) ?",
+      "answer": "C'est le générateur de clés certifiées du système Mistral.",
+      "expected_keywords": [
+        "CEC",
+        "clés"
+      ]
+    },
+    {
+      "question": "Quelle technologie le système Mistral utilise-t-il pour sécuriser les échanges sur les réseaux IP ?",
+      "answer": "La technologie VPN (réseaux privés virtuels) sur IP, avec chiffrement IPsec.",
+      "expected_keywords": [
+        "VPN"
+      ]
+    },
+    {
+      "question": "Pour quels types de réseaux le Mistral est-il principalement conçu ?",
+      "answer": "Pour sécuriser les réseaux d'entreprises, les réseaux bancaires et les réseaux d'organismes étatiques.",
+      "expected_keywords": [
+        "entreprises",
+        "bancaires"
+      ]
+    },
+    {
+      "question": "Quels moyens d'attaque sont cités dans la menace T.UNAUTHORIZED_ADMINISTRATOR_ACCESS ?",
+      "answer": "Masquerading (se faire passer pour un administrateur ou pour l'équipement), rejeu d'une session d'administration, et attaques man-in-the-middle.",
+      "expected_keywords": [
+        "masquerading",
+        "replaying",
+        "man-in-the-middle"
+      ]
+    },
+    {
+      "question": "Quelles exigences FCS_CKM sont des dépendances de FCS_IPSEC_EXT.1 ?",
+      "answer": "FCS_CKM.1 (génération de clés) et FCS_CKM.2 (établissement de clés).",
+      "expected_keywords": [
+        "FCS_CKM.1",
+        "FCS_CKM.2"
+      ]
+    },
+    {
+      "question": "Quelle est la durée maximale configurable pour la durée de vie d'une SA IKEv2 ?",
+      "answer": "72 heures.",
+      "expected_keywords": [
+        "72 hours"
+      ]
+    },
+    {
+      "question": "Quels mécanismes permettent de valider le statut de révocation d'un certificat ?",
+      "answer": "OCSP (RFC 6960) ou une CRL (RFC 5280 / RFC 5759).",
+      "expected_keywords": [
+        "OCSP",
+        "CRL",
+        "RFC 6960"
+      ]
+    },
+    {
+      "question": "Quelle version de TLS le serveur TLS impose-t-il et lesquelles rejette-t-il ?",
+      "answer": "Il impose TLS 1.2 (RFC 5246) et rejette SSL 2.0, SSL 3.0, TLS 1.0 et TLS 1.1.",
+      "expected_keywords": [
+        "TLS 1.2",
+        "SSL 3.0"
+      ]
+    },
+    {
+      "question": "Que garantit l'hypothèse A.PHYSICAL_PROTECTION ?",
+      "answer": "Que l'équipement est physiquement protégé et non soumis à des attaques physiques compromettant sa sécurité.",
+      "expected_keywords": [
+        "physically protected",
+        "physical attacks"
+      ]
+    },
+    {
+      "question": "Quels objectifs de sécurité contrent la menace T.TOE_CAPTURE ?",
+      "answer": "O.LOCAL_DATA_PROTECTION, O.MANAGEMENT, O.AUDIT, O.SELF_TEST et O.BOOT_CONTROL.",
+      "expected_keywords": [
+        "O.LOCAL_DATA_PROTECTION",
+        "O.BOOT_CONTROL",
+        "O.SELF_TEST"
+      ]
+    },
+    {
+      "question": "Comment la TOE transmet-elle les données d'audit à une entité externe (FAU_STG_EXT.1) ?",
+      "answer": "Via un canal de confiance (trusted channel) conforme à FTP_ITC.",
+      "expected_keywords": [
+        "trusted channel",
+        "FTP_ITC"
+      ]
+    },
+    {
+      "question": "Que permet l'exigence FPT_TUD_EXT.1 concernant le firmware de la TOE ?",
+      "answer": "Interroger la version en cours d'exécution du firmware/logiciel et gérer les mises à jour de confiance.",
+      "expected_keywords": [
+        "FPT_TUD_EXT.1",
+        "version"
+      ]
+    },
+    {
+      "question": "Quels besoins de sécurité s'appliquent aux TSF data de la TOE ?",
+      "answer": "Confidentialité, authenticité et intégrité.",
+      "expected_keywords": [
+        "Confidentiality",
+        "Authenticity",
+        "Integrity"
+      ]
+    },
+    {
+      "question": "À quoi servent les certificats de la TOE fournis par CSS_PKI ?",
+      "answer": "À l'authentification IKE avec une instance distante de TOE (IPSEC) et avec SS_MMC (TLS).",
+      "expected_keywords": [
+        "IKE",
+        "IPSEC",
+        "TLS"
+      ]
+    },
+    {
+      "question": "Quel algorithme AES-GCM est spécifié pour IKEv1 selon la RFC 4106 ?",
+      "answer": "AES-GCM avec clé de 256 bits.",
+      "expected_keywords": [
+        "AES-GCM",
+        "256 bits",
+        "RFC 4106"
+      ]
+    },
+    {
+      "question": "Quels objectifs contrent la menace T.WEAK_AUTHENTICATION_ENDPOINTS ?",
+      "answer": "O.ROLES et O.I&A (authentification conforme aux guides ANSSI RGS_B et PG-083).",
+      "expected_keywords": [
+        "O.ROLES",
+        "O.I&A",
+        "RGS_B"
+      ]
+    },
+    {
+      "question": "Comment s'appellent le réseau de confiance et le réseau non sûr dans l'architecture Mistral ?",
+      "answer": "Réseau non sûr : CS_BLACK_NETWORK ; réseau de confiance : CSS_RED_NETWORK.",
+      "expected_keywords": [
+        "CS_BLACK_NETWORK",
+        "CSS_RED_NETWORK"
+      ]
+    },
+    {
+      "question": "Quelle version du protocole IP la TOE prend-elle en charge ?",
+      "answer": "IPv4 uniquement.",
+      "expected_keywords": [
+        "IPv4"
+      ]
+    },
+    {
+      "question": "Quels événements administratifs doivent être journalisés par la TOE ?",
+      "answer": "Connexion/déconnexion administrateur, changements de configuration des TSF data, génération de clés cryptographiques.",
+      "expected_keywords": [
+        "login",
+        "logout",
+        "cryptographic keys"
+      ]
+    },
+    {
+      "question": "Quelle politique la TOE applique-t-elle lors de l'import de données utilisateur via VPN (FDP_ITC.2/VPN) ?",
+      "answer": "La politique VPN SFP, en utilisant les attributs de sécurité (protocole IP et données topologiques).",
+      "expected_keywords": [
+        "VPN SFP",
+        "IP protocol"
+      ]
+    },
+    {
+      "question": "Quelle est la différence entre données permanentes et volatiles dans le stockage local de la TOE ?",
+      "answer": "Les données permanentes sont conservées en mémoire non volatile entre deux démarrages ; les volatiles ne sont pas conservées après extinction/redémarrage.",
+      "expected_keywords": [
+        "Permanent data",
+        "Volatile data",
+        "non-volatile memory"
+      ]
+    },
+    {
+      "question": "Que fournit FAU_STG_EXT.2/LocSpace lorsque le stockage local d'audit est plein ?",
+      "answer": "Le nombre d'enregistrements d'audit perdus (dropped) ou écrasés (overwritten).",
+      "expected_keywords": [
+        "dropped",
+        "overwritten"
+      ]
+    },
+    {
+      "question": "Quelles dépendances cryptographiques a le client TLS FCS_TLSC_EXT.2 ?",
+      "answer": "FCS_CKM.1, FCS_CKM.2 et plusieurs FCS_COP.1 (chiffrement AES, signature ECDSA, hash).",
+      "expected_keywords": [
+        "FCS_CKM.1",
+        "FCS_COP.1"
+      ]
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 # Supporte 2 modes : "naive" (split par headers) et "technical" (hiérarchie numérotée, fusion parent-enfant)
 # Étape 5 : détection tables/figures, injection contexte, tagging chunk_type
 from pathlib import Path
-from langchain_core.documents import Document
+from core.document import Document
 from semantic_text_splitter import MarkdownSplitter
 from utils.text_utils import make_doc_id
 from env_config import MAX_CHUNK_LENGTH
@@ -32,7 +32,7 @@ _TABLE_LINE_RE = re.compile(r"^\s*\|")
 _FIGURE_RE = re.compile(r"\[Figure(?:\s*:\s*|\s+)(.*?)\]")
 
 
-# ─────────────────── Fonctions utilitaires communes ───────────────────
+# ------------------- Fonctions utilitaires communes -------------------
 
 def _extract_page_number(text: str) -> int | None:
     """
@@ -70,7 +70,7 @@ def regroup_tables(lines):
     return grouped
 
 
-# ─────────────────── Détection type de chunk (Étape 5) ───────────────────
+# ------------------- Détection type de chunk (Étape 5) -------------------
 
 def _classify_chunk(text: str) -> str:
     """
@@ -139,8 +139,8 @@ def _build_context_preamble(chunk_type: str, text: str, heading: str = "",
     qui décrivent ce que contient le tableau ou la figure.
 
     Exemples de sortie :
-      "[Contexte] Tableau dans la section '4.3.4. TABLES' — colonnes : Threats | Security objectives"
-      "[Contexte] Figure 1:Mistral IP VS8 System — section '1.3. TOE OVERVIEW'"
+      "[Contexte] Tableau dans la section '4.3.4. TABLES' - colonnes : Threats | Security objectives"
+      "[Contexte] Figure 1:Mistral IP VS8 System - section '1.3. TOE OVERVIEW'"
     """
     parts = []
 
@@ -148,13 +148,13 @@ def _build_context_preamble(chunk_type: str, text: str, heading: str = "",
         table_headers = _extract_table_headers(text)
         desc = "Tableau"
         if table_headers:
-            desc += f" — colonnes : {table_headers[0]}"
+            desc += f" - colonnes : {table_headers[0]}"
             if len(table_headers) > 1:
                 desc += f" (+ {len(table_headers) - 1} autre(s) tableau(x))"
         if heading:
-            desc += f" — section '{heading}'"
+            desc += f" - section '{heading}'"
         elif breadcrumb:
-            desc += f" — {breadcrumb}"
+            desc += f" - {breadcrumb}"
         parts.append(desc)
 
     if chunk_type == "figure" or (chunk_type == "mixed" and _FIGURE_RE.search(text)):
@@ -162,7 +162,7 @@ def _build_context_preamble(chunk_type: str, text: str, heading: str = "",
         for cap in captions:
             desc = f"Figure : {cap}" if cap else "Figure sans légende"
             if heading and not parts:
-                desc += f" — section '{heading}'"
+                desc += f" - section '{heading}'"
             parts.append(desc)
 
     if not parts:
@@ -170,7 +170,7 @@ def _build_context_preamble(chunk_type: str, text: str, heading: str = "",
     return "[Contexte] " + " ; ".join(parts)
 
 
-# ─────────────────── MODE NAIVE (existant) ───────────────────
+# ------------------- MODE NAIVE (existant) -------------------
 
 def split_by_titles(md_text):
     """Découpe le texte en sections selon les titres Markdown (ex : #, ##, ###)."""
@@ -232,12 +232,12 @@ def _chunk_sections_naive(text: str, src: str, max_characters: int) -> list[Docu
     return docs
 
 
-# ─────────────────── MODE TECHNICAL (nouveau) ───────────────────
+# ------------------- MODE TECHNICAL (nouveau) -------------------
 
 def _heading_depth(numbering: str) -> int:
     """
     Profondeur hiérarchique d'une numérotation.
-    "1." → 1,  "1.2." → 2,  "1.2.3." → 3,  "1.2.3" → 3
+    "1." -> 1,  "1.2." -> 2,  "1.2.3." -> 3,  "1.2.3" -> 3
     """
     parts = [p for p in numbering.split(".") if p]
     return len(parts)
@@ -341,7 +341,7 @@ def _merge_short_children(blocks: list[dict], min_chars: int = 200) -> list[dict
                 child = blocks[j]
                 child_info = child["heading_info"]
 
-                # Si pas de heading ou profondeur ≤ parent → stop
+                # Si pas de heading ou profondeur <= parent -> stop
                 if child_info is None or (not child_info["is_entity"] and child_info["depth"] <= parent_depth):
                     break
 
@@ -476,7 +476,7 @@ def _chunk_sections_technical(text: str, src: str, max_characters: int) -> list[
     return docs
 
 
-# ─────────────────── API PUBLIQUE ───────────────────
+# ------------------- API PUBLIQUE -------------------
 
 CHUNKING_MODES = {
     "naive": "Découpe par headers Markdown (générique, pour tout type de document)",

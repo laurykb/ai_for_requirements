@@ -1,15 +1,15 @@
 """
-Routeur de requêtes — aiguille chaque question vers le bon traitement, SANS appel LLM.
+Routeur de requêtes - aiguille chaque question vers le bon traitement, SANS appel LLM.
 
 Le « mode Agent » manuel devient un cas particulier : en mode Auto, ce routeur décide
 - s'il faut lancer l'agent ReAct (questions complexes : comparaison, multi-sauts,
   multi-documents, plusieurs sous-questions) ou un RAG classique (question factuelle directe) ;
 - si la réponse mérite une VÉRIFICATION (questions « à enjeu » : niveau d'assurance,
-  exigences, versions… où une hallucination coûte cher).
+  exigences, versions... où une hallucination coûte cher).
 
 Choix déterminant pour la LATENCE : le routage est 100 % HEURISTIQUE (regex/signaux,
-~microsecondes). Un routeur LLM ajouterait un appel à CHAQUE question — y compris les
-plus simples — ce qui ferait exploser la latence sur un petit GPU. Ici, on ne dépense
+~microsecondes). Un routeur LLM ajouterait un appel à CHAQUE question - y compris les
+plus simples - ce qui ferait exploser la latence sur un petit GPU. Ici, on ne dépense
 des appels (agent, vérificateur) que lorsqu'un signal gratuit indique que ça en vaut la
 peine. L'utilisateur garde la main : modes « RAG » et « Agent » forcent le traitement.
 
@@ -30,12 +30,12 @@ logger = get_logger("rag.router")
 
 
 def _norm(text: str) -> str:
-    """Minuscule + sans accents, pour des motifs robustes (différence ≈ difference)."""
+    """Minuscule + sans accents, pour des motifs robustes (différence ~ difference)."""
     t = unicodedata.normalize("NFD", (text or "").lower())
     return "".join(c for c in t if unicodedata.category(c) != "Mn")
 
 
-# ── Signaux de COMPLEXITÉ → agent ReAct (motifs sur texte normalisé sans accents) ──
+# -- Signaux de COMPLEXITÉ -> agent ReAct (motifs sur texte normalisé sans accents) --
 _AGENT_SIGNALS = {
     "comparaison": re.compile(
         r"\b(compar|differen|versus|\bvs\b|par rapport a|contrairement|"
@@ -74,7 +74,7 @@ def route_query(question: str) -> dict:
     return decision
 
 
-# ── Questions « à ENJEU » → vérification de la réponse ─────────────────────────
+# -- Questions « à ENJEU » -> vérification de la réponse -------------------------
 # Termes où une réponse non fondée coûte cher (extraction critique normative).
 _STAKE = re.compile(
     r"\b(eal\d?|niveau d'?assurance|exigenc|conform|certifi|version|augment|"
@@ -91,4 +91,4 @@ def should_verify(question: str) -> dict:
     """
     if _STAKE.search(_norm(question)):
         return {"verify": True, "reason": "question à enjeu (extraction critique)"}
-    return {"verify": False, "reason": "question générale — vérification non nécessaire"}
+    return {"verify": False, "reason": "question générale - vérification non nécessaire"}

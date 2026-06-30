@@ -6,8 +6,8 @@ Enrichissement des chunks via LLM (Ollama) :
 - Génération de résumés par section (RAPTOR simplifié)
 
 Inspiré de RAGFlow : ces métadonnées enrichies améliorent le retrieval
-car keyword↔keyword et question↔question matching sont plus fiables
-que content↔query matching brut.
+car keyword<->keyword et question<->question matching sont plus fiables
+que content<->query matching brut.
 """
 
 import os
@@ -17,7 +17,7 @@ import hashlib
 import re
 from pathlib import Path
 from typing import Optional
-from langchain_core.documents import Document
+from core.document import Document
 from env_config import ENHANCE_COMBINED
 from core.model_router import model_for, ollama_options
 from utils.text_utils import make_doc_id
@@ -27,11 +27,11 @@ from nlp.ner_extractor import extract_entities, entities_to_str, entities_to_fla
 logger = get_logger("rag.enhance")
 
 
-# ─────────────────── Cache LLM (évite de re-générer pour le même chunk) ───────────────────
+# ------------------- Cache LLM (évite de re-générer pour le même chunk) -------------------
 
 CACHE_DIR = Path("data/enhancement_cache")
 # Modèle par défaut pour l'enrichissement : routé par le rôle « enhance » (table
-# centrale core/model_router) — ENHANCEMENT_MODEL si défini, sinon REWRITER_MODEL.
+# centrale core/model_router) - ENHANCEMENT_MODEL si défini, sinon REWRITER_MODEL.
 DEFAULT_ENHANCE_MODEL = model_for("enhance")
 
 # Un seul message d'erreur détaillé par processus (évite des centaines de lignes en log)
@@ -85,7 +85,7 @@ def _clean_generated_lines(raw_text: str, separator: str = "\n") -> list[str]:
     return cleaned
 
 
-# ─────────────────── Appel LLM Ollama ───────────────────
+# ------------------- Appel LLM Ollama -------------------
 
 def _call_ollama(prompt: str, model: str = None, base_url: str = None) -> str:
     """
@@ -125,9 +125,9 @@ def _call_ollama(prompt: str, model: str = None, base_url: str = None) -> str:
             if r is not None and r.status_code == 404:
                 hint = (
                     f" Modèle « {model} » introuvable ou mauvaise URL ? "
-                    f"Vérifiez `ollama list` et `ollama pull …`, ou la variable OLLAMA_HOST."
+                    f"Vérifiez `ollama list` et `ollama pull ...`, ou la variable OLLAMA_HOST."
                 )
-            logger.warning("[enhance] Ollama HTTP %s sur %s:%s — %s",
+            logger.warning("[enhance] Ollama HTTP %s sur %s:%s - %s",
                            getattr(r, "status_code", "?"), url, hint, api_err or e)
             logger.warning("[enhance] Enrichissement LLM (mots-clés / questions) ignoré pour la suite "
                            "de cette exécution ; les autres étapes (NER, etc.) continuent.")
@@ -142,7 +142,7 @@ def _call_ollama(prompt: str, model: str = None, base_url: str = None) -> str:
         return ""
 
 
-# ─────────────────── Extraction de mots-clés ───────────────────
+# ------------------- Extraction de mots-clés -------------------
 
 KEYWORD_PROMPT = """Tu es un extracteur de mots-clés techniques.
 
@@ -181,7 +181,7 @@ def extract_keywords(text: str, topn: int = 5, model: str = None) -> list[str]:
     return []
 
 
-# ─────────────────── Génération de questions ───────────────────
+# ------------------- Génération de questions -------------------
 
 QUESTION_PROMPT = """Tu es un générateur de questions techniques.
 
@@ -226,7 +226,7 @@ def generate_questions(text: str, topn: int = 3, model: str = None) -> list[str]
     return []
 
 
-# ─────────────────── Mots-clés + questions en UN SEUL appel ───────────────────
+# ------------------- Mots-clés + questions en UN SEUL appel -------------------
 
 KEYWORDS_QUESTIONS_PROMPT = """Tu es un assistant d'indexation documentaire.
 
@@ -293,7 +293,7 @@ def extract_keywords_and_questions(text: str, num_keywords: int = 5, num_questio
             generate_questions(text, topn=num_questions, model=model))
 
 
-# ─────────────────── Description de tables/figures (Étape 5) ───────────────────
+# ------------------- Description de tables/figures (Étape 5) -------------------
 
 TABLE_DESCRIPTION_PROMPT = """Tu es un expert en analyse de documents techniques.
 
@@ -337,7 +337,7 @@ def describe_table(text: str, heading: str = "", model: str = None) -> str:
     return ""
 
 
-# ─────────────────── Enrichissement complet d'un chunk ───────────────────
+# ------------------- Enrichissement complet d'un chunk -------------------
 
 def enhance_chunk(doc, num_keywords: int = 5, num_questions: int = 3, model: str = None):
     """
@@ -438,7 +438,7 @@ def enhance_chunks(docs, num_keywords: int = 5, num_questions: int = 3,
     return docs
 
 
-# ─────────────────── RAPTOR simplifié : résumés par section ───────────────────
+# ------------------- RAPTOR simplifié : résumés par section -------------------
 
 SUMMARY_PROMPT = """Tu es un expert en synthèse de documents techniques.
 
@@ -504,7 +504,7 @@ def build_raptor_summaries(docs: list[Document], min_chunks: int = 3,
                            progress_callback=None) -> list[Document]:
     """
     RAPTOR simplifié : génère un chunk-résumé pour chaque section
-    suffisamment longue (≥ min_chunks chunks).
+    suffisamment longue (>= min_chunks chunks).
 
     Le résumé est indexé comme un Document supplémentaire avec
     chunk_type="summary", ce qui permet :
@@ -534,7 +534,7 @@ def build_raptor_summaries(docs: list[Document], min_chunks: int = 3,
         logger.debug("[raptor] Aucune section éligible pour un résumé.")
         return []
 
-    logger.info("[raptor] %d sections éligibles (≥%d chunks) sur %d sections totales",
+    logger.info("[raptor] %d sections éligibles (>=%d chunks) sur %d sections totales",
                 len(eligible), min_chunks, len(sections))
 
     summaries: list[Document] = []
@@ -561,7 +561,7 @@ def build_raptor_summaries(docs: list[Document], min_chunks: int = 3,
                 prefix_parts.append(f"[{breadcrumb}]")
             if heading:
                 prefix_parts.append(f"## {heading}")
-            prefix_parts.append(f"**[Résumé de section — {len(sec_docs)} chunks]**\n")
+            prefix_parts.append(f"**[Résumé de section - {len(sec_docs)} chunks]**\n")
             prefix = "\n".join(prefix_parts)
 
             full_content = f"{prefix}\n{summary_text}"
@@ -588,7 +588,7 @@ def build_raptor_summaries(docs: list[Document], min_chunks: int = 3,
                 meta["page_number"] = page_number
 
             summaries.append(Document(page_content=full_content, metadata=meta))
-            logger.debug("[raptor] sec %s: résumé OK (%d chars) — %s", sec_idx, len(summary_text), heading or "(sans titre)")
+            logger.debug("[raptor] sec %s: résumé OK (%d chars) - %s", sec_idx, len(summary_text), heading or "(sans titre)")
 
         if progress_callback:
             progress_callback(progress_idx + 1, total)

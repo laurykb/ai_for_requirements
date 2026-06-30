@@ -16,7 +16,7 @@ def test_normalize_scores_empty():
 
 def test_rrf_shared_top_id_ranks_first():
     res = rrf([["a", "b", "c"], ["a", "c", "b"]], k=60)
-    assert res[0][0] == "a"  # 1er dans les deux listes → meilleur score RRF
+    assert res[0][0] == "a"  # 1er dans les deux listes -> meilleur score RRF
 
 
 def test_fuse_empty_returns_empty():
@@ -37,4 +37,4 @@ def test_fuse_orders_by_semantic_weight():
                   "b": {"sim_est": 0.9, "doc": "b"}}]
     fused = fuse_with_rrf(lists_a, lookups_a,
                           weight_semantic=1.0, weight_bm25=0.0, topk_final=5)
-    assert fused[0]["id"] == "b"  # sim_est plus élevé → score_global plus élevé
+    assert fused[0]["id"] == "b"  # sim_est plus élevé -> score_global plus élevé

@@ -26,13 +26,9 @@ onnxruntime>=1.18.0
 
 # ─────────────── Embeddings & LLM (Ollama) ───────────────
 requests>=2.31.0
-langchain-core>=0.3.0
-langchain-ollama>=0.3.0
-langchain-community>=0.3.0
 
 # ─────────────── Indexation & Recherche ───────────────
 chromadb>=1.0.0           # backend vectoriel par défaut
-qdrant-client>=1.18.0     # 2e backend (mode :memory:/local sans serveur)
 rank-bm25>=0.2.2          # recherche par mots-clés (BM25)
 
 # ─────────────── PDF → Markdown (Docling) ───────────────

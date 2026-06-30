@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Point d'entree unique de "AI for SSH" (RAG documentaire + AI for Requirements).
-# Demarre MongoDB + Ollama (si besoin) puis l'app Streamlit unifiee (app/app.py).
+# Demarre MongoDB + Ollama (si besoin) puis l'app Streamlit unifiee (app/main.py).
 #
 # Usage :  bash start.sh        (ou ./start.sh apres chmod +x)
 #

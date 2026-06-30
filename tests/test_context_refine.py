@@ -1,5 +1,5 @@
 """
-Tests unitaires de l'affinage du contexte (retrieval/context_refine) — déterministe.
+Tests unitaires de l'affinage du contexte (retrieval/context_refine) - déterministe.
 
 reorder_long_context : meilleurs passages aux extrémités (atténuation « lost in the middle »).
 dedup_chunks : retire les passages quasi-redondants en gardant le mieux classé, ordre préservé.
@@ -11,9 +11,9 @@ def _docs(*letters):
     return [{"doc": x} for x in letters]
 
 
-# ── reorder_long_context ──────────────────────────────────────────────────────
+# -- reorder_long_context ------------------------------------------------------
 def test_reorder_puts_best_at_extremities():
-    # Entrée triée pertinence décroissante A..E → A (meilleur) en tête, B (2e) en queue.
+    # Entrée triée pertinence décroissante A..E -> A (meilleur) en tête, B (2e) en queue.
     out = [c["doc"] for c in reorder_long_context(_docs("A", "B", "C", "D", "E"))]
     assert out == ["A", "C", "E", "D", "B"]
     assert out[0] == "A" and out[-1] == "B"
@@ -30,7 +30,7 @@ def test_reorder_preserves_all_elements():
     assert sorted(c["doc"] for c in out) == ["A", "B", "C", "D"]
 
 
-# ── dedup_chunks ──────────────────────────────────────────────────────────────
+# -- dedup_chunks --------------------------------------------------------------
 def test_dedup_removes_exact_duplicate_keeps_first():
     chunks = [
         {"doc": "le niveau eal3 augmente est retenu pour la cible", "meta": {"id": "1"}},
@@ -43,7 +43,7 @@ def test_dedup_removes_exact_duplicate_keeps_first():
 
 
 def test_dedup_removes_child_included_in_parent():
-    # Un chunk enfant entièrement inclus dans une section parente (parent-child) → redondant.
+    # Un chunk enfant entièrement inclus dans une section parente (parent-child) -> redondant.
     parent = {"doc": "introduction la toe est evaluee eal3 augmente selon les criteres communs v3", "meta": {"id": "p"}}
     child = {"doc": "eal3 augmente", "meta": {"id": "c"}}
     out = dedup_chunks([parent, child], threshold=0.85)

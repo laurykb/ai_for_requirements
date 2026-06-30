@@ -63,7 +63,7 @@ def rerank_cross_encoder(query, items, model_path, device=None):
     pairs = [(query, it.get("doc", "") or "") for it in items]
     # Prédit les scores bruts de similarité pour chaque paire
     raw_scores = ce.predict(pairs)
-    # bge-reranker-v2-m3 retourne des logits bruts → normalisation sigmoïde en [0, 1]
+    # bge-reranker-v2-m3 retourne des logits bruts -> normalisation sigmoïde en [0, 1]
     scores = _sigmoid(raw_scores)
     for it, sc in zip(items, scores):
         it["ce_score"] = float(sc)

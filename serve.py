@@ -52,7 +52,7 @@ def start_mongo() -> None:
         return
     mongod = _resolve("mongod", "MONGO_BIN")
     if not mongod:
-        print("MongoDB : `mongod` introuvable (PATH ou MONGO_BIN dans .env) — ignoré.")
+        print("MongoDB : `mongod` introuvable (PATH ou MONGO_BIN dans .env) - ignoré.")
         return
     dbpath = Path(os.environ.get("MONGO_DBPATH", ROOT / "data" / "mongodb"))
     dbpath.mkdir(parents=True, exist_ok=True)
@@ -66,7 +66,7 @@ def start_ollama() -> None:
         return
     ollama = _resolve("ollama", "OLLAMA_BIN")
     if not ollama:
-        print("Ollama : `ollama` introuvable (PATH ou OLLAMA_BIN dans .env) — ignoré.")
+        print("Ollama : `ollama` introuvable (PATH ou OLLAMA_BIN dans .env) - ignoré.")
         return
     # FLASH_ATTENTION=0 : évite des NaN de bge-m3 sur certains GPU. NUM_PARALLEL=1
     # et KEEP_ALIVE=5m : adaptés à une VRAM contrainte (évite de pinner un modèle).
@@ -91,7 +91,7 @@ def main() -> None:
     _wait(27017, "MongoDB")
     _wait(11434, "Ollama")
     print("\nLancement de l'application...\n")
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "app.py")])
+    subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "main.py")])
 
 
 if __name__ == "__main__":

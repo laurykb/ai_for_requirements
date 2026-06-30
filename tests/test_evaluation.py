@@ -30,7 +30,7 @@ def test_context_recall_partial():
 
 def test_context_precision_topk():
     chunks = [{"doc": "eal3 niveau retenu"}, {"doc": "contenu sans rapport xyz"}]
-    # 1 chunk pertinent sur 2 → 0.5
+    # 1 chunk pertinent sur 2 -> 0.5
     assert context_precision(chunks, "eal3 niveau", topk=2) == 0.5
 
 
@@ -45,7 +45,7 @@ def test_keyword_hit_rate_edge_cases():
     assert keyword_hit_rate([], ["x"]) == 0.0
 
 
-# ── Vérificateur fusionné (parsing déterministe, hors-ligne) ──────────────────
+# -- Vérificateur fusionné (parsing déterministe, hors-ligne) ------------------
 def test_parse_verify_json_clean():
     raw = '{"faithfulness": 0.9, "answer_relevance": 1.0, "context_relevance": 0.7, "issues": ["extrait douteux"]}'
     out = _parse_verify_json(raw)
@@ -60,7 +60,7 @@ def test_parse_verify_json_tolerates_surrounding_text_and_clamps():
     out = _parse_verify_json(raw)
     assert out["faithfulness"] == 1.0        # borné à 1.0
     assert out["answer_relevance"] == 0.0    # borné à 0.0
-    assert out["issues"] == ["manque la page"]  # str → liste
+    assert out["issues"] == ["manque la page"]  # str -> liste
 
 
 def test_parse_verify_json_invalid_falls_back():
@@ -69,7 +69,7 @@ def test_parse_verify_json_invalid_falls_back():
 
 
 def test_verify_answer_uses_injected_llm_single_call():
-    # LLM injecté → 100 % hors-ligne ; on vérifie qu'UN seul appel est fait (vs 3 séparés).
+    # LLM injecté -> 100 % hors-ligne ; on vérifie qu'UN seul appel est fait (vs 3 séparés).
     calls = {"n": 0}
     class _LLM:
         def invoke(self, prompt):
@@ -81,7 +81,7 @@ def test_verify_answer_uses_injected_llm_single_call():
 
 
 def test_verify_answer_empty_inputs_short_circuit():
-    # Pas de génération ou pas de chunks → aucun appel LLM, scores nuls.
+    # Pas de génération ou pas de chunks -> aucun appel LLM, scores nuls.
     class _Boom:
         def invoke(self, prompt):
             raise AssertionError("ne doit pas être appelé")

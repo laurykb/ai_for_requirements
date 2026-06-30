@@ -5,6 +5,7 @@ import re
 import pickle
 from pymongo import MongoClient
 from env_config import MONGO_URI, MONGO_DB
+from utils.sources import normalize_sources
 from utils.logging_config import get_logger
 
 logger = get_logger("rag.bm25")
@@ -60,13 +61,28 @@ def build_bm25_index(docs):
     return bm25, ids, texts, metadatas
 
 
-def bm25_search(bm25, ids, texts, metadatas, query, topn=10):
-    """Recherche BM25 classique et sortie au format pipeline."""
+def bm25_search(bm25, ids, texts, metadatas, query, topn=10, source_filter=None):
+    """Recherche BM25 classique et sortie au format pipeline.
+
+    `source_filter` restreint le classement aux chunks dont la métadonnée
+    `source` appartient au périmètre demandé (un nom, une liste de noms, ou
+    None = tout l'index). Le filtrage se fait *après* le calcul des scores sur
+    l'index complet : les positions restent alignées sur `ids/texts/metadatas`,
+    ce qui rend la recherche correcte aussi bien sur un index par-document que
+    sur l'index global multi-document (fusionné). Découper `ids` en amont
+    casserait cet alignement (positions du corpus complet indexées dans une
+    liste tronquée).
+    """
     q_tokens = _tokenize(query)
     if not q_tokens:
         return {"ids": [[]], "documents": [[]], "metadatas": [[]], "scores": [[]]}
     scores = bm25.get_scores(q_tokens)
-    order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:topn]
+    candidates = range(len(scores))
+    allowed = normalize_sources(source_filter)
+    if allowed:
+        allowed = set(allowed)
+        candidates = [i for i in candidates if (metadatas[i] or {}).get("source") in allowed]
+    order = sorted(candidates, key=lambda i: scores[i], reverse=True)[:topn]
     return {
         "ids": [[ids[i] for i in order]],
         "documents": [[texts[i] for i in order]],
@@ -75,9 +91,9 @@ def bm25_search(bm25, ids, texts, metadatas, query, topn=10):
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 #  BM25 multi-document : stockage / chargement dans MongoDB
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def save_bm25_to_mongo(bm25_tuple, source_doc: str,
                        db_name="ragdb", collection_name="bm25_indexes"):
@@ -96,15 +112,15 @@ def load_bm25_from_mongo(source_doc: str = None,
                          db_name="ragdb", collection_name="bm25_indexes"):
     """
     Charge un ou plusieurs index BM25 depuis MongoDB.
-    - source_doc=None  → fusionne tous les index disponibles en un seul tuple global.
-    - source_doc=<str> → charge uniquement l'index du document demandé.
+    - source_doc=None  -> fusionne tous les index disponibles en un seul tuple global.
+    - source_doc=<str> -> charge uniquement l'index du document demandé.
     Retourne un tuple (bm25, ids, texts, metadatas) ou None si absent.
     Résultat mis en cache en mémoire pour éviter la désérialisation MongoDB à chaque requête.
     """
     return _load_bm25_cached(source_doc, db_name, collection_name)
 
 
-# ── Cache en mémoire pour les index BM25 ──────────────────────────────────────
+# -- Cache en mémoire pour les index BM25 --------------------------------------
 _bm25_cache: dict = {}
 
 def _load_bm25_cached(source_doc, db_name, collection_name):
@@ -120,7 +136,7 @@ def _load_bm25_cached(source_doc, db_name, collection_name):
 
 
 def invalidate_bm25_cache(source_doc: str = None):
-    """Invalide le cache BM25 (après ré-indexation). Sans argument → vide tout le cache."""
+    """Invalide le cache BM25 (après ré-indexation). Sans argument -> vide tout le cache."""
     global _bm25_cache
     if source_doc is None:
         _bm25_cache.clear()
