@@ -15,7 +15,6 @@ from env_config import (
     SELF_RAG_ENABLED, NUM_CHUNKS_PARENT_CHILD,
     CE_RELEVANCE_THRESHOLD, OUT_OF_SCOPE_MESSAGE,
     USE_CROSS_ENCODER,
-    MONGO_URI, MONGO_DB,
     LOG_LEVEL,
 )
 from retrieval.retrieve import hybrid_retrieve

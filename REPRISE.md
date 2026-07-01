@@ -186,3 +186,20 @@ embeddings (dim 1024), `process_query` complet (réponse + 13 citations), boucle
   ingéré) : pour une démo réelle du mélange multi-doc, **ingérer un 2e document**
   (`data/ANSSI-CC-cible_2011-1-20.md` est dispo).
 - Optionnel : A/B « précision du contexte » (`CONTEXT_DEDUP`/`CONTEXT_REORDER`), démo Qdrant.
+
+## LynX (AI for Requirements) — session 2026-07-01
+
+Travail sur le module embarqué `lynx/`. Axe : **transparence + remédiation**, rendu
+épuré (détails dans `lynx/ROADMAP.md` § « Réalisé — 2026-07-01 » et `lynx/README.md`
+§ « Transparence & remédiation »). Résumé :
+
+- **Boîte de verre** du raisonnement multi-agents (édition *et* audit) — `lynx/src/trace.py`,
+  `lynx/app.py` ; capture des échanges LLM via `llm.start_trace`/`stop_trace`.
+- **Remap** : liens typés `LINK`/`UNLINK` entre exigences existantes (DAG, anti-cycle,
+  analyse d'impact) — `lynx/src/{models,tree,orchestrator}.py`.
+- **Suggestion de correction** (détection → réécriture conforme EN9100, appliquée
+  puis re-vérifiée) — `lynx/src/correction.py`, `lynx/skills/suggest_correction.md`.
+  Déclenchée **à la demande** sur exigence signalée (jamais en masse → latence maîtrisée).
+- **40 tests déterministes verts** (`lynx/tests/test_engine.py`) ; **non-régression
+  de l'éval LLM confirmée** (`python -m eval.run_eval` : précision 0.99 · rappel 0.91
+  · F1 0.95, identique à la référence).

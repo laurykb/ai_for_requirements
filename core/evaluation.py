@@ -27,7 +27,7 @@ import re
 import time
 from typing import Optional
 from pymongo import MongoClient
-from env_config import MONGO_URI, MONGO_DB
+from env_config import MONGO_URI
 from utils.logging_config import get_logger
 
 logger = get_logger("rag.eval")
