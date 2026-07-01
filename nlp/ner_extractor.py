@@ -15,7 +15,6 @@ Les entités sont stockées dans les métadonnées de chaque chunk pour :
 
 import re
 import threading
-from typing import Optional
 
 from utils.logging_config import get_logger
 
