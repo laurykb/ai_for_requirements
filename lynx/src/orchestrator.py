@@ -25,8 +25,8 @@ AGENT_LABELS = {
     analyze_couverture: "Couverture du parent",
     analyze_redondance: "Redondance / sur-spécification",
 }
-from .models import Action, ActionType, Finding, ImpactReport, Scope, Severity
-from .tree import RequirementTree
+from .models import Action, ActionType, Finding, ImpactReport, LinkType, Scope, Severity
+from .tree import RequirementTree, _DECOMP
 
 
 class ActionError(ValueError):
@@ -69,6 +69,31 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
             "test_status": action.test_status or "PENDING",
         }
         return tree.with_added(new_req)
+    if action.action_type == ActionType.LINK:
+        child, parent = action.target_id, action.link_target
+        ltype = action.link_type or LinkType.DERIVE
+        if child not in tree:
+            raise ActionError(f"Exigence source du lien introuvable : {child}")
+        if not parent or parent not in tree:
+            raise ActionError(f"Exigence cible du lien introuvable : {parent}")
+        if parent == child:
+            raise ActionError("Une exigence ne peut pas être liée à elle-même.")
+        node = tree.get(child)
+        if any(lk.target == parent and lk.type == ltype for lk in node.links):
+            raise ActionError(f"Lien {ltype.value} → {parent} déjà présent sur {child}.")
+        # Anti-cycle : seuls les liens de décomposition créent une arête amont ;
+        # rattacher à un descendant fermerait une boucle.
+        if ltype in _DECOMP and parent in {d.id for d in tree.descendants(child)}:
+            raise ActionError(f"Lien impossible : {parent} est déjà en aval de {child} (cycle).")
+        return tree.with_link(child, parent, ltype)
+    if action.action_type == ActionType.UNLINK:
+        child, parent, ltype = action.target_id, action.link_target, action.link_type
+        if child not in tree:
+            raise ActionError(f"Exigence source du lien introuvable : {child}")
+        node = tree.get(child)
+        if not any(lk.target == parent and (ltype is None or lk.type == ltype) for lk in node.links):
+            raise ActionError(f"Aucun lien vers {parent} à retirer sur {child}.")
+        return tree.with_unlink(child, parent, ltype)
     raise ValueError(f"Action inconnue : {action.action_type}")
 
 
@@ -113,7 +138,8 @@ def _narrate(report: ImpactReport) -> str:
 
 _VERDICT = {Severity.INFO: "VALIDE", Severity.WARNING: "ATTENTION", Severity.BLOCKING: "BLOQUANT"}
 _ACTION_VERB = {ActionType.CREATE: "L'ajout", ActionType.UPDATE: "La modification",
-                ActionType.DELETE: "La suppression"}
+                ActionType.DELETE: "La suppression", ActionType.LINK: "Le rattachement",
+                ActionType.UNLINK: "Le détachement"}
 
 
 def _fallback_message(report: ImpactReport, action: Action) -> str:
@@ -164,7 +190,8 @@ def stream_synthesis(report: ImpactReport, action: Action, use_llm: bool = True)
         yield _fallback_message(report, action)
         return
     emitted = False
-    for piece in llm.stream_agent(system, _synthesis_payload(report, action)):
+    for piece in llm.stream_agent(system, _synthesis_payload(report, action),
+                                  label="synthese_message"):
         emitted = True
         yield piece
     if not emitted:  # LLM indisponible ou flux vide

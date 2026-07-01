@@ -94,6 +94,14 @@ def analyze_allocation(ctx: Ctx) -> List[Finding]:
                 suspects.setdefault(anc.id, None)
     if ctx.parent_id and ctx.parent_id in tree:
         suspects.setdefault(ctx.parent_id, None)
+    # LINK : la fille contribue désormais au nouveau parent -> recontrôler ce
+    # parent et toute sa chaîne amont (le roll-up budgétaire remonte).
+    if ctx.action.action_type == ActionType.LINK and ctx.action.link_target:
+        if ctx.action.link_target in tree:
+            suspects.setdefault(ctx.action.link_target, None)
+        for anc in tree.ancestors(ctx.action.link_target):
+            if anc.id in tree:
+                suspects.setdefault(anc.id, None)
 
     for parent_id in suspects:
         parent = tree.get(parent_id)
@@ -295,19 +303,29 @@ def analyze_redondance(ctx: Ctx) -> List[Finding]:
         top = embeddings.most_similar(target.texte, [(s.id, s.texte) for s in siblings])
         if top:
             sib_id, score = top
+
+            def _route(decision: str) -> None:
+                llm.trace_event("routeur_embeddings",
+                                {"cible": target.id, "n_soeurs": len(siblings)},
+                                {"plus_proche": sib_id, "similarite": round(score, 3),
+                                 "decision": decision})
+
             if score >= EMBED_DUP_THRESHOLD:
+                _route("doublon clair → BLOQUANT (tranché sans LLM)")
                 return [Finding(
                     analyzer="redondance", scope=Scope.HORIZONTAL, severity=Severity.BLOCKING,
                     message=f"Redondante avec {sib_id} : énoncés quasi identiques (similarité {score:.2f}).",
                     impacted_ids=[target.id, sib_id],
                     details={"method": "embedding", "similarity": round(score, 3), "sibling": sib_id})]
             if score < EMBED_DISTINCT_THRESHOLD:
+                _route("clairement distinct → INFO (tranché sans LLM)")
                 return [Finding(
                     analyzer="redondance", scope=Scope.HORIZONTAL, severity=Severity.INFO,
                     message=f"Apporte une couverture nouvelle (distincte des sœurs, similarité max {score:.2f}).",
                     impacted_ids=[target.id],
                     details={"method": "embedding", "similarity": round(score, 3)})]
             # zone ambiguë -> on laisse le LLM trancher ci-dessous
+            _route("zone ambiguë → escalade à l'agent LLM")
 
     parent = tree.get(target.parent_id) if target.parent_id else None
     payload = {"exigence_cible": target.short(),

@@ -17,7 +17,7 @@ import argparse
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import llm
+from . import llm, trace
 from .audit import audit_matrix
 from .models import Action
 from .orchestrator import run_impact_analysis, synthesize_verdict
@@ -27,9 +27,14 @@ def _analyze(body: dict) -> dict:
     corpus = body.get("corpus", [])
     action = Action(**body["action"])
     semantic = bool(body.get("semantic", True))
+    llm.start_trace()  # boîte de verre : échanges agents<->LLM
     report = run_impact_analysis(corpus, action, semantic=semantic)
     verdict = synthesize_verdict(report, action, use_llm=semantic)
-    return {"report": report.model_dump(), "verdict": verdict}
+    records = llm.stop_trace()
+    findings = [{"analyzer": f.analyzer, "scope": f.scope.value,
+                 "sev": f.severity.value, "msg": f.message} for f in report.findings]
+    return {"report": report.model_dump(), "verdict": verdict,
+            "exchanges": trace.build_timeline(records, findings)}
 
 
 def _audit(body: dict) -> dict:

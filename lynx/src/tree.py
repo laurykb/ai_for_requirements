@@ -149,3 +149,35 @@ class RequirementTree:
         corpus = self._clone_raw()
         corpus.append(dict(requirement))
         return RequirementTree(corpus)
+
+    def with_link(self, child_id: str, parent_id: str, link_type) -> "RequirementTree":
+        """Ajoute un lien typé (``child_id`` --link_type--> ``parent_id``).
+
+        Le lien est stocké sur la *fille* (``child_id``), sa cible étant la *mère*
+        (``parent_id``) — cohérent avec la sémantique de ``Requirement.links``.
+        """
+        ltype = getattr(link_type, "value", link_type)
+        corpus = self._clone_raw()
+        for item in corpus:
+            if item["id"] == child_id:
+                links = list(item.get("links") or [])
+                if not any(lk.get("target") == parent_id and lk.get("type") == ltype for lk in links):
+                    links.append({"type": ltype, "target": parent_id})
+                item["links"] = links
+        return RequirementTree(corpus)
+
+    def with_unlink(self, child_id: str, parent_id: str, link_type=None) -> "RequirementTree":
+        """Retire le(s) lien(s) typé(s) de ``child_id`` vers ``parent_id``.
+
+        Si ``link_type`` est fourni, seul ce type est retiré ; sinon tous les liens
+        vers ``parent_id`` le sont.
+        """
+        ltype = getattr(link_type, "value", link_type)
+        corpus = self._clone_raw()
+        for item in corpus:
+            if item["id"] == child_id:
+                item["links"] = [
+                    lk for lk in (item.get("links") or [])
+                    if not (lk.get("target") == parent_id
+                            and (ltype is None or lk.get("type") == ltype))]
+        return RequirementTree(corpus)
