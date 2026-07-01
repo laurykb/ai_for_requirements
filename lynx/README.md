@@ -33,6 +33,22 @@ positif sur 196). Voir `METHODOLOGIE.md` et `eval/`.
 Le tout est synthétisé en **un verdict unique** (VALIDE / ATTENTION / BLOQUANT),
 streamé, avec citation de la preuve. Un audit global note la matrice entière.
 
+## Transparence & remédiation
+
+- **Boîte de verre** — pour chaque verdict *et* pour l'audit, un panneau montre en
+  langage naturel ce que **chaque agent a reçu et répondu** (fan-out des analyseurs
+  → agent de synthèse), avec un bandeau « pipeline » qui situe la gravité par agent.
+  L'objectif : le moins de boîte noire possible, sans surcharge (on ne détaille que
+  ce qui est signalé).
+- **Remap (liens DAG)** — rattacher deux exigences existantes par un **lien typé**
+  (DERIVE / REFINES / SATISFIES / VERIFIES / ALLOCATES_TO) sans créer d'enfant :
+  ajout/retrait d'arêtes amont/aval, avec anti-cycle et analyse d'impact.
+- **Suggestion de correction** — sur une exigence **signalée** (WARNING/BLOQUANT),
+  un agent propose une **réécriture conforme** (règles EN9100 + contexte : parent,
+  ancêtres, sœurs, filles, problèmes détectés). L'ingénieur la relit puis l'applique
+  en un clic — elle **repasse par l'analyse d'impact**. À la demande uniquement,
+  jamais en masse (l'audit ne fait que détecter) : latence maîtrisée.
+
 ## Installation
 
 ```bash

@@ -18,10 +18,10 @@ import threading
 import json
 from pathlib import Path
 
-from src import embeddings, feedback, llm, roi, store, telemetry
+from src import correction, embeddings, feedback, llm, roi, store, telemetry, trace
 from src.audit import audit_matrix
-from src.corpus_io import load_corpus_report, load_many
-from src.models import Action, ActionType, Severity
+from src.corpus_io import load_many
+from src.models import Action, ActionType, LinkType
 from src.orchestrator import run_impact_analysis, stream_synthesis, verdict_label
 
 SCORE_COLOR = lambda s: "#15803D" if s >= 80 else "#B45309" if s >= 50 else "#B91C1C"
@@ -69,6 +69,7 @@ def _lvl(value):
 def _select_node(req_id):
     st.session_state.selected = req_id
     st.session_state.verdict = None
+    st.session_state.suggestion = None
 
 
 def _load_eval():
@@ -112,7 +113,9 @@ def _give_feedback(correct: bool):
 
 def _sig(action: Action) -> tuple:
     corpus_sig = tuple(sorted((r.get("id"), r.get("texte", "")) for r in st.session_state.corpus))
+    link_type = str(action.link_type) if action.link_type else None
     return (action.action_type.value, action.target_id, action.new_text,
+            action.link_target, link_type,
             st.session_state.deep, st.session_state.model, hash(corpus_sig))
 
 
@@ -169,35 +172,184 @@ def render_legend():
     st.markdown(f"<div style='margin-bottom:.1rem'>{chips}</div>", unsafe_allow_html=True)
 
 
-_SCOPE_FR = {"STRUCTURE": "Structure", "ALLOCATION": "Allocation", "AMONT": "Pertinence amont",
-             "COUVERTURE": "Couverture", "HORIZONTAL": "Redondance", "AVAL": "Propagation aval"}
-_SEV_DOT = {"INFO": "#15803D", "WARNING": "#B45309", "BLOCKING": "#B91C1C"}
+# Bandeau « pipeline » : chaque agent avec la gravité de son constat, pour saisir
+# l'architecture (fan-out) et où ça coince d'un coup d'œil.
+_SEV_COLOR = {"INFO": "#15803D", "WARNING": "#B45309", "BLOCKING": "#B91C1C"}
+_PIPE_DET = [("Structure", "structure"), ("Alloc.", "allocation"), ("Aval", "downstream")]
+_PIPE_IA = [("Pertinence", "pertinence"), ("Couvert.", "couverture"), ("Redond.", "redondance")]
 
 
-def _method_label(f):
-    if f.get("method") == "embedding":
-        sim = f.get("sim")
-        return f"embeddings · sim {sim}" if sim is not None else "embeddings"
-    if f.get("analyzer") in {"allocation", "downstream", "structure"}:
-        return "déterministe"
-    return "agent IA"
+def _worst_by_agent(findings):
+    """Gravité la pire par analyseur (INFO < WARNING < BLOCKING)."""
+    rank = {"INFO": 0, "WARNING": 1, "BLOCKING": 2}
+    worst = {}
+    for f in findings or []:
+        a, s = f.get("analyzer"), f.get("sev")
+        if s in rank and (a not in worst or rank[s] > rank[worst[a]]):
+            worst[a] = s
+    return worst
 
 
-def _render_findings_detail(findings):
-    """Détail repliable : chaque constat avec sa méthode et sa fiabilité."""
-    if not findings:
+def _pipe_chip(label, analyzer_key, worst):
+    sev = worst.get(analyzer_key)
+    color = _SEV_COLOR.get(sev, "#4B5563")  # gris = non exécuté / rien à signaler
+    return (f"<span style='white-space:nowrap;margin-right:11px'>"
+            f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;"
+            f"background:{color};margin-right:4px'></span>"
+            f"<span style='font-size:.8rem;color:#C7CBD4'>{label}</span></span>")
+
+
+def _render_pipeline_strip(findings, verdict):
+    worst = _worst_by_agent(findings)
+    det = "".join(_pipe_chip(l, k, worst) for l, k in _PIPE_DET)
+    ia = "".join(_pipe_chip(l, k, worst) for l, k in _PIPE_IA)
+    vcolor = VERDICT_COLOR.get(verdict, "#374151")
+    st.markdown(
+        f"<div style='font-size:.8rem;color:#9CA3AF;line-height:1.9;margin:.1rem 0 .4rem'>"
+        f"<b style='color:#C7CBD4'>Action</b> ▸ {det}"
+        f"<span style='color:#4B5563'>│</span> {ia}"
+        f"▸ <b style='color:#C7CBD4'>Synthèse</b> ▸ "
+        f"<span style='color:{vcolor};font-weight:700'>{verdict}</span></div>",
+        unsafe_allow_html=True)
+
+
+# Aide sur les types de liens : (libellé, description, est_décomposition).
+# Décomposition = pèse sur l'analyse (couverture, pertinence, budget, orphelins) ;
+# référence = affichée en pointillé mais hors déclinaison (cf. tree._DECOMP).
+LINK_TYPE_INFO = {
+    "DERIVE": ("se décline de", "Découpe une exigence mère en filles plus concrètes "
+               "(ossature du cycle en V).", True),
+    "REFINES": ("raffine / précise", "Ajoute de la précision à une exigence existante, "
+                "sans forcément descendre d'un niveau système.", True),
+    "SATISFIES": ("satisfait", "Une exigence ou une solution répond à un besoin amont.", True),
+    "VERIFIES": ("vérifie", "Un moyen de preuve (essai, analyse, inspection) démontre "
+                 "que l'exigence est tenue — branche montante du V.", False),
+    "ALLOCATES_TO": ("alloue à", "Assigne l'exigence (souvent un budget) à un composant "
+                     "ou sous-système responsable.", False),
+}
+
+_LINK_TYPE_HELP = (
+    "**Liens de décomposition** — comptent dans l'analyse (couverture, pertinence, budget) :\n\n"
+    "- **DERIVE** — se décline de : découpe une mère en filles concrètes\n"
+    "- **REFINES** — raffine : précise une exigence existante\n"
+    "- **SATISFIES** — satisfait : répond à un besoin amont\n\n"
+    "**Références transverses** — affichées mais hors déclinaison :\n\n"
+    "- **VERIFIES** — vérifie : un test/essai prouve l'exigence\n"
+    "- **ALLOCATES_TO** — alloue à : assigne à un composant responsable"
+)
+
+
+def _link_type_label(t):
+    """Libellé lisible dans le menu déroulant : 'DERIVE — se décline de (décomposition)'."""
+    label, _desc, decomp = LINK_TYPE_INFO.get(t, (t, "", False))
+    return f"{t} — {label} ({'décomposition' if decomp else 'référence'})"
+
+
+def _render_suggestion(sel):
+    """Aperçu d'une proposition de correction : texte réécrit + justification."""
+    sug = st.session_state.get("suggestion")
+    if not sug or sug.get("req_id") != sel["id"]:
         return
-    with st.expander("Détail de l'analyse (méthode et fiabilité)"):
-        for f in findings:
-            dot = _SEV_DOT.get(f.get("sev"), "#6B7280")
-            scope = _SCOPE_FR.get(f.get("scope"), f.get("scope", ""))
-            st.markdown(
-                f"<div style='margin:.25rem 0'>"
-                f"<span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:{dot};margin-right:7px'></span>"
-                f"<b>{scope}</b> "
-                f"<span style='color:#6B7280;font-size:.82rem'>· {_method_label(f)}</span><br>"
-                f"<span style='font-size:.9rem'>{f.get('msg','')}</span></div>",
-                unsafe_allow_html=True)
+    if sug.get("error"):
+        st.caption(f":orange[Proposition indisponible — {sug['error']}]")
+        return
+    st.markdown("**Proposition de correction**")
+    st.markdown(f"> {sug['texte']}")
+    if not sug.get("corrige_tout", True):
+        st.caption(":orange[Correction partielle — certains points (couverture, redondance) "
+                   "demandent une action structurelle, pas une simple réécriture.]")
+    if sug.get("justification"):
+        st.caption(sug["justification"])
+    if sug.get("changements"):
+        for c in sug["changements"]:
+            st.caption(f"· {c}")
+    s1, s2 = st.columns([2, 1])
+    s1.button("Appliquer cette correction", type="primary", use_container_width=True,
+              on_click=_cb_apply_suggestion, args=(sel["id"],),
+              help="Applique le texte réécrit comme une modification — il repasse par "
+                   "l'analyse d'impact pour vérifier qu'il ne casse rien en aval.")
+    s2.button("Ignorer", use_container_width=True, on_click=_cb_dismiss_suggestion)
+
+
+def _render_remap_panel(sel, corpus):
+    """Remap : liens typés vers/depuis d'autres exigences existantes (DAG)."""
+    sid = sel["id"]
+    out_links = sel.get("links") or []
+    incoming = [(r["id"], lk.get("type")) for r in corpus
+                for lk in (r.get("links") or []) if lk.get("target") == sid]
+    n = len(out_links) + len(incoming)
+    with st.expander(f"Remapper — liens vers d'autres exigences ({n})"):
+        if out_links or incoming:
+            st.caption("Liens existants")
+            for i, lk in enumerate(out_links):
+                t, tg = lk.get("type"), lk.get("target")
+                c1, c2 = st.columns([5, 1])
+                c1.markdown(f"**{t}** → `{tg}`  ·  mère")
+                c2.button("Retirer", key=f"unlink_{sid}_{i}", on_click=_cb_unlink, args=(sid, tg, t))
+            for j, (cid, t) in enumerate(incoming):
+                c1, c2 = st.columns([5, 1])
+                c1.markdown(f"**{t}** ← `{cid}`  ·  fille")
+                c2.button("Retirer", key=f"unlinkin_{sid}_{j}", on_click=_cb_unlink, args=(cid, sid, t))
+            st.divider()
+        others = [r["id"] for r in corpus if r["id"] != sid]
+        if not others:
+            st.caption("Aucune autre exigence à relier.")
+            return
+        st.caption("Créer un lien")
+        d1, d2, d3 = st.columns(3)
+        d1.selectbox("Sens", ["Rattacher à une mère (amont)", "Rattacher une fille (aval)"],
+                     key=f"linkdir_{sid}",
+                     help="**Amont** : l'exigence sélectionnée devient *fille* d'une autre "
+                          "(on lui ajoute une mère).\n\n**Aval** : une autre exigence devient "
+                          "*fille* de celle sélectionnée (on lui ajoute une fille).")
+        d2.selectbox("Exigence à relier", others, key=f"linkother_{sid}",
+                     help="L'autre exigence existante à rattacher.")
+        d3.selectbox("Type de lien", [t.value for t in LinkType], key=f"linktype_{sid}",
+                     format_func=_link_type_label, help=_LINK_TYPE_HELP)
+        # Rappel dynamique du type choisi (une ligne, sans surcharger).
+        sel_type = st.session_state.get(f"linktype_{sid}") or LinkType.DERIVE.value
+        lbl, desc, decomp = LINK_TYPE_INFO.get(sel_type, (sel_type, "", False))
+        tag = ("décomposition — pèse sur l'analyse (couverture, pertinence, budget)"
+               if decomp else "référence transverse — affichée mais hors déclinaison")
+        st.caption(f"**{sel_type}** · _{lbl}_ — {tag}.\n\n{desc}")
+        st.button("Créer le lien", use_container_width=True, on_click=_cb_link, args=(sid,))
+
+
+_ROLE_STYLE = {
+    "déterministe": ("#0891B2", "Règle"),
+    "embeddings": ("#0D9488", "Vectoriel"),
+    "IA": ("#7C3AED", "Agent IA"),
+    "synthèse": ("#B45309", "Synthèse"),
+}
+
+
+def _render_glassbox(v):
+    """Boîte de verre unique : bandeau pipeline + échanges reçus/répondus par agent."""
+    exchanges = v.get("exchanges") or []
+    findings = v.get("findings") or []
+    if not exchanges and not findings:
+        return
+    with st.expander(f"Comment LynX a raisonné — boîte de verre ({len(exchanges)} agents)"):
+        _render_pipeline_strip(findings, v.get("verdict", ""))
+        st.caption("Chaque agent reçoit un extrait de la matrice et rend un avis indépendant, "
+                   "en parallèle ; l'agent de synthèse agrège le tout en un verdict unique.")
+        for m in exchanges:
+            meta = []
+            if m.get("cached"):
+                meta.append("cache")
+            if m.get("latency_ms") is not None:
+                meta.append(f"{m['latency_ms']} ms")
+            if not m.get("ok", True):
+                meta.append("indisponible")
+            meta_txt = ("  ·  " + " · ".join(meta)) if meta else ""
+            _agent_header(m.get("role"), m.get("agent", ""),
+                          f" · {m.get('mission', '')}{meta_txt}")
+            st.caption(f"Reçu — {m.get('input', '')}")
+            # Pour la synthèse, le verdict complet est déjà affiché au-dessus : on ne le répète pas.
+            if m.get("role") == "synthèse":
+                st.caption("Rédige le verdict affiché ci-dessus à partir de ces avis.")
+            else:
+                st.markdown(m.get("output", ""))
 
 
 def render_verdict():
@@ -216,7 +368,7 @@ def render_verdict():
         if flags:
             st.caption(":gray[" + " · ".join(flags) + "]")
         st.markdown(v["message"])
-        _render_findings_detail(v.get("findings") or [])
+        _render_glassbox(v)
         if st.session_state.get("feedback_done"):
             st.caption(":green[Merci, retour enregistré.]")
         else:
@@ -249,6 +401,11 @@ def _apply(action, candidate, verdict):
     old = _find(st.session_state.corpus, action.target_id)
     old_text = old.get("texte", "") if old else ""
     new_text = "" if action.action_type == ActionType.DELETE else (action.new_text or "")
+    if action.action_type in (ActionType.LINK, ActionType.UNLINK):
+        lt = action.link_type.value if hasattr(action.link_type, "value") else (action.link_type or "")
+        verb = "lien" if action.action_type == ActionType.LINK else "retrait lien"
+        old_text = ""
+        new_text = f"{verb} {lt} {action.target_id} → {action.link_target}"
     st.session_state.corpus = candidate
     st.session_state.audit = None  # l'audit ne reflète plus le corpus modifié
     store.save_working(candidate)
@@ -268,6 +425,76 @@ AXIS_LABELS = {
 
 
 _SEV_PREFIX = {"BLOQUANT": "BLOQUANT", "WARNING": "À revoir", "INFO": "Info"}
+
+
+def _agent_header(role, title, meta_txt=""):
+    """Ligne d'en-tête d'un agent dans une boîte de verre : badge de rôle + titre."""
+    color, badge = _ROLE_STYLE.get(role, ("#6B7280", role))
+    st.markdown(
+        f"<div style='margin:.6rem 0 .1rem'>"
+        f"<span style='background:{color};color:#fff;font-size:.66rem;font-weight:700;"
+        f"padding:1px 7px;border-radius:6px'>{badge}</span> "
+        f"<b>{title}</b>"
+        f"<span style='color:#9CA3AF;font-size:.75rem'>{meta_txt}</span></div>",
+        unsafe_allow_html=True)
+
+
+def _audit_det_agents(rep):
+    """Les trois contrôles déterministes de l'audit, reconstruits depuis les constats."""
+    finds = rep.findings
+    structural = [f for f in finds if f.axis in ("DOUBLON", "LIEN", "CYCLE")]
+    alloc = [f for f in finds if f.axis == "ALLOCATION"]
+    vect = [f for f in finds if f.axis == "REDONDANCE" and f.message.startswith("Doublon probable")]
+    return [
+        ("déterministe", "Structure", "Doublons d'ID, liens manquants, cycles", structural),
+        ("déterministe", "Allocation", "Budgets des filles vs plafond du parent", alloc),
+        ("embeddings", "Doublons quasi-identiques", "Comparaison de tous les couples (vectoriel)", vect),
+    ]
+
+
+def _render_audit_glassbox(records, rep):
+    """Boîte de verre de l'audit : pipeline + contrôles déterministes + audits IA signalés."""
+    if not rep:
+        return
+    audits = trace.humanize_audit(records)
+    flagged = [a for a in audits if a["flagged"] or not a["ok"]]
+    clean = len(audits) - len(flagged)
+    with st.expander(f"Comment LynX a audité — boîte de verre ({rep.n} exigences)"):
+        vcolor = SCORE_COLOR(rep.score)
+        st.markdown(
+            f"<div style='font-size:.8rem;color:#9CA3AF;line-height:1.9;margin:.1rem 0 .4rem'>"
+            f"<b style='color:#C7CBD4'>Matrice</b> ▸ Règles structurelles · Doublons vectoriels · "
+            f"{len(audits)} audits IA (parallèle) ▸ <b style='color:#C7CBD4'>Score</b> ▸ "
+            f"<span style='color:{vcolor};font-weight:700'>{rep.score}/100</span></div>",
+            unsafe_allow_html=True)
+        st.caption("L'audit combine des règles déterministes, un test vectoriel de doublons, "
+                   "puis un agent IA par exigence — en parallèle.")
+
+        # 1. Contrôles déterministes (bornés : trois agents, avec ou sans constat).
+        for role, title, mission, dfinds in _audit_det_agents(rep):
+            _agent_header(role, title)
+            st.caption(mission)
+            if dfinds:
+                for f in dfinds:
+                    st.markdown(f"· {f.message}")
+            else:
+                st.caption("Aucun problème détecté.")
+
+        # 2. Audits IA par exigence : seulement les signalés en détail + décompte.
+        if audits:
+            st.markdown("**Audits IA par exigence** — détail des exigences signalées :")
+            for a in flagged:
+                meta = []
+                if a.get("cached"):
+                    meta.append("cache")
+                if a.get("latency_ms") is not None:
+                    meta.append(f"{a['latency_ms']} ms")
+                meta_txt = ("  ·  " + " · ".join(meta)) if meta else ""
+                _agent_header("IA", f"Audit de {a['req_id']}", meta_txt)
+                st.caption(f"Reçu — {a['input']}")
+                st.markdown(a["output"])
+            if clean:
+                st.caption(f"{clean} exigence(s) auditée(s) sans remarque.")
 
 
 def render_audit_summary():
@@ -291,6 +518,7 @@ def render_audit_summary():
                           f"{AXIS_LABELS.get(f.axis, f.axis)} — {f.message}",
                           key=f"af_{f.req_id}_{f.axis}_{f.message[:12]}", use_container_width=True,
                           on_click=_select_node, args=(f.req_id,))
+    _render_audit_glassbox(st.session_state.get("audit_exchanges") or [], rep)
 
 
 def process_action(action: Action, candidate):
@@ -317,6 +545,7 @@ def process_action(action: Action, candidate):
         elif kind == "done":
             status.write(f"{label} — terminé")
 
+    llm.start_trace()  # boîte de verre : on capture les échanges agents<->LLM
     report = run_impact_analysis(ss.corpus, action, semantic=ss.deep, on_event=on_event)
     status.update(label="Analyse terminée", state="complete", expanded=False)
 
@@ -330,12 +559,14 @@ def process_action(action: Action, candidate):
         for piece in stream_synthesis(report, action, use_llm=ss.deep):
             full += piece
             holder.markdown(full)
+    records = llm.stop_trace()
 
+    findings = [{"scope": f.scope.value, "sev": f.severity.value, "analyzer": f.analyzer,
+                 "method": (f.details or {}).get("method", ""),
+                 "sim": (f.details or {}).get("similarity"), "msg": f.message}
+                for f in report.findings]
     v = {"verdict": verdict, "message": full, "impacted": report.impacted_ids, "deep": ss.deep,
-         "findings": [{"scope": f.scope.value, "sev": f.severity.value, "analyzer": f.analyzer,
-                       "method": (f.details or {}).get("method", ""),
-                       "sim": (f.details or {}).get("similarity"), "msg": f.message}
-                      for f in report.findings]}
+         "findings": findings, "exchanges": trace.build_timeline(records, findings)}
     ss.cache[sig] = v
     ss.verdict = {**v, "action": action, "candidate": candidate}
     # ROI : on journalise les défauts captés tôt (shift-left vs remontée du V).
@@ -377,6 +608,86 @@ def _cb_create(req_id):
     st.session_state.action_request = (Action(action_type=ActionType.CREATE, target_id=nid,
                                               new_text=text, parent_id=req_id,
                                               niveau=niveau, domaine=domaine), cand)
+
+
+def _cb_link(sel_id):
+    """Crée un lien typé entre deux exigences existantes (remap)."""
+    ss = st.session_state
+    direction = ss.get(f"linkdir_{sel_id}", "")
+    other = ss.get(f"linkother_{sel_id}")
+    ltype = ss.get(f"linktype_{sel_id}") or "DERIVE"
+    if not other:
+        return
+    # amont : sel devient fille de `other` ; aval : `other` devient fille de sel.
+    if direction.startswith("Rattacher à une mère"):
+        child, parent = sel_id, other
+    else:
+        child, parent = other, sel_id
+    cand = [dict(r) for r in ss.corpus]
+    for r in cand:
+        if r["id"] == child:
+            r["links"] = list(r.get("links") or []) + [{"type": ltype, "target": parent}]
+    ss.action_request = (Action(action_type=ActionType.LINK, target_id=child,
+                                link_target=parent, link_type=ltype), cand)
+
+
+def _cb_unlink(child_id, parent_id, ltype=None):
+    """Retire un lien typé existant entre deux exigences."""
+    ss = st.session_state
+    cand = [dict(r) for r in ss.corpus]
+    for r in cand:
+        if r["id"] == child_id:
+            r["links"] = [lk for lk in (r.get("links") or [])
+                          if not (lk.get("target") == parent_id
+                                  and (ltype is None or lk.get("type") == ltype))]
+    ss.action_request = (Action(action_type=ActionType.UNLINK, target_id=child_id,
+                                link_target=parent_id, link_type=ltype), cand)
+
+
+def _problems_for(req_id):
+    """Rassemble les problèmes connus d'une exigence (audit + dernier verdict)."""
+    probs, seen = [], set()
+
+    def _add(p):
+        if p and p not in seen:
+            seen.add(p)
+            probs.append(p)
+
+    rep = st.session_state.get("audit")
+    if rep:
+        for f in rep.findings:
+            if f.req_id == req_id and f.severity != "INFO":
+                _add(f"[{f.axis}] {f.message}")
+    v = st.session_state.get("verdict")
+    act = v.get("action") if v else None
+    if act is not None and getattr(act, "target_id", None) == req_id:
+        for f in v.get("findings", []):
+            if f.get("sev") != "INFO":
+                _add(f"[{f.get('scope')}] {f.get('msg')}")
+    return probs
+
+
+def _cb_suggest(req_id):
+    st.session_state.suggest_request = req_id
+
+
+def _cb_dismiss_suggestion():
+    st.session_state.suggestion = None
+
+
+def _cb_apply_suggestion(req_id):
+    """Applique la correction proposée comme une action UPDATE (→ analyse d'impact)."""
+    sug = st.session_state.get("suggestion")
+    if not sug or sug.get("req_id") != req_id or sug.get("error"):
+        return
+    text = sug["texte"]
+    cand = [dict(r) for r in st.session_state.corpus]
+    for r in cand:
+        if r["id"] == req_id:
+            r["texte"] = text
+    st.session_state.action_request = (Action(action_type=ActionType.UPDATE, target_id=req_id,
+                                              new_text=text), cand)
+    st.session_state.suggestion = None  # consommée
 
 
 def _cb_audit():
@@ -449,7 +760,13 @@ def page_graph():
             st.caption(":orange[Mode rapide, sans IA]")
         elif not llm.llm_available():
             st.caption(":red[LLM injoignable]")
-        st.button("Auditer la matrice", type="primary", use_container_width=True, on_click=_cb_audit)
+        st.button("Auditer la matrice", type="primary", use_container_width=True, on_click=_cb_audit,
+                  help="Passe toute la matrice au crible et rend un **score de fiabilité /100** "
+                       "avec la liste des points à corriger.\n\n"
+                       "1. Règles déterministes : liens manquants, doublons d'ID, cycles, "
+                       "dépassements de budget.\n"
+                       "2. Test vectoriel : doublons quasi-identiques (embeddings).\n"
+                       "3. Un agent IA par exigence : rédaction, pertinence, couverture, redondance.")
         with st.expander(f"Corpus · {len(corpus)}"):
             st.file_uploader("Importer (JSON)", type=["json"], accept_multiple_files=True,
                              key="uploader_corpus", label_visibility="collapsed")
@@ -466,7 +783,9 @@ def page_graph():
         def _audit_ev(done, total):
             status.update(label=f"Audit de la matrice — analyse sémantique {done}/{total}")
 
+        llm.start_trace()  # boîte de verre : capture des audits IA par exigence
         ss.audit = audit_matrix(ss.corpus, deep=ss.deep, on_event=_audit_ev)
+        ss.audit_exchanges = llm.stop_trace()
         status.update(label=f"Audit terminé — score {ss.audit.score}/100", state="complete", expanded=False)
 
     # --- Graphe (pleine largeur, en haut) ---
@@ -477,7 +796,7 @@ def page_graph():
                          selected=ss.selected, flagged=flagged)
     # Le clic sur un nœud déclenche déjà un rerun ; on met juste à jour l'état.
     if clicked and isinstance(clicked, str) and clicked != ss.selected:
-        ss.selected, ss.verdict = clicked, None
+        ss.selected, ss.verdict, ss.suggestion = clicked, None, None
 
     st.divider()
 
@@ -486,6 +805,12 @@ def page_graph():
     if not sel:
         st.info("Cliquez une exigence dans le graphe pour l'éditer, la supprimer ou y ajouter une fille.")
     else:
+        # Proposition de correction (déclenchée par bouton, générée UNE fois ici).
+        if ss.get("suggest_request") == sel["id"]:
+            ss.suggest_request = None
+            with st.status("Génération d'une proposition de correction…", expanded=False):
+                ss.suggestion = {**correction.suggest_correction(
+                    corpus, sel["id"], _problems_for(sel["id"])), "req_id": sel["id"]}
         ed, meta = st.columns([3, 1], gap="large")
         with meta:
             st.markdown(f"**{sel['id']}**")
@@ -505,6 +830,18 @@ def page_graph():
                       on_click=_cb_update, args=(sel["id"],))
             b2.button("Supprimer", use_container_width=True,
                       on_click=_cb_delete, args=(sel["id"],))
+            # La réécriture n'est proposée que si l'exigence est signalée (WARNING/BLOQUANT) :
+            # inutile — et risqué — de réécrire une exigence déjà saine. On ne la lance jamais
+            # automatiquement ni en masse (l'audit ne fait que détecter), pour maîtriser la latence.
+            problems = _problems_for(sel["id"])
+            if problems:
+                st.button("Proposer une correction (IA)", use_container_width=True,
+                          on_click=_cb_suggest, args=(sel["id"],),
+                          help="Génère une réécriture corrigeant les problèmes détectés "
+                               "(rédaction, cohérence amont), à sens technique constant. "
+                               "Vous la relisez avant de l'appliquer ; elle repasse alors "
+                               "par l'analyse d'impact.")
+                _render_suggestion(sel)
             with st.expander("Ajouter une exigence enfant"):
                 a1, a2 = st.columns([2, 1])
                 a1.text_input("Identifiant", key=f"newid_{sel['id']}",
@@ -516,6 +853,7 @@ def page_graph():
                              label_visibility="collapsed", placeholder="Texte de la nouvelle exigence…")
                 st.button("Appliquer l'ajout", use_container_width=True,
                           on_click=_cb_create, args=(sel["id"],))
+            _render_remap_panel(sel, corpus)
 
     # Traitement de l'action demandée : EXACTEMENT une fois, puis on efface.
     req = ss.action_request
@@ -539,6 +877,8 @@ def main():
     ss.setdefault("action_request", None)
     ss.setdefault("audit_request", False)
     ss.setdefault("feedback_done", False)
+    ss.setdefault("suggestion", None)
+    ss.setdefault("suggest_request", None)
     # Préchauffage des modèles (embeddings + LLM) en arrière-plan : supprime le
     # coût « à froid » de la première analyse, sans bloquer le rendu.
     if not ss.get("warmed"):

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from collections import Counter
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List
 
 from .config import DATA_DIR, ROI_MINUTES_PER_CATCH

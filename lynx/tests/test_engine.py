@@ -314,6 +314,152 @@ def test_load_many_dedups_across_documents(tmp_path):
     assert any("dupliqué" in e for e in errs)
 
 
+# --- remap : liens typés entre exigences existantes -----------------------
+def test_link_action_adds_typed_edge():
+    from src.models import LinkType
+    from src.orchestrator import build_candidate_tree
+    tree = RequirementTree(_corpus())
+    # rattache RAD (fille) à une seconde mère ELEC via un lien DERIVE
+    action = Action(action_type=ActionType.LINK, target_id="REQ-L4-ANT-RAD-001",
+                    link_target="REQ-L3-ANT-ELEC-001", link_type=LinkType.DERIVE)
+    cand = build_candidate_tree(tree, action)
+    parents = {p.id for p in cand.parents("REQ-L4-ANT-RAD-001")}
+    assert parents == {"REQ-L3-ANT-MECH-001", "REQ-L3-ANT-ELEC-001"}
+    # l'analyse n'échoue pas structurellement
+    rep = run_impact_analysis(_corpus(), action, semantic=False)
+    assert not any(f.scope == Scope.STRUCTURE and f.severity == Severity.BLOCKING
+                   for f in rep.findings)
+
+
+def test_link_cycle_blocked():
+    from src.models import LinkType
+    # rattacher un ancêtre (L2) sous l'un de ses descendants (L4) fermerait une boucle
+    action = Action(action_type=ActionType.LINK, target_id="REQ-L2-ANT-001",
+                    link_target="REQ-L4-ANT-CHAS-001", link_type=LinkType.DERIVE)
+    rep = run_impact_analysis(_corpus(), action, semantic=False)
+    assert rep.global_status == Severity.BLOCKING
+    assert any(f.scope == Scope.STRUCTURE for f in rep.findings)
+
+
+def test_link_self_blocked():
+    from src.models import LinkType
+    action = Action(action_type=ActionType.LINK, target_id="REQ-L2-ANT-001",
+                    link_target="REQ-L2-ANT-001", link_type=LinkType.DERIVE)
+    rep = run_impact_analysis(_corpus(), action, semantic=False)
+    assert rep.global_status == Severity.BLOCKING
+
+
+def test_link_duplicate_blocked():
+    from src.models import LinkType
+    corpus = _corpus()
+    for r in corpus:
+        if r["id"] == "REQ-L4-ANT-RAD-001":
+            r["links"] = [{"type": "DERIVE", "target": "REQ-L3-ANT-ELEC-001"}]
+    action = Action(action_type=ActionType.LINK, target_id="REQ-L4-ANT-RAD-001",
+                    link_target="REQ-L3-ANT-ELEC-001", link_type=LinkType.DERIVE)
+    rep = run_impact_analysis(corpus, action, semantic=False)
+    assert rep.global_status == Severity.BLOCKING
+
+
+def test_unlink_removes_typed_edge():
+    from src.models import LinkType
+    from src.orchestrator import build_candidate_tree
+    corpus = _corpus()
+    for r in corpus:
+        if r["id"] == "REQ-L4-ANT-RAD-001":
+            r["links"] = [{"type": "DERIVE", "target": "REQ-L3-ANT-ELEC-001"}]
+    tree = RequirementTree(corpus)
+    assert "REQ-L3-ANT-ELEC-001" in {p.id for p in tree.parents("REQ-L4-ANT-RAD-001")}
+    action = Action(action_type=ActionType.UNLINK, target_id="REQ-L4-ANT-RAD-001",
+                    link_target="REQ-L3-ANT-ELEC-001", link_type=LinkType.DERIVE)
+    cand = build_candidate_tree(tree, action)
+    assert "REQ-L3-ANT-ELEC-001" not in {p.id for p in cand.parents("REQ-L4-ANT-RAD-001")}
+
+
+def test_unlink_missing_blocked():
+    action = Action(action_type=ActionType.UNLINK, target_id="REQ-L4-ANT-RAD-001",
+                    link_target="REQ-L3-ANT-ELEC-001")
+    rep = run_impact_analysis(_corpus(), action, semantic=False)
+    assert rep.global_status == Severity.BLOCKING
+
+
+def test_trace_humanize_pertinence():
+    from src import trace
+    records = [{
+        "label": "coherence_pertinence",
+        "input": {"exigence_cible": {"id": "REQ-X", "texte": "Le châssis pèse 10 kg."},
+                  "chaine_amont": [{"id": "REQ-P", "texte": "Budget 15 kg."}]},
+        "output": {"est_coherent": False, "synthese": "Incohérent.", "preuve": "10 > 8",
+                   "rupture_avec": ["REQ-P"]},
+        "latency_ms": 120, "ok": True}]
+    msgs = trace.humanize(records)
+    assert len(msgs) == 1
+    assert "Pertinence amont" in msgs[0]["agent"]
+    assert "REQ-X" in msgs[0]["input"]
+    assert "non" in msgs[0]["output"] and "REQ-P" in msgs[0]["output"]
+
+
+def test_trace_humanize_audit_flags_only_problems():
+    from src import trace
+    recs = [
+        {"label": "audit_exigence",
+         "input": {"exigence": {"id": "REQ-A", "texte": "t"}, "parent": {"id": "P"},
+                   "soeurs": [{"id": "S1"}], "filles": []},
+         "output": {"redaction": {"conforme": True}, "pertinence": {"coherent": False,
+                    "probleme": "contredit le parent"}, "couverture": {"complet": True},
+                    "redondance": {"redondant": False}}, "ok": True},
+        {"label": "audit_exigence",
+         "input": {"exigence": {"id": "REQ-B", "texte": "t"}, "parent": None,
+                   "soeurs": [], "filles": []},
+         "output": {"redaction": {"conforme": True}, "pertinence": {"coherent": True},
+                    "couverture": {"complet": True}, "redondance": {"redondant": False}}, "ok": True},
+    ]
+    hs = trace.humanize_audit(recs)
+    assert [a["req_id"] for a in hs] == ["REQ-A", "REQ-B"]
+    assert hs[0]["flagged"] is True and "Pertinence" in hs[0]["output"]
+    assert hs[1]["flagged"] is False and "Conforme" in hs[1]["output"]
+
+
+# --- suggestion de correction --------------------------------------------
+def test_suggest_correction_builds_context_and_returns(monkeypatch):
+    from src import correction
+    captured = {}
+
+    def fake_call_agent(prompt, payload, label=None):
+        captured.update(prompt=prompt, payload=payload, label=label)
+        return {"texte_propose": "Le châssis doit présenter une masse ≤ 10 kg.",
+                "changements": ["Ajout du verbe « doit »", "Critère quantifié"],
+                "justification": "Énoncé rendu vérifiable.", "corrige_tout": True}
+
+    monkeypatch.setattr(correction.llm, "call_agent", fake_call_agent)
+    # REQ-L3-ANT-MECH-001 a des ancêtres ET des filles (CHAS, RAD)
+    out = correction.suggest_correction(_corpus(), "REQ-L3-ANT-MECH-001",
+                                        problems=["[REDACTION] termes imprécis"])
+    assert out["texte"].startswith("Le châssis") and out["corrige_tout"] is True
+    assert out["changements"]
+    p = captured["payload"]
+    assert p["exigence"]["id"] == "REQ-L3-ANT-MECH-001"
+    assert any(a["id"] == "REQ-L2-ANT-001" for a in p["ancetres"])
+    assert {c["id"] for c in p["filles"]} == {"REQ-L4-ANT-CHAS-001", "REQ-L4-ANT-RAD-001"}
+    assert p["problemes_detectes"] == ["[REDACTION] termes imprécis"]
+    assert captured["label"] == "suggest_correction"
+    assert "R-DOIT" in captured["prompt"]  # règles EN9100 injectées dans le prompt
+
+
+def test_suggest_correction_missing_req():
+    from src import correction
+    out = correction.suggest_correction(_corpus(), "REQ-DOES-NOT-EXIST")
+    assert out.get("error")
+
+
+def test_suggest_correction_llm_error(monkeypatch):
+    from src import correction
+    monkeypatch.setattr(correction.llm, "call_agent",
+                        lambda *a, **k: {"error": "LLM_INVOCATION_ERROR"})
+    out = correction.suggest_correction(_corpus(), "REQ-L4-ANT-CHAS-001")
+    assert out.get("error") == "LLM_INVOCATION_ERROR"
+
+
 def test_override_downgrades_blocking():
     action = Action(action_type=ActionType.DELETE, target_id="REQ-L3-ANT-MECH-001",
                     force_override=True, override_rationale="Refonte du sous-système.")

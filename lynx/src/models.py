@@ -17,6 +17,8 @@ class ActionType(str, Enum):
     CREATE = "CREATE"
     UPDATE = "UPDATE"
     DELETE = "DELETE"
+    LINK = "LINK"      # rattacher deux exigences existantes par un lien typé
+    UNLINK = "UNLINK"  # retirer un lien typé entre deux exigences existantes
 
 
 class Severity(str, Enum):
@@ -101,6 +103,11 @@ class Action(BaseModel):
     domaine: Optional[str] = None
     niveau: Optional[int] = None
     test_status: Optional[str] = None
+    # Champs pour LINK / UNLINK : ``target_id`` est l'exigence *fille* (source, aval)
+    # et ``link_target`` l'exigence *mère* (cible du lien, amont). Le lien est stocké
+    # sur la fille (cohérent avec ``links`` où la cible est en amont de la source).
+    link_target: Optional[str] = None
+    link_type: Optional[LinkType] = None
     # Dérogation humaine
     force_override: bool = False
     override_rationale: str = ""
