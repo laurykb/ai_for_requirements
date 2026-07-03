@@ -1,7 +1,7 @@
 # indexing/chunking.py
 # Découpe un fichier markdown en sections (titres) puis en chunks intelligents sans couper les tableaux
 # Supporte 2 modes : "naive" (split par headers) et "technical" (hiérarchie numérotée, fusion parent-enfant)
-# Étape 5 : détection tables/figures, injection contexte, tagging chunk_type
+# Détection tables/figures, injection contexte, tagging chunk_type
 from pathlib import Path
 from core.document import Document
 from semantic_text_splitter import MarkdownSplitter
@@ -70,7 +70,7 @@ def regroup_tables(lines):
     return grouped
 
 
-# ------------------- Détection type de chunk (Étape 5) -------------------
+# ------------------- Détection type de chunk -------------------
 
 def _classify_chunk(text: str) -> str:
     """
@@ -210,7 +210,7 @@ def _chunk_sections_naive(text: str, src: str, max_characters: int) -> list[Docu
                 page_num = last_known_page
             clean_content = _strip_page_markers(chunk)
 
-            # Étape 5 : détecter le type de chunk et injecter le contexte
+            # Détecter le type de chunk et injecter le contexte
             chunk_type = _classify_chunk(clean_content)
             if chunk_type in ("table", "figure", "mixed"):
                 preamble = _build_context_preamble(chunk_type, clean_content)
@@ -438,7 +438,7 @@ def _chunk_sections_technical(text: str, src: str, max_characters: int) -> list[
 
             clean_content = _strip_page_markers(chunk)
 
-            # Étape 5 : détecter le type de chunk et injecter le contexte
+            # Détecter le type de chunk et injecter le contexte
             heading_title = info["full_title"] if info else ""
             chunk_type = _classify_chunk(clean_content)
             if chunk_type in ("table", "figure", "mixed"):

@@ -107,7 +107,7 @@ def test_max_iterations_guardrail_falls_back_to_best_tool_answer():
 
 
 def test_repeated_identical_call_breaks_early():
-    # Le modèle relance EXACTEMENT la même recherche = il tourne en rond. Le code
+    # Le modèle relance exactement la même recherche = il tourne en rond. Le code
     # ne ré-exécute pas l'outil ET SORT de la boucle (anti-loop) au lieu de gâcher
     # des itérations de raisonnement jusqu'à max_iterations.
     runs = {"n": 0}
@@ -203,7 +203,7 @@ def test_retrieve_only_gathers_passages_then_synthesizes():
 def test_retrieve_only_exposes_integral_chunks_for_ui():
     # En mode retrieve-only, l'outil renvoie AUSSI des chunks INTÉGRAUX (doc complet +
     # métadonnées enrichies). L'agent les cumule et les déduplique dans result["chunks"]
-    # pour le panneau « Passages récupérés » de l'UI, SANS jamais les réinjecter au LLM
+    # pour le panneau « Passages récupérés » de l'UI, sans jamais les réinjecter au LLM
     # (qui ne voit que les `passages` tronqués).
     c_alpha = {"doc": "A" * 1500, "ce_score": 0.7,
                "meta": {"id": "x1", "source": "a.md", "keywords_str": "k1", "questions_str": "q1 ?"}}

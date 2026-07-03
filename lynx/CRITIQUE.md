@@ -24,25 +24,33 @@ manquants, incohérences, ambiguïtés et mauvaises rédactions, puis produire u
 **score de fiabilité** de la matrice — vue globale d'abord, vérification continue
 ensuite.
 
-### 3. Le modèle de liens est trop pauvre. ⬜ À FAIRE
+### 3. Le modèle de liens est trop pauvre. ✅ FAIT (sauf assistant de rédaction)
 `parent_id` unique = arbre strict. Une vraie matrice est un **graphe (DAG)
 multi-liens typés** (satisfait / dérive / vérifie / raffine), many-to-many,
 multi-documents. Les exigences manquent d'**attributs** (méthode de vérification
-IADT, source, rationale, criticité) réclamés par le guide EN9100 ; l'assistant de
-rédaction existe mais n'est pas branché dans le verdict.
+IADT, source, rationale, criticité) réclamés par le guide EN9100. _(Fait depuis :
+`lynx/src/models.py:52-59` enum `LinkType` DERIVE/REFINES/SATISFIES/VERIFIES/
+ALLOCATES_TO ; `:83` `links: List[Link]` ; `:85-89` verification/source/rationale/
+criticité/version.)_ **Reste vrai** : l'assistant de rédaction existe mais n'est pas
+branché dans le verdict (`lynx/src/redaction.py:29 check_redaction` n'est importé
+nulle part — ni `app.py`, ni `orchestrator.py`, ni `analyzers.py`).
 
-### 4. Données, échelle, persistance. ⬜ À FAIRE
+### 4. Données, échelle, persistance. 🟡 PARTIEL
 Corpus jouet de 34 exigences ; un référentiel réel = des milliers, répartis sur
-Word/Excel/DOORS/ReqIF. Aucun **import réel** (ReqIF/Excel), aucune **persistance**
-(tout en `session_state`, perdu au rafraîchissement), pas d'historique ni de
-multi-utilisateur. `streamlit-agraph` ne tiendra pas 2 000 nœuds : il faudra un
+Word/Excel/DOORS/ReqIF. La **persistance** est faite (plus de perte au
+rafraîchissement, historique conservé). _(Fait depuis : `lynx/src/store.py:25-26,74-106`
+— `working.json` + `history.jsonl`.)_ **Restent vrais** : aucun **import réel**
+(ReqIF/Excel — l'import demeure JSON uniquement), pas de multi-utilisateur.
+`streamlit-agraph` ne tiendra pas 2 000 nœuds : il faudra un
 **graphe focalisé** (ego-graph), recherche et filtrage.
 
-### 5. Confiance. ⬜ À FAIRE
+### 5. Confiance. ✅ FAIT
 Verdicts LLM non déterministes et non validés. Pas de jeu d'**évaluation**
 mesurant précision/rappel sur les défauts plantés, pas de **citation** du passage
 fautif, pas de capture de **feedback** (« ce verdict était-il juste ? »). Pour la
-confiance d'un ingénieur : tracer le pourquoi et mesurer la qualité.
+confiance d'un ingénieur : tracer le pourquoi et mesurer la qualité. _(Fait depuis :
+`lynx/eval/run_eval.py` (196 cas) ; `lynx/src/analyzers.py:53-56` champ `preuve` ;
+`lynx/src/feedback.py`.)_
 
 ### 6. UI. 🟡 PARTIEL
 Amélioré (accueil, graphe agrandi, streaming, trace). Restent : états vides
@@ -56,7 +64,7 @@ corpus, finitions visuelles.
 3. ~~Persistance des éditions + historique~~ ✅
 4. Import réel (ReqIF / Excel) — reporté (on reste en JSON)
 5. ~~Jeu d'évaluation (rappel sur défauts plantés)~~ ✅ — précision/calibration + feedback restent
-6. Modèle de liens typés + attributs EN9100, branchés au verdict — à faire
+6. ~~Modèle de liens typés + attributs EN9100~~ ✅ (fait depuis : `lynx/src/models.py:52-59,83,85-89`) — reste à brancher l'assistant de rédaction au verdict
 7. Finitions UI / focus-graph pour l'échelle — partiel
 
 ## Travaux complémentaires (suite à AUTOCRITIQUE.md)

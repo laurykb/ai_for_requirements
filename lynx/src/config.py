@@ -13,8 +13,7 @@ DATA_DIR = PROJECT_ROOT / "corpus"
 DEFAULT_CORPUS = DATA_DIR / "corpus.json"
 
 # --- LLM (API compatible OpenAI) ------------------------------------------
-# Marche avec Ollama (/v1), vLLM, SGLang, TGI ou une API cloud, sans changer le
-# code : il suffit de pointer LLM_BASE_URL ailleurs.
+# Compatible avec toute API OpenAI-compatible via LLM_BASE_URL.
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral-small3.2:latest")
 LLM_MODEL = os.environ.get("LLM_MODEL", OLLAMA_MODEL)
 LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")
@@ -38,6 +37,11 @@ EMBED_DUP_THRESHOLD = float(os.environ.get("EMBED_DUP_THRESHOLD", "0.95"))
 # En-dessous de ce seuil, deux exigences sont clairement distinctes : on évite
 # alors l'appel LLM de redondance (routeur -> gain de latence).
 EMBED_DISTINCT_THRESHOLD = float(os.environ.get("EMBED_DISTINCT_THRESHOLD", "0.62"))
+# Zone « proche mais non reliée » : au-delà de ce seuil (et sous le doublon), une
+# exigence non voisine est un candidat d'impact latent (à faire trancher au LLM).
+EMBED_LATENT_THRESHOLD = float(os.environ.get("EMBED_LATENT_THRESHOLD", "0.70"))
+# Nombre max de candidats trans-matrice soumis au LLM (impact latent / co-références).
+LATENT_TOPK = int(os.environ.get("LATENT_TOPK", "5"))
 EMBED_DISABLED = os.environ.get("EMBED_DISABLE", "") == "1"
 # Mettre LLM_DISABLE=1 (ou OLLAMA_DISABLE=1) pour ignorer les agents LLM.
 LLM_DISABLED = os.environ.get("LLM_DISABLE", os.environ.get("OLLAMA_DISABLE", "")) == "1"

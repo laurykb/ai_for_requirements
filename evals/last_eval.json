@@ -1,0 +1,14 @@
+{
+  "run_name": "retrieval-v2-readme",
+  "timestamp": "2026-07-02T13:40:30",
+  "mode": "retrieval",
+  "dataset": "golden_qa_anssi_v2.json",
+  "num_questions": 30,
+  "aggregate": {
+    "keyword_hit_rate": 0.6444,
+    "context_recall": 0.532,
+    "context_precision": 0.2933,
+    "latency_s": 0.2247,
+    "num_chunks_retrieved": 7.7333
+  }
+}

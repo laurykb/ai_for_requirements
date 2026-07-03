@@ -90,7 +90,7 @@ def _strip_accents(text: str) -> str:
 _UNIT_PAT = (r"%|kg|km|cm|mm|ms|mw|kw|kv|ma|ko|mo|go|to|kb|mb|gb|tb|"
              r"ghz|mhz|khz|hz|db|bar|pa|tonnes?|euros?|eur|[gtmwvash]")
 _NUM_RE = re.compile(rf"(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>{_UNIT_PAT})(?![a-z])", re.IGNORECASE)
-# Recolle les séparateurs de milliers UNIQUEMENT si suivis (décimale optionnelle
+# Recolle les séparateurs de milliers seulement s'ils sont suivis (décimale optionnelle
 # comprise) d'une unité reconnue — évite de fusionner « version 2 014 ».
 _THOUSANDS_RE = re.compile(
     rf"\d{{1,3}}(?: \d{{3}})+(?=(?:[.,]\d+)?\s*(?:{_UNIT_PAT})(?![a-z]))", re.IGNORECASE)
@@ -114,7 +114,7 @@ def _clause(text: str, pos: int) -> str:
 
 
 def _has_kw(ctx: str, words: list[str], symbols: list[str], original: str) -> bool:
-    # Appariement par sous-chaîne (radical) : robuste aux flexions françaises.
+    # Appariement par sous-chaîne (radical) : gère les flexions françaises.
     if any(w in ctx for w in words):
         return True
     return any(s in original for s in symbols)

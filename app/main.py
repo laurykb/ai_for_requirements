@@ -137,7 +137,7 @@ def _nav_button(label: str, icon: str, view: str):
 
 
 def _sidebar_ingestion_badge():
-    """Indicateur d'ingestion PERSISTANT, visible dans TOUTES les vues. Montre les barres
+    """Indicateur d'ingestion persistant, visible dans toutes les vues. Montre les barres
     des documents en cours / en file (compact), avec un renvoi vers l'onglet Documents."""
     if not _ingest_active():
         return
@@ -346,7 +346,7 @@ def _services_health() -> dict:
 
 
 def _health_banner():
-    """Bannière claire si un service requis est hors ligne (robustesse mono-poste)."""
+    """Bannière claire si un service requis est hors ligne (mono-poste)."""
     h = _services_health()
     down = [n for n, ok in (("Ollama", h["ollama"]), ("MongoDB", h["mongo"])) if not ok]
     if down:

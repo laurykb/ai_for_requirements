@@ -24,6 +24,6 @@ def make_doc_id(text: str, source: str, chunk_idx: int | None) -> str:
     parts.append(f"text={txt}")
 
     key = "\n---\n".join(parts)
-    # SHA256 pour robustesse, tronqué à 16 caractères
+    # SHA256, tronqué à 16 caractères
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 

@@ -12,8 +12,8 @@ from typing import Callable, Dict, Iterator, List, Optional
 from . import llm
 from .analyzers import (
     Ctx, DETERMINISTIC_ANALYZERS, SEMANTIC_ANALYZERS,
-    analyze_allocation, analyze_couverture, analyze_downstream,
-    analyze_pertinence, analyze_redondance,
+    analyze_allocation, analyze_coreference, analyze_couverture, analyze_downstream,
+    analyze_impact_latent, analyze_pertinence, analyze_pertinence_aval, analyze_redondance,
 )
 from .config import MAX_NIVEAU
 
@@ -24,6 +24,9 @@ AGENT_LABELS = {
     analyze_pertinence: "Pertinence amont",
     analyze_couverture: "Couverture du parent",
     analyze_redondance: "Redondance / sur-spécification",
+    analyze_pertinence_aval: "Pertinence aval",
+    analyze_impact_latent: "Impact latent",
+    analyze_coreference: "Cohérence des co-références",
 }
 from .models import Action, ActionType, Finding, ImpactReport, LinkType, Scope, Severity
 from .tree import RequirementTree, _DECOMP
@@ -85,6 +88,14 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
         # rattacher à un descendant fermerait une boucle.
         if ltype in _DECOMP and parent in {d.id for d in tree.descendants(child)}:
             raise ActionError(f"Lien impossible : {parent} est déjà en aval de {child} (cycle).")
+        # Déclinaison = niveaux adjacents : la mère est exactement un niveau au-dessus
+        # de la fille (parent N-1 → fille N). On interdit tout saut de niveau (ex. L1 → L3).
+        parent_node = tree.get(parent)
+        if ltype in _DECOMP and parent_node and node.niveau != parent_node.niveau + 1:
+            raise ActionError(
+                f"Déclinaison invalide : {parent} (L{parent_node.niveau}) et {child} "
+                f"(L{node.niveau}) ne sont pas à des niveaux adjacents. Un lien de "
+                f"décomposition relie N → N+1 ; le saut de niveau est interdit.")
         return tree.with_link(child, parent, ltype)
     if action.action_type == ActionType.UNLINK:
         child, parent, ltype = action.target_id, action.link_target, action.link_type
@@ -110,19 +121,21 @@ def _safe(analyzer, ctx) -> List[Finding]:
 
 
 def _narrate(report: ImpactReport) -> str:
-    icon = {Severity.INFO: "🟢", Severity.WARNING: "🟡", Severity.BLOCKING: "🔴"}
-    lines = [f"{icon[report.global_status]} **Statut global : {report.global_status.value}** "
+    lines = [f"**Statut global : {report.global_status.value}** "
              f"pour {report.action_type.value} sur `{report.target_id}`.", ""]
     by_scope: dict[str, List[Finding]] = {}
     for f in report.findings:
         by_scope.setdefault(f.scope.value, []).append(f)
     titles = {
-        "STRUCTURE": "🧱 Validité structurelle",
-        "ALLOCATION": "📐 Allocation / budget",
-        "AMONT": "⬆️ T1 — Pertinence / cohérence amont",
-        "COUVERTURE": "🧩 T2 — Couverture du parent (complétude)",
-        "HORIZONTAL": "🤝 T3 — Redondance / sur-spécification",
-        "AVAL": "⬇️ Propagation aval (descendants)",
+        "STRUCTURE": "Validité structurelle",
+        "ALLOCATION": "Allocation / budget",
+        "AMONT": "T1 — Pertinence / cohérence amont",
+        "COUVERTURE": "T2 — Couverture du parent (complétude)",
+        "HORIZONTAL": "T3 — Redondance / sur-spécification",
+        "PERTINENCE_AVAL": "T4 — Pertinence / cohérence aval",
+        "IMPACT_LATENT": "Impact latent (exigences non reliées)",
+        "COHERENCE_REF": "Cohérence des co-références",
+        "AVAL": "Propagation aval (descendants)",
     }
     for scope, title in titles.items():
         items = by_scope.get(scope)
@@ -130,8 +143,9 @@ def _narrate(report: ImpactReport) -> str:
             continue
         lines.append(f"### {title}")
         for f in items:
-            mark = {Severity.INFO: "•", Severity.WARNING: "⚠️", Severity.BLOCKING: "⛔"}[f.severity]
-            lines.append(f"- {mark} {f.message}")
+            mark = {Severity.INFO: "", Severity.WARNING: "attention", Severity.BLOCKING: "bloquant"}[f.severity]
+            prefix = f"{mark} : " if mark else ""
+            lines.append(f"- {prefix}{f.message}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -262,7 +276,7 @@ def run_impact_analysis(corpus: List[dict], action: Action, semantic: bool = Tru
                 f.details["overridden"] = True
                 f.details["override_rationale"] = action.override_rationale
         report.recompute_status()
-        report.narrative = (f"🛡️ **Intégration forcée** (justification : "
+        report.narrative = (f"**Intégration forcée** (justification : "
                             f"{action.override_rationale or 'non précisée'}).\n\n") + _narrate(report)
     else:
         report.narrative = _narrate(report)

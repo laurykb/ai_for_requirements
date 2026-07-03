@@ -1,8 +1,8 @@
 """Embeddings locaux (endpoint compatible OpenAI : Ollama bge-m3, vLLM…).
 
-Sert de pré-filtre DÉTERMINISTE et reproductible pour la redondance / les
+Sert de pré-filtre déterministe et reproductible pour la redondance / les
 doublons : la similarité cosinus repère les quasi-doublons instantanément, le
-LLM n'arbitrant que les cas ambigus. Dégrade proprement si indisponible.
+LLM n'arbitrant que les cas ambigus. Sans effet si l'endpoint est indisponible.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def get_embedding(text: str) -> Optional[List[float]]:
 
 
 def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
-    """Embeddings de PLUSIEURS textes en UN seul appel (latence ↓). Utilise le cache."""
+    """Embeddings de plusieurs textes en un seul appel. Utilise le cache."""
     if EMBED_DISABLED or not texts:
         return None
     out: List[Optional[List[float]]] = [None] * len(texts)

@@ -14,7 +14,7 @@ Sur 196 cas labellisés par construction (16 domaines) :
 
 | | Précision | Rappel | F1 |
 |---|---|---|---|
-| **micro** | **0.99** | 0.90 | **0.95** |
+| **micro** | **0.99** | 0.91 | **0.95** |
 
 Posture **précision d'abord** : l'outil ne crie quasiment jamais au loup (1 faux
 positif sur 196). Voir `METHODOLOGIE.md` et `eval/`.
@@ -28,6 +28,9 @@ positif sur 196). Voir `METHODOLOGIE.md` et `eval/`.
 | Pertinence amont | LLM | la cible reste-t-elle cohérente avec ses ancêtres (N+1, N+2…) ? |
 | Couverture | LLM | le parent reste-t-il entièrement couvert par ses filles ? |
 | Redondance | embeddings + LLM | doublon ou sur-spécification entre sœurs ? |
+| Pertinence aval | LLM | la cible reste-t-elle cohérente avec ses filles (déclinaison) ? |
+| Impact latent | embeddings + LLM | des exigences **non reliées** sont-elles impactées par la modif ? |
+| Co-références | LLM | les exigences partageant un référent concret (interface, valeur) se contredisent-elles ? |
 | Aval | déterministe | quels descendants sont impactés ? |
 
 Le tout est synthétisé en **un verdict unique** (VALIDE / ATTENTION / BLOQUANT),

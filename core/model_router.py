@@ -71,7 +71,7 @@ _ROLE_MODELS = {
 # chargement de l'embedder -> embeddings nuls). Le cycle de vie des modèles est
 # désormais laissé au serveur (variable OLLAMA_KEEP_ALIVE), là où il doit vivre.
 _ROLE_PARAMS = {
-    # num_ctx plafonné sur TOUS les rôles : sans cela Ollama charge le contexte par
+    # num_ctx plafonné sur tous les rôles : sans cela Ollama charge le contexte par
     # défaut du modèle (131072 pour llama3.1). Avec OLLAMA_NUM_PARALLEL>1, le KV-cache
     # est multiplié par le nb de slots -> débordement VRAM/CPU (148 Go observés). Les
     # tâches légères (rewrite/judge) n'ont besoin que de quelques k tokens.

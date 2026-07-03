@@ -23,7 +23,7 @@ Principe directeur : **donner à chaque tâche le bon outil**.
 |---|---|---|
 | **Déterministe** (Python) | allocation budgétaire (somme enfants vs plafond), validité structurelle (liens, cycles, doublons), propagation aval | exact, instantané, reproductible — aucune raison d'appeler un LLM |
 | **Embeddings** (bge-m3) | redondance / doublons (similarité cosinus) | déterministe, rapide, scalable ; *routeur* : tranche les cas clairs, n'appelle le LLM que dans la bande ambiguë |
-| **LLM** (mistral-small3.2) | jugement sémantique nuancé : pertinence amont, couverture, redondance subtile | seul capable du raisonnement sur le sens |
+| **LLM** (mistral-small3.2) | jugement sémantique nuancé : pertinence amont, couverture, redondance subtile, pertinence aval, impact latent, co-références | seul capable du raisonnement sur le sens |
 
 Les analyseurs travaillent sur un **DAG** (`parent_id` + liens typés). Un
 orchestrateur applique l'action sur un arbre candidat, lance les analyseurs (les

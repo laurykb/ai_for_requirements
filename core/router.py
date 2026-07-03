@@ -30,7 +30,7 @@ logger = get_logger("rag.router")
 
 
 def _norm(text: str) -> str:
-    """Minuscule + sans accents, pour des motifs robustes (différence ~ difference)."""
+    """Minuscule + sans accents, pour comparer des motifs (différence ~ difference)."""
     t = unicodedata.normalize("NFD", (text or "").lower())
     return "".join(c for c in t if unicodedata.category(c) != "Mn")
 

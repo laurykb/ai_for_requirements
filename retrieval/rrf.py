@@ -1,4 +1,4 @@
-"""Fusion de classements (semantic, BM25, graph) via Reciprocal Rank Fusion."""
+"""Fusion de classements (sémantique, BM25) via Reciprocal Rank Fusion."""
 
 from collections import defaultdict
 from env_config import NUM_CHUNKS
@@ -93,7 +93,7 @@ def fuse_with_rrf(
     if not any(rank_lists):
         return []
 
-    # Applique la RRF pour obtenir un ordre fusionné robuste
+    # Applique la RRF pour obtenir un ordre fusionné
     fused = []
     for _id, score in rrf(rank_lists, k=rrf_k):
         if _id in merged:

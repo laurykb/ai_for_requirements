@@ -93,7 +93,7 @@ action ─▶ orchestrator.build_candidate_tree()   (arbre « candidat » après
 |---|---|
 | Schémas de données | `models.py` (Requirement, Action, Link, Finding, ImpactReport) |
 | Graphe (DAG) | `tree.py` (navigation + CRUD immutable, `with_link`/`with_unlink`) |
-| Analyseurs (agents) | `analyzers.py` (allocation, aval, pertinence, couverture, redondance) |
+| Analyseurs (agents) | `analyzers.py` (allocation, aval, pertinence, couverture, redondance, pertinence aval, impact latent, co-références) |
 | Orchestration | `orchestrator.py` (candidat, run, synthèse) |
 | Client LLM | `llm.py` (httpx, cache, **capture de trace**) ; `embeddings.py` |
 | Audit global | `audit.py` |
@@ -101,7 +101,7 @@ action ─▶ orchestrator.build_candidate_tree()   (arbre « candidat » après
 | Remédiation | `correction.py` + `redaction.py` (réécriture conforme EN9100) |
 | Prompts des agents | `skills/*.md` (un fichier par agent, éditable sans toucher au code) |
 | Persistance / mesure | `store.py`, `corpus_io.py`, `feedback.py`, `roi.py`, `telemetry.py` |
-| Interfaces | `app.py` (Streamlit), `api.py` (HTTP headless) |
+| Interfaces | `lynx/app.py` (Streamlit), `src/api.py` (HTTP headless) |
 
 Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`.
 
@@ -114,7 +114,7 @@ Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`
 bash start.sh                       # ou : python serve.py
 
 # Tests (hors-ligne, sans Ollama)
-python -m pytest tests --ignore=tests/test_mcp_server.py   # RAG (~108)
+python -m pytest tests                                     # RAG (~110)
 cd lynx && python -m pytest                                # LynX (40)
 
 # Évaluations chiffrées (avec LLM)

@@ -20,8 +20,18 @@ SKILL_META = {
                          "Vérifie que le parent reste couvert par ses filles"),
     "redondance_surspec": ("Agent Redondance (T3)", "IA",
                            "Compare l'exigence à ses sœurs (doublon / sur-spécification)"),
+    "coherence_pertinence_aval": ("Agent Pertinence aval (T4)", "IA",
+                                  "Vérifie que l'exigence reste cohérente avec ses filles (déclinaison)"),
+    "impact_latent": ("Agent Impact latent", "IA",
+                      "Repère les exigences non reliées mais sémantiquement impactées par la modif"),
+    "coherence_coreference": ("Agent Co-références", "IA",
+                              "Vérifie la cohérence entre exigences partageant un référent concret"),
     "routeur_embeddings": ("Routeur Redondance (embeddings)", "embeddings",
                            "Pré-filtre vectoriel : ne dérange le LLM que dans la zone ambiguë"),
+    "routeur_impact_latent": ("Routeur Impact latent (embeddings)", "embeddings",
+                              "Pré-filtre vectoriel : sélectionne les exigences proches non reliées"),
+    "routeur_coreference": ("Routeur Co-références (référents)", "déterministe",
+                            "Repère les exigences partageant un référent concret (acronyme, code, unité)"),
     "synthese_message": ("Agent Synthèse", "synthèse",
                          "Agrège tous les avis en un verdict unique"),
     "synthese_impact": ("Agent Synthèse", "synthèse",
@@ -86,6 +96,28 @@ def _fmt_input(skill: str, payload: Any) -> str:
         soeurs = _id_list(payload.get("exigences_soeurs"))
         return (f"« Voici l'exigence {cible} et ses sœurs {soeurs}. "
                 f"Est-elle redondante ou sur-spécifiée par rapport à elles ? »")
+    if skill == "coherence_pertinence_aval":
+        cible = _short_node(payload.get("exigence_cible"))
+        filles = _id_list(payload.get("exigences_filles"))
+        return (f"« Voici l'exigence {cible} et ses filles {filles}. "
+                f"Restent-elles cohérentes et pertinentes vis-à-vis d'elle (déclinaison) ? »")
+    if skill == "impact_latent":
+        cible = _short_node(payload.get("exigence_modifiee"))
+        proches = _id_list(payload.get("exigences_proches"))
+        return (f"« Voici l'exigence modifiée {cible} et des exigences NON reliées mais proches "
+                f"{proches}. Lesquelles sont réellement impactées et à relire ? »")
+    if skill == "coherence_coreference":
+        cible = _short_node(payload.get("exigence_cible"))
+        refs = _id_list(payload.get("co_references"))
+        return (f"« Voici l'exigence {cible} et des exigences partageant un référent concret "
+                f"{refs}. Restent-elles mutuellement cohérentes ? »")
+    if skill == "routeur_impact_latent":
+        return (f"« Sélectionne, parmi les exigences non reliées à `{payload.get('cible', '?')}`, "
+                f"les plus proches sémantiquement. »")
+    if skill == "routeur_coreference":
+        refs = ", ".join(payload.get("referents") or []) or "—"
+        return (f"« Cherche les exigences partageant un référent concret avec "
+                f"`{payload.get('cible', '?')}` (référents : {refs}). »")
     if skill == "routeur_embeddings":
         return (f"« Compare le vecteur de `{payload.get('cible', '?')}` à ses "
                 f"{payload.get('n_soeurs', 0)} sœur(s). »")
@@ -132,6 +164,35 @@ def _fmt_output(skill: str, out: Any) -> str:
         if conf:
             base += f" Sœurs en conflit : {_id_list(conf)}."
         return base + preuve_txt
+    if skill == "coherence_pertinence_aval":
+        base = (f"Cohérent avec ses filles : **{_oui_non(out.get('est_coherent'))}**. "
+                f"{out.get('synthese', '')}")
+        rupt = out.get("rupture_avec")
+        if rupt:
+            base += f" Rupture avec {_id_list(rupt)}."
+        return base + preuve_txt
+    if skill == "impact_latent":
+        impactees = out.get("impactees") or []
+        base = out.get("synthese", "") or (f"{len(impactees)} exigence(s) latente(s) impactée(s)."
+                                           if impactees else "Aucun impact latent.")
+        if impactees:
+            base += f" À relire : {_id_list(impactees)}."
+        return base + preuve_txt
+    if skill == "coherence_coreference":
+        base = (f"Cohérent : **{_oui_non(out.get('coherent'))}**. {out.get('synthese', '')}")
+        conf = out.get("conflits")
+        if conf:
+            base += f" En conflit : {_id_list(conf)}."
+        return base + preuve_txt
+    if skill == "routeur_impact_latent":
+        if out.get("note"):
+            return f"Aucune exigence retenue — {out['note']}."
+        return (f"Exigences proches retenues : {_id_list(out.get('retenus'))} "
+                f"(similarités {out.get('similarites', '')}).")
+    if skill == "routeur_coreference":
+        if out.get("note"):
+            return f"Aucune co-référence — {out['note']}."
+        return f"Exigences partageant un référent : {_id_list(out.get('co_references'))}."
     if skill == "routeur_embeddings":
         return (f"Sœur la plus proche : `{out.get('plus_proche', '?')}` "
                 f"(similarité {out.get('similarite', '?')}). "
@@ -172,8 +233,10 @@ def audit_is_flagged(out: Any) -> bool:
     per = out.get("pertinence") or {}
     cov = out.get("couverture") or {}
     rdd = out.get("redondance") or {}
+    pav = out.get("pertinence_aval") or {}
     return (red.get("conforme") is False or per.get("coherent") is False
-            or cov.get("complet") is False or rdd.get("redondant") is True)
+            or cov.get("complet") is False or rdd.get("redondant") is True
+            or pav.get("coherent") is False)
 
 
 def _fmt_audit_input(payload: Any) -> str:
@@ -209,8 +272,12 @@ def _fmt_audit_output(out: Any) -> str:
     if rdd.get("redondant") is True:
         avec = ", ".join(map(str, rdd.get("avec") or [])) or "une sœur"
         parts.append(f"Redondance : doublon avec {avec}")
+    pav = out.get("pertinence_aval") or {}
+    if pav.get("coherent") is False:
+        avec = ", ".join(map(str, pav.get("avec") or [])) or "une fille"
+        parts.append(f"Pertinence aval : incohérence avec {avec}")
     if not parts:
-        return "Conforme sur tous les axes (rédaction, pertinence, couverture, redondance)."
+        return "Conforme sur tous les axes (rédaction, pertinence, couverture, redondance, pertinence aval)."
     return " · ".join(parts)
 
 

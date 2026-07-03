@@ -1,6 +1,6 @@
 # nlp/ner_extractor.py
 """
-Étape 7 - Extraction d'entités nommées (NER).
+Extraction d'entités nommées (NER).
 
 Combine :
 - spaCy NER (fr_core_news_sm) pour PER, ORG, LOC, MISC
@@ -10,7 +10,6 @@ Combine :
 Les entités sont stockées dans les métadonnées de chaque chunk pour :
 - Améliorer le filtrage / faceted search
 - Enrichir le contenu pour le retrieval (entities_str dans BM25)
-- Permettre le futur GraphRAG (Étape 8)
 """
 
 import re
