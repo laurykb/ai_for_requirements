@@ -466,3 +466,124 @@ def test_override_downgrades_blocking():
     report = run_impact_analysis(_corpus(), action)
     assert report.global_status != Severity.BLOCKING
     assert any(f.details.get("overridden") for f in report.findings)
+
+
+# --- T4 : pertinence aval (cohérence de la cible vs ses filles) -----------
+def _ctx_for(corpus, action):
+    from src.analyzers import Ctx
+    from src.orchestrator import build_candidate_tree
+    current = RequirementTree(corpus)
+    return Ctx(current=current, candidate=build_candidate_tree(current, action), action=action)
+
+
+_AVAL_CORPUS = [
+    {"id": "P", "niveau": 0, "type": "x", "domaine": "d",
+     "texte": "Le drone doit voler au moins 2 heures.", "parent_id": None, "test_status": "PENDING"},
+    {"id": "C", "niveau": 1, "type": "x", "domaine": "d",
+     "texte": "L'autonomie de vol est limitée à 30 minutes.", "parent_id": "P", "test_status": "PENDING"},
+]
+
+
+def test_pertinence_aval_skips_when_no_children():
+    # Cible feuille (C n'a pas de fille) -> aucun constat, aucun appel LLM.
+    from src.analyzers import analyze_pertinence_aval
+    ctx = _ctx_for(_AVAL_CORPUS, Action(action_type=ActionType.UPDATE, target_id="C",
+                                        new_text="L'autonomie de vol est d'au moins 2 heures."))
+    assert analyze_pertinence_aval(ctx) == []
+
+
+def test_pertinence_aval_skips_on_delete():
+    from src.analyzers import analyze_pertinence_aval
+    ctx = _ctx_for(_AVAL_CORPUS, Action(action_type=ActionType.DELETE, target_id="C"))
+    assert analyze_pertinence_aval(ctx) == []
+
+
+def test_pertinence_aval_flags_incoherent_child(monkeypatch):
+    from src import analyzers
+    from src.analyzers import analyze_pertinence_aval
+    monkeypatch.setattr(analyzers, "LLM_VOTE", 1)  # neutralise le re-vote
+    monkeypatch.setattr(analyzers.llm, "call_skill", lambda skill, payload: {
+        "est_coherent": False, "rupture_avec": ["C"], "niveau_gravite": "BLOCKING",
+        "preuve": "limitée à 30 minutes", "synthese": "La fille contredit la cible."})
+    # Cible P (a une fille C) modifiée -> l'agent aval juge la déclinaison.
+    ctx = _ctx_for(_AVAL_CORPUS, Action(action_type=ActionType.UPDATE, target_id="P",
+                                        new_text="Le drone doit voler au moins 2 heures."))
+    findings = analyze_pertinence_aval(ctx)
+    assert len(findings) == 1
+    assert findings[0].scope == Scope.PERTINENCE_AVAL
+    assert findings[0].severity == Severity.BLOCKING
+    assert "C" in findings[0].impacted_ids
+
+
+# --- Impact latent & co-références (analyseurs trans-matrice) --------------
+def test_impact_latent_skips_on_delete():
+    from src.analyzers import analyze_impact_latent
+    ctx = _ctx_for(_AVAL_CORPUS, Action(action_type=ActionType.DELETE, target_id="C"))
+    assert analyze_impact_latent(ctx) == []
+
+
+def test_impact_latent_skips_without_embeddings(monkeypatch):
+    from src import analyzers
+    from src.analyzers import analyze_impact_latent
+    monkeypatch.setattr(analyzers.embeddings, "embeddings_available", lambda: False)
+    ctx = _ctx_for(_AVAL_CORPUS, Action(action_type=ActionType.UPDATE, target_id="P",
+                                        new_text="Le drone doit voler au moins 2 heures."))
+    assert analyze_impact_latent(ctx) == []
+
+
+def test_referents_extracts_codes_and_units():
+    from src.analyzers import _referents
+    toks, units = _referents("Le bus CAN délivre 28 V via une liaison RS422.")
+    assert "CAN" in toks and "RS422" in toks
+    assert "V" in units
+
+
+def test_coreference_skips_when_no_shared_referent():
+    from src.analyzers import analyze_coreference
+    corpus = [
+        {"id": "X", "niveau": 0, "texte": "Le drone doit être léger.", "parent_id": None},
+        {"id": "Y", "niveau": 0, "texte": "La caméra doit filmer en couleur.", "parent_id": None},
+    ]
+    ctx = _ctx_for(corpus, Action(action_type=ActionType.UPDATE, target_id="X",
+                                  new_text="Le drone doit être léger."))
+    assert analyze_coreference(ctx) == []
+
+
+def test_coreference_flags_conflict(monkeypatch):
+    from src import analyzers
+    from src.analyzers import analyze_coreference
+    corpus = [
+        {"id": "CR-A", "niveau": 0, "texte": "La radio est alimentée en 28 V.", "parent_id": None},
+        {"id": "CR-B", "niveau": 0, "texte": "Le bus délivre une tension de 24 V.", "parent_id": None},
+    ]
+    monkeypatch.setattr(analyzers.llm, "call_skill", lambda skill, payload: {
+        "coherent": False, "conflits": [{"id": "CR-B", "probleme": "28 V vs 24 V"}],
+        "niveau_gravite": "BLOCKING", "preuve": "28 V / 24 V", "synthese": "Tension incohérente."})
+    ctx = _ctx_for(corpus, Action(action_type=ActionType.UPDATE, target_id="CR-A",
+                                  new_text="La radio est alimentée en 28 V."))
+    findings = analyze_coreference(ctx)
+    assert len(findings) == 1
+    assert findings[0].scope == Scope.COHERENCE_REF
+    assert findings[0].severity == Severity.BLOCKING
+    assert "CR-B" in findings[0].impacted_ids
+
+
+def test_link_forbids_level_jump():
+    import pytest
+    from src.models import LinkType
+    from src.orchestrator import build_candidate_tree, ActionError
+    corpus = [
+        {"id": "L0", "niveau": 0, "texte": "Besoin.", "parent_id": None},
+        {"id": "L1", "niveau": 1, "texte": "Système.", "parent_id": "L0"},
+        {"id": "L2", "niveau": 2, "texte": "Sous-système.", "parent_id": "L1"},
+        {"id": "L3", "niveau": 3, "texte": "Composant.", "parent_id": "L2"},
+    ]
+    tree = RequirementTree(corpus)
+    # Saut de niveau L3 (L3) -> L1 (L1) : diff de 2 niveaux -> rejeté.
+    with pytest.raises(ActionError):
+        build_candidate_tree(tree, Action(action_type=ActionType.LINK, target_id="L3",
+                                          link_target="L1", link_type=LinkType.DERIVE))
+    # Niveaux adjacents L2 -> L1 : accepté.
+    out = build_candidate_tree(tree, Action(action_type=ActionType.LINK, target_id="L2",
+                                            link_target="L1", link_type=LinkType.DERIVE))
+    assert any(lk.target == "L1" for lk in out.get("L2").links)

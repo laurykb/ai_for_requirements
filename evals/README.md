@@ -5,10 +5,14 @@ et détecter les **régressions** entre deux versions.
 
 ## Contenu
 
-- `golden_qa_anssi.json` — jeu de questions/réponses **doré** (réponses vérifiées dans
-  le document source). Chaque item porte aussi des `expected_keywords` pour la
-  métrique de recherche pure.
+- `golden_qa_anssi_v2.json` — jeu de questions/réponses **doré** par défaut (30 items,
+  réponses vérifiées dans le document source `ANSSI-Cible-Mistral.md`). Chaque item porte
+  aussi des `expected_keywords` pour la métrique de recherche pure.
 - `run_eval.py` — exécutable d'évaluation (s'appuie sur `core/evaluation.py`).
+- `last_eval.json` — dernier run de référence archivé (moyennes agrégées).
+- `archive/golden_qa_anssi_v1_legacy.json` — ancien jeu (10 items), conservé pour
+  historique. Il vise une version antérieure de la cible et ne s'aligne plus qu'à ~26 %
+  sur l'index courant ; ne pas l'utiliser tel quel (préférer le v2).
 
 ## Métriques
 
@@ -46,7 +50,7 @@ sur `keyword_hit_rate`, `faithfulness` ou `answer_relevance` → utilisable en C
 
 ## Étendre le jeu doré
 
-Ajouter des items à `golden_qa_anssi.json` : `question`, `answer` (vérifiée dans le
+Ajouter des items à `golden_qa_anssi_v2.json` : `question`, `answer` (vérifiée dans le
 doc) et `expected_keywords`. Garder les réponses **factuelles et ancrées** ; ne pas
 inventer. Idéalement ≥ 30 questions couvrant identification, fonctions de sécurité,
 menaces, hypothèses et exigences pour une couverture représentative.

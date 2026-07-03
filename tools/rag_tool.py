@@ -92,7 +92,7 @@ def rag_search(query: str, document=None, system_prompt: str = None,
             "mode": "passages",
             "passages": passages,            # texte TRONQUÉ : contexte vu par le LLM agent
             # Chunks INTÉGRAUX (doc complet + métadonnées enrichies), pour l'UI/persistance -
-            # JAMAIS réinjectés au LLM (sinon on noierait son contexte). Voir core.agent.
+            # jamais réinjectés au LLM (sinon on noierait son contexte). Voir core.agent.
             "chunks": [
                 {"doc": c.get("doc", ""), "ce_score": c.get("ce_score"), "meta": c.get("meta", {})}
                 for c in kept

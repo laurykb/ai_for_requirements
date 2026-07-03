@@ -11,7 +11,7 @@ multi-OS ; la base s'installe sans GPU. L'accélération NVIDIA est optionnelle.
 |---|---|---|
 | **Python 3.11+** | runtime | python.org, `pyenv`, `brew install python@3.11`, `apt install python3.11` |
 | **Ollama** | LLM + embeddings (local) | <https://ollama.com/download> (Linux/macOS/Windows) |
-| **MongoDB** | chunks, BM25, graphe, traces | service local ou `docker run -p 27017:27017 mongo` |
+| **MongoDB** | chunks, BM25, traces | service local ou `docker run -p 27017:27017 mongo` |
 
 > Sans GPU NVIDIA, tout tourne en **CPU** (plus lent). Sur **macOS**, PyTorch utilise
 > automatiquement le backend **MPS** (Apple Silicon) si disponible.
@@ -48,7 +48,7 @@ python -m spacy download fr_core_news_sm   # modèle NER français
 
 ```bash
 # LLM + embeddings (Ollama)
-ollama pull llama3.1:8b        # génération / raisonnement (qualité)
+ollama pull mistral-small3.2   # génération / raisonnement (qualité)
 ollama pull llama3.2:3b        # OPTIONNEL : mode rapide (~5× plus vite)
 ollama pull bge-m3:567m        # embeddings
 
@@ -73,7 +73,7 @@ MONGO_HOST=localhost
 MONGO_PORT=27017
 MONGO_DB=ragdb
 EMBED_MODEL=bge-m3:567m
-GEN_MODEL=llama3.1:8b
+GEN_MODEL=mistral-small3.2:latest
 
 # Mode rapide (latence ~5×, qualité moindre — voir README) :
 # RAG_FAST_MODE=true
@@ -87,7 +87,7 @@ GEN_MODEL=llama3.1:8b
 ## 5) Lancer
 
 ```bash
-streamlit run app/app.py                       # interface web (http://localhost:8501)
+streamlit run app/main.py                      # interface web (http://localhost:8501)
 python -m evals.run_eval --mode retrieval      # évaluation retrieval (rapide)
 python -m core.agent "Quel est le niveau EAL de la TOE ?"   # agent en CLI
 python rag_mcp_server.py                        # serveur MCP (stdio)

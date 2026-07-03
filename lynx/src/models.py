@@ -37,6 +37,9 @@ class Scope(str, Enum):
     AVAL = "AVAL"               # propagation déterministe vers les descendants
     AMONT = "AMONT"             # T1 — pertinence / non-cassure vs ancêtres (N+1, N+2…)
     COUVERTURE = "COUVERTURE"   # T2 — complétude : le parent reste-t-il couvert ?
+    PERTINENCE_AVAL = "PERTINENCE_AVAL"  # T4 — pertinence / cohérence vs filles (déclinaison)
+    IMPACT_LATENT = "IMPACT_LATENT"      # exigences non reliées mais sémantiquement impactées
+    COHERENCE_REF = "COHERENCE_REF"      # cohérence entre exigences partageant un référent concret
     STRUCTURE = "STRUCTURE"     # validité structurelle de l'action elle-même
 
 

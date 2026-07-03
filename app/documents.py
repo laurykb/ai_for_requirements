@@ -150,7 +150,7 @@ def _render_doc_explorer(src: str, key_prefix: str = "exp",
                 st.components.v1.html(_markdown_viewer(md_text, sel.get("content", "")),
                                       height=viewer_height, scrolling=True)
     else:
-        # Chat : UNIQUEMENT la navigation par chunks (la visualisation page entière et le
+        # Chat : uniquement la navigation par chunks (la visualisation page entière et le
         # résumé restent dans l'onglet Documents).
         idx = st.selectbox("Chunks", range(len(chunks)), key=f"{key_prefix}_chunk",
                            format_func=lambda i: labels[i], label_visibility="collapsed")

@@ -285,7 +285,7 @@ class ReActAgent:
         """Variante générateur : émet des ÉVÉNEMENTS au fil de l'eau pour l'UI -
         chaque Pensée/Action/Observation dès qu'elle survient, puis les tokens de la
         synthèse finale. À temps total égal, l'expérience est bien plus fluide
-        (ressenti Claude/ChatGPT). Termine par un événement {"type":"done","result":...}.
+        (ressenti type assistant conversationnel). Termine par un événement {"type":"done","result":...}.
 
         Types d'événements : thought | action | observation | answer_token | done.
         """
@@ -398,7 +398,7 @@ class ReActAgent:
         try:
             out = self.llm.invoke(prompt, stop=_STOP)
         except TypeError:
-            # Certains LLM/mocks n'acceptent pas `stop` : on retombe proprement.
+            # Certains LLM/mocks n'acceptent pas `stop` : on retombe sans.
             out = self.llm.invoke(prompt)
         return out if isinstance(out, str) else str(out)
 

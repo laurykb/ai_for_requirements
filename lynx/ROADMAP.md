@@ -1,6 +1,6 @@
 # Roadmap — ce qui reste à faire
 
-État actuel : démonstrateur fonctionnel, mesuré (**précision 0.99 · rappel 0.90 ·
+État actuel : démonstrateur fonctionnel, mesuré (**précision 0.99 · rappel 0.91 ·
 F1 0.95** sur 196 cas), local/open-source. Ce qui sépare ce démonstrateur d'un
 produit adopté par des ingénieurs système experts, par ordre de valeur.
 
@@ -41,7 +41,7 @@ gravité, badges de rôle, flèches typographiques). Voir mémoire `lynx-ux-prin
 - [ ] **Élargir l'éval** (plus de cas, sous-ensemble labellisé par un humain) pour
       départager les modèles et détecter les biais résiduels.
 - [ ] **Confiance par constat** : calibrer un niveau de confiance par finding.
-- [ ] Redondance : rappel 0.84 (précision 1.00). Tester `EMBED_DUP_THRESHOLD=0.93`
+- [ ] Redondance : rappel 0.87 (précision 1.00). Tester `EMBED_DUP_THRESHOLD=0.93`
       pour récupérer du rappel sans perdre la précision.
 
 ## 2. Durcissement (5 critiques corrigés, backlog restant)

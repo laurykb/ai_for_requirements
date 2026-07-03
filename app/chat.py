@@ -81,8 +81,8 @@ def _chat_eval_ui(messages: list):
 def _trim_chunk(c: dict) -> dict:
     """Réduit un chunk aux champs utiles à l'affichage et à la régénération (persistance).
 
-    On conserve le `doc` INTÉGRAL (jamais tronqué) et les métadonnées d'enrichissement
-    (mots-clés / questions / entités / type) pour pouvoir montrer EXACTEMENT ce que le
+    On conserve le `doc` intégral (jamais tronqué) et les métadonnées d'enrichissement
+    (mots-clés / questions / entités / type) pour pouvoir montrer exactement ce que le
     retriever est allé chercher, y compris sur les anciens messages rechargés."""
     meta = c.get("meta", {})
     keep = ("source", "page_number", "heading", "breadcrumb", "section_idx", "chunk_idx",
@@ -134,7 +134,7 @@ def _render_chunk_detail(c: dict):
 
 def _chat_chunks_for_message(m: dict, idx: int, is_last: bool, question: str):
     """Panneau « Passages récupérés » d'UNE réponse : un menu déroulant par chunk
-    (contenu intégral + métadonnées). Consultable sur TOUTE réponse de l'historique.
+    (contenu intégral + métadonnées). Consultable sur toute réponse de l'historique.
     Pour la DERNIÈRE réponse seulement : cases à cocher + régénération (la régénération
     remplace la dernière réponse, donc n'a de sens que là)."""
     ss = st.session_state
@@ -192,7 +192,7 @@ def _run_agent_ui(prompt: str, source_filter: "str | list[str] | None"):
         return _rt(name, arguments)
 
     status = st.status("Réflexion en cours...", expanded=True)
-    answer_ph = st.empty()  # la réponse finale se streame ici, SOUS le raisonnement
+    answer_ph = st.empty()  # la réponse finale se streame ici, sous le raisonnement
     parts: list[str] = []
     trace: list[str] = []
     result: dict = {}
@@ -282,15 +282,15 @@ def _chat_session_header():
 def view_chat():
     ss = st.session_state
     _chat_session_header()
-    # Le chat est DÉCOUPLÉ de l'ingestion : l'absorption se fait dans l'onglet Documents
+    # Le chat est découplé de l'ingestion : l'absorption se fait dans l'onglet Documents
     # (file séquentielle en arrière-plan). On répond toujours sur l'index existant, sans
-    # blocage. Le périmètre documentaire est une sélection MANUELLE (multi-document).
+    # blocage. Le périmètre documentaire est une sélection manuelle (multi-document).
     sources = list_sources()
     ss.setdefault("scope_multiselect", [])
     ss.scope_multiselect = [d for d in ss.scope_multiselect if d in sources]  # purge disparus
 
-    # Ligne du haut : sélecteur de DOCUMENTS (multi-document) à gauche, contrôle du
-    # MODÈLE de génération à droite (les deux modes).
+    # Ligne du haut : sélecteur de documents (multi-document) à gauche, contrôle du
+    # modèle de génération à droite (les deux modes).
     top = st.columns([4, 1])
     with top[0]:
         selected = st.multiselect(
@@ -314,8 +314,8 @@ def view_chat():
             ":material/info: Aucun document choisi -> je cherche dans **tous vos documents**. "
             "Pour cibler, cochez un ou plusieurs documents ci-dessus.")
 
-    # Voyant FLOTTANT du document actif : utile sur de longues conversations, mais c'est un
-    # overlay -> réservé au mode EXPERT pour garder le chat simple épuré.
+    # Voyant flottant du document actif : utile sur de longues conversations, mais c'est un
+    # overlay -> réservé au mode expert pour garder le chat simple épuré.
     if ss.expert_mode and source_filter:
         _label = (source_filter[0] if len(source_filter) == 1
                   else f"{len(source_filter)} documents")
@@ -380,7 +380,7 @@ def view_chat():
                          if idx > 0 and messages[idx - 1]["role"] == "user" else "")
                     _chat_chunks_for_message(m, idx, idx == len(messages) - 1, q)
 
-    # Vérification LLM-as-judge de la réponse : outil d'évaluation -> mode EXPERT seulement.
+    # Vérification LLM-as-judge de la réponse : outil d'évaluation -> mode expert seulement.
     if ss.expert_mode:
         _chat_eval_ui(messages)
 
@@ -492,7 +492,7 @@ def view_chat():
                 st.error(f"{answer}\n\n`{type(e).__name__}: {str(e)[:200]}`")
                 citations, _chunks, reasoning = [], [], None
 
-        # Vérification CIBLÉE (mode Auto + RAG + question à enjeu) : +1 appel SEULEMENT
+        # Vérification ciblée (mode Auto + RAG + question à enjeu) : +1 appel seulement
         # quand ça compte -> on ne paie pas la vérif sur le tout-venant. Pas de double
         # évaluation : si l'auto-correction (Self-RAG) est active, elle a DÉJÀ vérifié.
         ss.eval_result = None

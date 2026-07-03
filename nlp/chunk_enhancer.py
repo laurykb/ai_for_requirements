@@ -293,7 +293,7 @@ def extract_keywords_and_questions(text: str, num_keywords: int = 5, num_questio
             generate_questions(text, topn=num_questions, model=model))
 
 
-# ------------------- Description de tables/figures (Étape 5) -------------------
+# ------------------- Description de tables/figures -------------------
 
 TABLE_DESCRIPTION_PROMPT = """Tu es un expert en analyse de documents techniques.
 
@@ -355,7 +355,7 @@ def enhance_chunk(doc, num_keywords: int = 5, num_questions: int = 3, model: str
     text = doc.page_content
     chunk_type = doc.metadata.get("chunk_type", "text")
 
-    # Étape 5 : générer une description pour les chunks table/mixed
+    # Générer une description pour les chunks table/mixed
     if chunk_type in ("table", "mixed"):
         heading = doc.metadata.get("heading", "")
         desc = describe_table(text, heading=heading, model=model)
@@ -379,7 +379,7 @@ def enhance_chunk(doc, num_keywords: int = 5, num_questions: int = 3, model: str
     doc.metadata["questions"] = questions
     doc.metadata["questions_str"] = " | ".join(questions)
 
-    # Étape 7 : Extraction d'entités nommées (spaCy + regex)
+    # Extraction d'entités nommées (spaCy + regex)
     ner_dict = extract_entities(doc.page_content)
     doc.metadata["entities"] = ner_dict                         # dict structuré
     doc.metadata["entities_flat"] = entities_to_flat_list(ner_dict)  # liste plate

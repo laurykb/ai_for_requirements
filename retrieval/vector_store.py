@@ -45,7 +45,7 @@ class VectorStore(ABC):
         `source_filter` restreint la recherche à un OU plusieurs documents
         (appartenance de la métadonnée `source`). Accepte un nom, une liste de
         noms, ou None (= tout l'index). Chaque backend traduit ce filtre dans son
-        propre langage (`$in` côté Chroma, `MatchAny` côté Qdrant).
+        propre langage (`$in` côté Chroma).
         """
 
     @abstractmethod

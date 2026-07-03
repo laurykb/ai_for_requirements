@@ -3,7 +3,8 @@
 Scanne TOUT le corpus (pas seulement une édition) pour produire un score de
 fiabilité et la liste des points faibles : liens manquants, doublons d'ID,
 cycles, dépassements de budget (déterministe), puis rédaction, pertinence,
-couverture et redondance par exigence (une passe LLM par exigence, en parallèle).
+couverture, redondance et pertinence aval par exigence (une passe LLM par exigence,
+en parallèle), plus la cohérence des co-références trans-matrice.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from . import embeddings, llm
-from .config import ALLOCATION_TOLERANCE, EMBED_DUP_THRESHOLD, LLM_MAX_CONCURRENCY
+from .config import ALLOCATION_TOLERANCE, EMBED_DUP_THRESHOLD, LATENT_TOPK, LLM_MAX_CONCURRENCY
 from .extract import allocation_rollup, from_base
 from .tree import RequirementTree
 
@@ -24,7 +25,7 @@ _PENALTY = {"BLOQUANT": 9, "WARNING": 3, "INFO": 0}
 @dataclass
 class MatrixFinding:
     req_id: str
-    axis: str        # LIEN | DOUBLON | CYCLE | ALLOCATION | REDACTION | PERTINENCE | COUVERTURE | REDONDANCE
+    axis: str        # LIEN | DOUBLON | CYCLE | ALLOCATION | REDACTION | PERTINENCE | COUVERTURE | REDONDANCE | PERTINENCE_AVAL | COHERENCE_REF
     severity: str    # INFO | WARNING | BLOQUANT
     message: str
 
@@ -142,11 +143,16 @@ def _audit_one(tree: RequirementTree, req) -> List[MatrixFinding]:
         avec = ", ".join(map(str, rdd.get("avec") or [])) or "une sœur"
         out.append(MatrixFinding(req.id, "REDONDANCE", "BLOQUANT",
                                  f"Redondante avec {avec}."))
+    pav = resp.get("pertinence_aval") or {}
+    if pav.get("coherent") is False:
+        avec = ", ".join(map(str, pav.get("avec") or [])) or "une fille"
+        out.append(MatrixFinding(req.id, "PERTINENCE_AVAL", "BLOQUANT",
+                                 f"Pertinence aval : {pav.get('probleme') or f'incohérence avec {avec}'}"))
     return out
 
 
 def _embedding_duplicates(corpus: List[dict]) -> List[MatrixFinding]:
-    """Détecte les doublons quasi-identiques PARTOUT dans la matrice (embeddings)."""
+    """Détecte les doublons quasi-identiques dans toute la matrice (embeddings)."""
     if not embeddings.embeddings_available():
         return []
     items = [(r["id"], r.get("texte", "")) for r in corpus if r.get("texte")]
@@ -172,6 +178,45 @@ def _embedding_duplicates(corpus: List[dict]) -> List[MatrixFinding]:
     return findings
 
 
+def _coreference_findings(corpus: List[dict]) -> List[MatrixFinding]:
+    """Cohérence trans-matrice : exigences partageant un référent concret (acronyme,
+    code, interface) qui se contredisent. Borné : groupes les plus partagés d'abord.
+    """
+    from collections import defaultdict
+    from .analyzers import _referents
+
+    reqs = [r for r in corpus if r.get("texte") and r.get("id")]
+    by_ref: Dict[str, list] = defaultdict(list)
+    for r in reqs:
+        toks, units = _referents(r["texte"])
+        for ref in (toks | units):
+            by_ref[ref].append(r)
+    groups = sorted(((ref, g) for ref, g in by_ref.items() if len(g) >= 2),
+                    key=lambda x: len(x[1]), reverse=True)
+    out: List[MatrixFinding] = []
+    seen_pairs: set = set()
+    for tok, g in groups[:2 * LATENT_TOPK]:  # cap dur du nombre d'appels LLM
+        cible = g[0]
+        payload = {
+            "exigence_cible": {"id": cible["id"], "niveau": cible.get("niveau"), "texte": cible["texte"]},
+            "co_references": [{"id": r["id"], "niveau": r.get("niveau"), "texte": r["texte"],
+                               "referents_partages": [tok]} for r in g[1:1 + LATENT_TOPK]],  # cap taille de groupe
+        }
+        resp = llm.call_skill("coherence_coreference", payload)
+        if resp.get("error") or resp.get("coherent", True):
+            continue
+        for c in (resp.get("conflits") or []):
+            cid = c.get("id") if isinstance(c, dict) else c
+            probleme = c.get("probleme") if isinstance(c, dict) else "incohérence"
+            key = tuple(sorted((str(cible["id"]), str(cid))))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            out.append(MatrixFinding(cible["id"], "COHERENCE_REF", "BLOQUANT",
+                                     f"Co-référence « {tok} » : {probleme} (avec {cid})."))
+    return out
+
+
 def audit_matrix(corpus: List[dict], deep: bool = True,
                  on_event: Optional[Callable[[int, int], None]] = None) -> MatrixReport:
     """Audite tout le corpus. ``on_event(done, total)`` suit l'avancement sémantique."""
@@ -184,6 +229,7 @@ def audit_matrix(corpus: List[dict], deep: bool = True,
         tree = None  # doublons : on s'arrête au structurel
 
     if deep and tree is not None and llm.llm_available():
+        findings += _coreference_findings(corpus)  # cohérence trans-matrice (borné)
         reqs = tree.all()
         total = len(reqs)
         done = 0

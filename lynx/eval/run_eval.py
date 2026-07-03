@@ -23,7 +23,8 @@ from src.orchestrator import run_impact_analysis
 
 _DIR = Path(__file__).parent
 DEFAULT_CORPUS = json.loads((_DIR / "corpus_eval.json").read_text(encoding="utf-8"))["exigences"]
-AXES = ["ALLOCATION", "AMONT", "COUVERTURE", "HORIZONTAL"]
+AXES = ["ALLOCATION", "AMONT", "COUVERTURE", "HORIZONTAL", "PERTINENCE_AVAL",
+        "IMPACT_LATENT", "COHERENCE_REF"]
 
 # Cas de référence (sur le corpus propre par défaut).
 REFERENCE_CASES = [
@@ -44,6 +45,44 @@ REFERENCE_CASES = [
                 "new_text": "La charge utile doit intégrer un télémètre laser pour mesurer la distance à la cible."}},
     {"name": "couverture_delete", "expected": ["COUVERTURE"],
      "action": {"action_type": "DELETE", "target_id": "E-L2-IR"}},
+    # T4 — pertinence aval : une fille contredit la valeur de la cible.
+    {"name": "pertinence_aval_incoherente", "expected": ["PERTINENCE_AVAL"],
+     "corpus": [
+         {"id": "PA-P", "niveau": 0, "texte": "Le drone doit voler au moins 2 heures.", "parent_id": None},
+         {"id": "PA-C", "niveau": 1, "texte": "L'autonomie de vol est limitée à 30 minutes.", "parent_id": "PA-P"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "PA-P",
+                "new_text": "Le drone doit voler au moins 2 heures."}},
+    # T4 — pertinence aval : déclinaison cohérente (préciser/décomposer n'est pas une rupture).
+    {"name": "pertinence_aval_coherente", "expected": [],
+     "corpus": [
+         {"id": "PC-P", "niveau": 0, "texte": "La chaîne énergétique ne doit pas dépasser 5 kg.", "parent_id": None},
+         {"id": "PC-C1", "niveau": 1, "texte": "Le pack batterie a une masse de 3 kg.", "parent_id": "PC-P"},
+         {"id": "PC-C2", "niveau": 1, "texte": "Le câblage de puissance a une masse de 1 kg.", "parent_id": "PC-P"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "PC-P",
+                "new_text": "La chaîne énergétique ne doit pas dépasser 5 kg."}},
+    # Co-références : deux exigences citent la tension du bus avec des valeurs incompatibles.
+    {"name": "coreference_incoherente", "expected": ["COHERENCE_REF"],
+     "corpus": [
+         {"id": "CR-SYS", "niveau": 0, "texte": "Le drone embarque une chaîne de puissance.", "parent_id": None},
+         {"id": "CR-A", "niveau": 1, "texte": "L'émetteur radio est alimenté en 28 V par le bus de puissance.", "parent_id": "CR-SYS"},
+         {"id": "CR-B", "niveau": 1, "texte": "Le bus de puissance délivre une tension de 24 V.", "parent_id": "CR-SYS"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "CR-A",
+                "new_text": "L'émetteur radio est alimenté en 28 V par le bus de puissance."}},
+    # Impact latent : deux branches distinctes décrivent la même liaison chiffrée (non reliées,
+    # sans acronyme/unité partagés -> seule la proximité sémantique les rapproche).
+    {"name": "impact_latent_cross_branche", "expected": ["IMPACT_LATENT"],
+     "corpus": [
+         {"id": "IL-ROOT", "niveau": 0, "texte": "Le drone assure une liaison de données.", "parent_id": None},
+         {"id": "IL-B1", "niveau": 1, "texte": "Sous-système télécommunication.", "parent_id": "IL-ROOT"},
+         {"id": "IL-B2", "niveau": 1, "texte": "Sous-système sécurité.", "parent_id": "IL-ROOT"},
+         {"id": "IL-A", "niveau": 2, "texte": "La liaison de données descendante utilise le protocole de chiffrement standard du système.", "parent_id": "IL-B1"},
+         {"id": "IL-B", "niveau": 2, "texte": "Le lien de données descendant applique le chiffrement standard retenu pour le système.", "parent_id": "IL-B2"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "IL-A",
+                "new_text": "La liaison de données descendante utilise un nouveau protocole de chiffrement propriétaire, différent du standard."}},
 ]
 
 

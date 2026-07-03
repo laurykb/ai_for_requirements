@@ -37,11 +37,11 @@ def _doc_to_record(doc):
         "heading": doc.metadata.get("heading", ""),
         "breadcrumb": doc.metadata.get("breadcrumb", ""),
         "summary_num_chunks": doc.metadata.get("summary_num_chunks"),
-        # Étape 5 : tables/figures
+        # tables/figures
         "table_description": doc.metadata.get("table_description", ""),
         "has_table": doc.metadata.get("has_table", False),
         "has_figure": doc.metadata.get("has_figure", False),
-        # Étape 7 : entités nommées
+        # entités nommées
         "entities": doc.metadata.get("entities", {}),
         "entities_flat": doc.metadata.get("entities_flat", []),
         "entities_str": doc.metadata.get("entities_str", ""),

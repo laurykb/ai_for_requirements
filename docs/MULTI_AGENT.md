@@ -7,7 +7,7 @@ ensemble clarifie les choix de conception (et ce qui est, ou non, un « vrai » 
 |---|---|---|
 | Contrôle du flux | **le LLM décide** l'étape suivante | **le code décide** (orchestration fixe) |
 | Topologie | **séquentielle** (boucle Pensée→Action→Observation) | **fan-out parallèle** puis agrégation |
-| « Agents » | 1 agent + 1 outil (`rag_search`) | 5 analyseurs spécialisés (2 déterministes, 3 LLM) |
+| « Agents » | 1 agent + 1 outil (`rag_search`) | 8 analyseurs spécialisés (2 déterministes, 6 LLM) |
 | Sortie | réponse rédigée + citations | verdict unique (VALIDE/ATTENTION/BLOQUANT) |
 
 > Honnêteté : le RAG est un **agent + outil**, pas un essaim. LynX est un **pipeline
@@ -69,9 +69,11 @@ C'est le point le plus soigné :
 ## 2. LynX — les analyseurs parallèles (déterministe, piloté par le code)
 
 ### Création
-Cinq **analyseurs spécialisés** (`lynx/src/analyzers.py`), chacun avec un rôle :
-structure & allocation (déterministes), pertinence amont / couverture du parent / redondance
-(LLM), propagation aval (déterministe). Les prompts des analyseurs LLM sont des **fichiers
+Huit **analyseurs spécialisés** (`lynx/src/analyzers.py`), chacun avec un rôle :
+structure & allocation (déterministes), pertinence amont / couverture du parent / redondance /
+pertinence aval / impact latent / co-références (LLM), propagation aval (déterministe). Les
+analyseurs trans-matrice (impact latent, co-références) sont pré-filtrés par embeddings/référents
+pour ne solliciter le LLM que sur la zone utile. Les prompts des analyseurs LLM sont des **fichiers
 markdown** (`lynx/skills/*.md`) — la prompt-engineering est séparée du code.
 
 ### Orchestration de la logique

@@ -21,7 +21,7 @@ from pathlib import Path
 from src import correction, embeddings, feedback, llm, roi, store, telemetry, trace
 from src.audit import audit_matrix
 from src.corpus_io import load_many
-from src.models import Action, ActionType, LinkType
+from src.models import Action, ActionType
 from src.orchestrator import run_impact_analysis, stream_synthesis, verdict_label
 
 SCORE_COLOR = lambda s: "#15803D" if s >= 80 else "#B45309" if s >= 50 else "#B91C1C"
@@ -176,7 +176,8 @@ def render_legend():
 # l'architecture (fan-out) et où ça coince d'un coup d'œil.
 _SEV_COLOR = {"INFO": "#15803D", "WARNING": "#B45309", "BLOCKING": "#B91C1C"}
 _PIPE_DET = [("Structure", "structure"), ("Alloc.", "allocation"), ("Aval", "downstream")]
-_PIPE_IA = [("Pertinence", "pertinence"), ("Couvert.", "couverture"), ("Redond.", "redondance")]
+_PIPE_IA = [("Pertinence", "pertinence"), ("Couvert.", "couverture"), ("Redond.", "redondance"),
+            ("Pert. aval", "pertinence_aval"), ("Impact lat.", "impact_latent"), ("Co-réf.", "coreference")]
 
 
 def _worst_by_agent(findings):
@@ -228,21 +229,18 @@ LINK_TYPE_INFO = {
                      "ou sous-système responsable.", False),
 }
 
-_LINK_TYPE_HELP = (
-    "**Liens de décomposition** — comptent dans l'analyse (couverture, pertinence, budget) :\n\n"
-    "- **DERIVE** — se décline de : découpe une mère en filles concrètes\n"
-    "- **REFINES** — raffine : précise une exigence existante\n"
-    "- **SATISFIES** — satisfait : répond à un besoin amont\n\n"
-    "**Références transverses** — affichées mais hors déclinaison :\n\n"
-    "- **VERIFIES** — vérifie : un test/essai prouve l'exigence\n"
-    "- **ALLOCATES_TO** — alloue à : assigne à un composant responsable"
-)
-
-
-def _link_type_label(t):
-    """Libellé lisible dans le menu déroulant : 'DERIVE — se décline de (décomposition)'."""
-    label, _desc, decomp = LINK_TYPE_INFO.get(t, (t, "", False))
-    return f"{t} — {label} ({'décomposition' if decomp else 'référence'})"
+def _link_type_inventory(corpus):
+    """Récap des liens de la matrice : décomposition implicite (parent_id) + liens typés
+    explicites comptés par type. Sert à savoir, dès le chargement, ce que contient la matrice."""
+    n_parent = sum(1 for r in corpus if r.get("parent_id"))
+    typed: dict = {}
+    for r in corpus:
+        for lk in (r.get("links") or []):
+            t = lk.get("type") if isinstance(lk, dict) else getattr(lk, "type", None)
+            t = getattr(t, "value", t)
+            if t:
+                typed[t] = typed.get(t, 0) + 1
+    return n_parent, typed
 
 
 def _render_suggestion(sel):
@@ -291,27 +289,29 @@ def _render_remap_panel(sel, corpus):
                 c1.markdown(f"**{t}** ← `{cid}`  ·  fille")
                 c2.button("Retirer", key=f"unlinkin_{sid}_{j}", on_click=_cb_unlink, args=(cid, sid, t))
             st.divider()
-        others = [r["id"] for r in corpus if r["id"] != sid]
-        if not others:
-            st.caption("Aucune autre exigence à relier.")
+        st.caption("Décliner — créer un lien de décomposition (niveaux adjacents)")
+        d1, d2 = st.columns(2)
+        direction = d1.selectbox(
+            "Sens", ["Rattacher à une mère (amont)", "Rattacher une fille (aval)"],
+            key=f"linkdir_{sid}",
+            help="**Amont** : l'exigence sélectionnée devient *fille* d'une autre "
+                 "(on lui ajoute une mère de niveau N-1).\n\n**Aval** : une autre exigence "
+                 "devient *fille* de celle sélectionnée (on lui ajoute une fille de niveau N+1).")
+        lvl = sel.get("niveau", 0)
+        amont = direction.startswith("Rattacher à une mère")
+        adj = lvl - 1 if amont else lvl + 1
+        if adj < 0:
+            st.caption(":orange[Exigence racine (L0) : pas de mère possible.]")
             return
-        st.caption("Créer un lien")
-        d1, d2, d3 = st.columns(3)
-        d1.selectbox("Sens", ["Rattacher à une mère (amont)", "Rattacher une fille (aval)"],
-                     key=f"linkdir_{sid}",
-                     help="**Amont** : l'exigence sélectionnée devient *fille* d'une autre "
-                          "(on lui ajoute une mère).\n\n**Aval** : une autre exigence devient "
-                          "*fille* de celle sélectionnée (on lui ajoute une fille).")
-        d2.selectbox("Exigence à relier", others, key=f"linkother_{sid}",
-                     help="L'autre exigence existante à rattacher.")
-        d3.selectbox("Type de lien", [t.value for t in LinkType], key=f"linktype_{sid}",
-                     format_func=_link_type_label, help=_LINK_TYPE_HELP)
-        # Rappel dynamique du type choisi (une ligne, sans surcharger).
-        sel_type = st.session_state.get(f"linktype_{sid}") or LinkType.DERIVE.value
-        lbl, desc, decomp = LINK_TYPE_INFO.get(sel_type, (sel_type, "", False))
-        tag = ("décomposition — pèse sur l'analyse (couverture, pertinence, budget)"
-               if decomp else "référence transverse — affichée mais hors déclinaison")
-        st.caption(f"**{sel_type}** · _{lbl}_ — {tag}.\n\n{desc}")
+        role = "mère" if amont else "fille"
+        candidates = [r["id"] for r in corpus if r["id"] != sid and r.get("niveau") == adj]
+        if not candidates:
+            st.caption(f":orange[Aucune exigence de niveau L{adj} à relier — une déclinaison ne "
+                       f"relie que des niveaux adjacents (N → N+1), pas de saut de niveau.]")
+            return
+        d2.selectbox(f"Exigence à relier ({role}, L{adj})", candidates, key=f"linkother_{sid}",
+                     help=f"Seules les exigences de niveau L{adj} sont proposées : un lien relie "
+                          f"des niveaux adjacents (±1), jamais un saut de niveau.")
         st.button("Créer le lien", use_container_width=True, on_click=_cb_link, args=(sid,))
 
 
@@ -522,7 +522,7 @@ def render_audit_summary():
 
 
 def process_action(action: Action, candidate):
-    """Exécute l'action UNE fois (appelée via action_request) et rend la réponse.
+    """Exécute l'action une fois (appelée via action_request) et rend la réponse.
 
     Pas de st.rerun() ici : la trace des agents et la réponse streamée restent
     affichées, et il n'y a aucun risque de boucle.
@@ -615,7 +615,7 @@ def _cb_link(sel_id):
     ss = st.session_state
     direction = ss.get(f"linkdir_{sel_id}", "")
     other = ss.get(f"linkother_{sel_id}")
-    ltype = ss.get(f"linktype_{sel_id}") or "DERIVE"
+    ltype = "DERIVE"   # le remap ne crée que des liens de décomposition (déclinaison)
     if not other:
         return
     # amont : sel devient fille de `other` ; aval : `other` devient fille de sel.
@@ -766,15 +766,23 @@ def page_graph():
                        "1. Règles déterministes : liens manquants, doublons d'ID, cycles, "
                        "dépassements de budget.\n"
                        "2. Test vectoriel : doublons quasi-identiques (embeddings).\n"
-                       "3. Un agent IA par exigence : rédaction, pertinence, couverture, redondance.")
+                       "3. Un agent IA par exigence : rédaction, pertinence, couverture, redondance, "
+                       "pertinence aval.\n"
+                       "4. Cohérence trans-matrice : exigences partageant un référent (co-références).")
         with st.expander(f"Corpus · {len(corpus)}"):
+            _n_parent, _typed = _link_type_inventory(corpus)
+            _bits = [f"{_n_parent} décomposition (parent_id)"]
+            for _t, _c in sorted(_typed.items()):
+                _lbl = LINK_TYPE_INFO.get(_t, (_t,))[0]
+                _bits.append(f"{_c} {_t} ({_lbl})")
+            st.caption("Liens présents dans la matrice — " + " · ".join(_bits))
             st.file_uploader("Importer (JSON)", type=["json"], accept_multiple_files=True,
                              key="uploader_corpus", label_visibility="collapsed")
             st.button("Importer", use_container_width=True, on_click=_cb_import)
             st.button("Réinitialiser", use_container_width=True, on_click=_cb_reset)
         render_value_panel()
 
-    # Audit demandé (callback) : exécuté UNE fois ici, avec avancement en direct.
+    # Audit demandé (callback) : exécuté une fois ici, avec avancement en direct.
     if ss.audit_request:
         ss.audit_request = False
         status = st.status("Audit de la matrice en cours…", expanded=True)
@@ -805,7 +813,7 @@ def page_graph():
     if not sel:
         st.info("Cliquez une exigence dans le graphe pour l'éditer, la supprimer ou y ajouter une fille.")
     else:
-        # Proposition de correction (déclenchée par bouton, générée UNE fois ici).
+        # Proposition de correction (déclenchée par bouton, générée une fois ici).
         if ss.get("suggest_request") == sel["id"]:
             ss.suggest_request = None
             with st.status("Génération d'une proposition de correction…", expanded=False):
@@ -855,7 +863,7 @@ def page_graph():
                           on_click=_cb_create, args=(sel["id"],))
             _render_remap_panel(sel, corpus)
 
-    # Traitement de l'action demandée : EXACTEMENT une fois, puis on efface.
+    # Traitement de l'action demandée : exactement une fois, puis on efface.
     req = ss.action_request
     if req:
         ss.action_request = None

@@ -6,20 +6,25 @@ et l'action) et renvoie une liste de ``Finding``.
 Déterministes :
   - allocation : roll-up budgétaire (somme des enfants vs plafond du parent)
   - aval       : descendants impactés (orphelins, re-test)
-Sémantiques (agents LLM, qwen3.5) :
+Sémantiques (agents LLM) :
   - pertinence (T1) : la cible reste-t-elle cohérente/pertinente vs ses ancêtres ?
   - couverture (T2) : le parent reste-t-il entièrement couvert par ses filles ?
   - redondance (T3) : la cible est-elle redondante / sur-spécifiée vs ses sœurs ?
+  - pertinence aval (T4) : la cible reste-t-elle cohérente/pertinente vs ses filles ?
+  - impact latent : des exigences NON reliées sont-elles sémantiquement impactées ?
+  - co-références : les exigences partageant un référent concret restent-elles cohérentes ?
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from . import llm
-from .config import ALLOCATION_TOLERANCE, EMBED_DISTINCT_THRESHOLD, EMBED_DUP_THRESHOLD, LLM_VOTE
-from .extract import allocation_rollup, from_base
+from . import embeddings, llm
+from .config import (ALLOCATION_TOLERANCE, EMBED_DISTINCT_THRESHOLD, EMBED_DUP_THRESHOLD,
+                     EMBED_LATENT_THRESHOLD, LATENT_TOPK, LLM_VOTE)
+from .extract import allocation_rollup, extract_quantities, from_base
 from .models import Action, ActionType, Finding, Scope, Severity
 from .tree import RequirementTree
 
@@ -86,7 +91,7 @@ def analyze_allocation(ctx: Ctx) -> List[Finding]:
     suspects: dict[str, None] = {}
     if ctx.action.target_id in tree:
         suspects.setdefault(ctx.action.target_id, None)
-    # ancêtres connus via l'arbre courant (robuste même au DELETE)
+    # ancêtres connus via l'arbre courant (valable même au DELETE)
     chain_src = ctx.action.target_id if ctx.action.target_id in ctx.current else None
     if chain_src:
         for anc in ctx.current.ancestors(chain_src):
@@ -225,7 +230,7 @@ def analyze_pertinence(ctx: Ctx) -> List[Finding]:
 # T2 — Couverture amont / complétude (LLM)
 # --------------------------------------------------------------------------
 def analyze_couverture(ctx: Ctx) -> List[Finding]:
-    # La couverture d'un parent n'est réellement menacée que par une SUPPRESSION
+    # La couverture d'un parent n'est réellement menacée que par une suppression
     # (un coverer disparaît). Un UPDATE/CREATE n'introduit pas de lacune de
     # couverture du parent — l'évaluer dans ces cas génère surtout des faux
     # positifs (le LLM juge le parent « incomplet » de façon instable).
@@ -256,7 +261,7 @@ def analyze_couverture(ctx: Ctx) -> List[Finding]:
                         message=resp.get("synthese") or f"{parent.id} reste entièrement couvert par ses filles.",
                         impacted_ids=[parent.id], details={"raw": resp})]
 
-    # Delta-aware : si la lacune existait DÉJÀ avant l'action, on ne l'impute pas
+    # Delta-aware : si la lacune existait déjà avant l'action, on ne l'impute pas
     # à cette édition (sinon faux positif systématique). On vérifie l'état d'avant.
     before = ctx.current.get(parent_id)
     if before:
@@ -350,5 +355,177 @@ def analyze_redondance(ctx: Ctx) -> List[Finding]:
                  "preuve": resp.get("preuve", ""), "raw": resp})]
 
 
-SEMANTIC_ANALYZERS = [analyze_pertinence, analyze_couverture, analyze_redondance]
+# --------------------------------------------------------------------------
+# T4 — Pertinence / cohérence vs filles / déclinaison aval (LLM)
+# --------------------------------------------------------------------------
+def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
+    action, tree = ctx.action, ctx.candidate
+    if action.action_type == ActionType.DELETE:
+        return []
+    target = tree.get(action.target_id)
+    if not target:
+        return []
+    children = tree.children(action.target_id)
+    # Miroir du T1 côté aval : sans fille, il n'y a pas de déclinaison à contrôler.
+    if not children:
+        return []
+    payload = {"exigence_cible": target.short(),
+               "exigences_filles": [c.short() for c in children]}
+    resp = llm.call_skill("coherence_pertinence_aval", payload)
+    if resp.get("error"):
+        return [_skip(Scope.PERTINENCE_AVAL, "pertinence_aval", [c.id for c in children], resp["error"])]
+    coherent = resp.get("est_coherent", True)
+    sev = _sev_from(resp, Severity.INFO if coherent else Severity.WARNING)
+    rupture = _norm_ids(resp.get("rupture_avec"))
+    base = resp.get("synthese") or ("Déclinaison aval cohérente." if coherent
+                                    else "Rupture de pertinence en aval.")
+
+    # Vote self-consistency sur un BLOQUANT à fort enjeu (comme le T1 amont).
+    if sev == Severity.BLOCKING and LLM_VOTE > 1:
+        votes = llm.sample_skill("coherence_pertinence_aval", payload, n=LLM_VOTE)
+        incoh = sum(1 for v in votes if v.get("est_coherent") is False)
+        if votes and incoh <= len(votes) // 2:
+            sev = Severity.WARNING
+            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
+    return [Finding(
+        analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL, severity=sev,
+        message=_with_preuve(base, resp),
+        impacted_ids=[target.id, *rupture], details={"preuve": resp.get("preuve", ""), "raw": resp})]
+
+
+# --------------------------------------------------------------------------
+# Impact latent — exigences non reliées mais sémantiquement impactées (embeddings + LLM)
+# --------------------------------------------------------------------------
+def _neighbourhood(tree: RequirementTree, req_id: str) -> set:
+    """Ids déjà couverts par les autres axes (voisinage direct), à exclure du scan trans-matrice."""
+    ids = {req_id}
+    for grp in (tree.ancestors(req_id), tree.descendants(req_id),
+                tree.siblings(req_id), tree.children(req_id)):
+        ids |= {r.id for r in grp}
+    return ids
+
+
+def analyze_impact_latent(ctx: Ctx) -> List[Finding]:
+    action, tree = ctx.action, ctx.candidate
+    if action.action_type == ActionType.DELETE:
+        return []
+    target = tree.get(action.target_id)
+    if not target or not target.texte.strip():
+        return []
+    # Le routeur est toujours tracé (même à vide) pour rester visible dans la boîte de verre.
+    def _route(retenus, sims, note=None):
+        out = {"retenus": retenus, "similarites": sims}
+        if note:
+            out["note"] = note
+        llm.trace_event("routeur_impact_latent", {"cible": target.id}, out)
+
+    if not embeddings.embeddings_available():
+        _route([], [], note="embeddings indisponibles")
+        return []
+    excluded = _neighbourhood(tree, target.id)
+    candidates = [r for r in tree.all() if r.id not in excluded and r.texte.strip()]
+    if not candidates:
+        _route([], [], note="aucune exigence non reliée à examiner")
+        return []
+    # Pré-filtre embeddings : ne garder que la zone « proche mais non reliée ».
+    vecs = embeddings.get_embeddings([target.texte] + [c.texte for c in candidates])
+    if not vecs or vecs[0] is None:
+        _route([], [], note="embeddings indisponibles")
+        return []
+    scored = []
+    for i, c in enumerate(candidates):
+        cv = vecs[i + 1]
+        if cv is not None:
+            s = embeddings.cosine(vecs[0], cv)
+            if s >= EMBED_LATENT_THRESHOLD:
+                scored.append((c, s))
+    if not scored:
+        _route([], [], note=f"aucune exigence proche parmi {len(candidates)} (seuil {EMBED_LATENT_THRESHOLD})")
+        return []
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top = scored[:LATENT_TOPK]
+    _route([c.id for c, _ in top], [round(s, 3) for _, s in top])
+    payload = {"exigence_modifiee": target.short(),
+               "exigences_proches": [c.short() for c, _ in top]}
+    resp = llm.call_skill("impact_latent", payload)
+    if resp.get("error"):
+        return [_skip(Scope.IMPACT_LATENT, "impact_latent", [c.id for c, _ in top], resp["error"])]
+    hit_ids = _norm_ids(resp.get("impactees"))
+    if not hit_ids:
+        return [Finding(analyzer="impact_latent", scope=Scope.IMPACT_LATENT, severity=Severity.INFO,
+                        message=(resp.get("synthese")
+                                 or f"{len(top)} exigence(s) proche(s) examinée(s) : aucun impact latent."),
+                        impacted_ids=[target.id], details={"examinees": [c.id for c, _ in top], "raw": resp})]
+    sev = _sev_from(resp, Severity.WARNING)
+    base = resp.get("synthese") or f"Impact latent possible sur des exigences non reliées : {', '.join(hit_ids)}."
+    return [Finding(analyzer="impact_latent", scope=Scope.IMPACT_LATENT, severity=sev,
+                    message=_with_preuve(base, resp),
+                    impacted_ids=[target.id, *hit_ids], details={"impactees": resp.get("impactees"), "raw": resp})]
+
+
+# --------------------------------------------------------------------------
+# Cohérence des co-références — exigences partageant un référent concret (LLM)
+# --------------------------------------------------------------------------
+# Référent concret = acronyme / code technique (CAN, EMC, RS422, TRC7535, 28V…).
+_REF_TOKEN = re.compile(r"\b(?:[A-Z]{2,}[0-9]*|[A-Za-z]*[0-9]+[A-Za-z]+|[A-Za-z]+[0-9]+)\b")
+
+
+def _referents(text: str):
+    """(tokens concrets, unités de grandeur) cités par une exigence."""
+    toks = {t for t in _REF_TOKEN.findall(text or "") if len(t) >= 2}
+    units = {q.unit for q in extract_quantities(text or "") if q.unit}
+    return toks, units
+
+
+def analyze_coreference(ctx: Ctx) -> List[Finding]:
+    action, tree = ctx.action, ctx.candidate
+    if action.action_type == ActionType.DELETE:
+        return []
+    target = tree.get(action.target_id)
+    if not target or not target.texte.strip():
+        return []
+    t_toks, t_units = _referents(target.texte)
+    refs = sorted(t_toks | t_units)
+    if not refs:
+        llm.trace_event("routeur_coreference", {"cible": target.id},
+                        {"referents": [], "co_references": [], "note": "aucun référent concret dans l'énoncé"})
+        return []
+    shared = []
+    for r in tree.all():
+        if r.id == target.id or not r.texte.strip():
+            continue
+        r_toks, r_units = _referents(r.texte)
+        common = (t_toks & r_toks) | (t_units & r_units)
+        if common:
+            shared.append((r, common))
+    if not shared:
+        llm.trace_event("routeur_coreference", {"cible": target.id, "referents": refs},
+                        {"co_references": [], "note": "aucune exigence ne partage ces référents"})
+        return []
+    # Priorité aux référents les plus discriminants (tokens/codes avant unités).
+    shared.sort(key=lambda x: (len(x[1] & t_toks), len(x[1])), reverse=True)
+    top = shared[:LATENT_TOPK]
+    llm.trace_event("routeur_coreference", {"cible": target.id, "referents": refs},
+                    {"co_references": [r.id for r, _ in top]})
+    payload = {"exigence_cible": target.short(),
+               "co_references": [{"id": r.id, "niveau": r.niveau, "texte": r.texte,
+                                  "referents_partages": sorted(common)} for r, common in top]}
+    resp = llm.call_skill("coherence_coreference", payload)
+    if resp.get("error"):
+        return [_skip(Scope.COHERENCE_REF, "coreference", [r.id for r, _ in top], resp["error"])]
+    if resp.get("coherent", True):
+        return [Finding(analyzer="coreference", scope=Scope.COHERENCE_REF, severity=Severity.INFO,
+                        message=(resp.get("synthese")
+                                 or f"Cohérent avec {len(top)} exigence(s) partageant un référent."),
+                        impacted_ids=[target.id], details={"examinees": [r.id for r, _ in top], "raw": resp})]
+    conflicts = _norm_ids(resp.get("conflits"))
+    sev = _sev_from(resp, Severity.BLOCKING)
+    base = resp.get("synthese") or f"Incohérence de co-référence avec {', '.join(conflicts)}."
+    return [Finding(analyzer="coreference", scope=Scope.COHERENCE_REF, severity=sev,
+                    message=_with_preuve(base, resp),
+                    impacted_ids=[target.id, *conflicts], details={"conflits": resp.get("conflits"), "raw": resp})]
+
+
+SEMANTIC_ANALYZERS = [analyze_pertinence, analyze_couverture, analyze_redondance,
+                      analyze_pertinence_aval, analyze_impact_latent, analyze_coreference]
 DETERMINISTIC_ANALYZERS = [analyze_allocation, analyze_downstream]

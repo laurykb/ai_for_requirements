@@ -33,7 +33,7 @@ _METRIC_KEYS = [
     "context_relevance", "latency_s", "num_chunks_retrieved",
 ]
 
-_DEFAULT_DATASET = Path(__file__).resolve().parent / "golden_qa_anssi.json"
+_DEFAULT_DATASET = Path(__file__).resolve().parent / "golden_qa_anssi_v2.json"
 
 
 def _load_dataset(path: Path) -> dict:

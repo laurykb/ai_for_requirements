@@ -3,7 +3,7 @@
 Point d'entrée pour reprendre le travail (y compris sur une **autre machine**, ex. Ubuntu 24.04).
 Dépôt : **`github.com/laurykb/ai_for_requirements`**, branche **`main`**.
 
-> **Ce dépôt = « AI for SSH », le merge de deux projets.** L'app hôte (`app/app.py`)
+> **Ce dépôt = « AI for SSH », le merge de deux projets.** L'app hôte (`app/main.py`)
 > réunit (1) l'**Outil RAG** documentaire décrit ci-dessous et (2) **AI for Requirements
 > (LynX)**, embarqué tel quel dans `lynx/` (chargé via importlib, **sans modifier son
 > code**, rendu plein écran dans le même process). Détails du merge : [README.md](README.md)
@@ -16,8 +16,8 @@ Dépôt : **`github.com/laurykb/ai_for_requirements`**, branche **`main`**.
 RAG hybride **local et souverain** (Ollama) sur documents techniques ANSSI / Critères Communs.
 Philosophie : **chaque technique = un levier activable et mesurable**. Briques en place :
 
-- **Retrieval** : hybride sémantique + BM25 + RRF + cross-encoder (rerank), GraphRAG, RAPTOR,
-  parent-child, réécriture de requête. Mesuré : hit@k 0.93 / recall 0.90.
+- **Retrieval** : hybride sémantique + BM25 + RRF + cross-encoder (rerank), RAPTOR,
+  parent-child. Mesuré (golden set v2, 30 Q) : hit@k ~0.64 / recall ~0.53 (cf. `evals/last_eval.json`).
 - **Génération** : réponse ancrée + citations ; affinage du contexte avant génération
   (déduplication + réordonnancement *lost-in-the-middle*) — `retrieval/context_refine.py`.
 - **Agentique** (Tome 3) : outil `rag_search` → serveur **MCP** (`rag_mcp_server.py`) → **agent ReAct**
@@ -25,17 +25,16 @@ Philosophie : **chaque technique = un levier activable et mesurable**. Briques e
 - **Orchestration** : **routeur** Auto/RAG/Agent **sans appel LLM** (`core/router.py`) +
   **vérificateur de fidélité** fusionné 1 appel (`core/evaluation.verify_answer`) + **auto-correction**
   (ex-Self-RAG, `core/self_rag.py`).
-- **Routage de modèles par rôle** (`core/model_router.py`) ; **vector store abstrait** (Chroma défaut,
-  Qdrant activable — `retrieval/vector_store.py`).
+- **Routage de modèles par rôle** (`core/model_router.py`) ; **vector store abstrait** (backend
+  unique : Chroma ; abstraction `VectorStore` conservée — `retrieval/vector_store.py`).
 - **Observabilité** (traces Mongo, `utils/tracing.py`), **sécurité** anti-injection (`utils/security.py`),
   **évaluation** golden set + RAGAS-like (`evals/`, `core/evaluation.py`).
-- **UI Streamlit** (`app/app.py`) : accueil épuré → chat avec upload de documents, sélecteur
+- **UI Streamlit** (`app/main.py`) : accueil épuré → chat avec upload de documents, sélecteur
   Auto/RAG/Agent, menu **Options** (leviers recherche + ingestion), exploration des chunks.
-- **101 tests unitaires hors-ligne** : `python -m pytest`.
+- **110 tests unitaires hors-ligne** : `python -m pytest` (+40 pour LynX, `lynx/tests/`).
 
 Voir aussi : [README.md](README.md) (positionnement + résultats), [SETUP_PORTABLE.md](SETUP_PORTABLE.md)
-(installation multi-OS), [CONFIG_ARCHITECTURE.md](CONFIG_ARCHITECTURE.md),
-[docs/INFERENCE_LOCALE.md](docs/INFERENCE_LOCALE.md) (goulots matériels + optimisation VRAM/GPU,
+(installation multi-OS), [docs/INFERENCE_LOCALE.md](docs/INFERENCE_LOCALE.md) (goulots matériels + optimisation VRAM/GPU,
 chiffres mesurés), [docs/MULTI_AGENT.md](docs/MULTI_AGENT.md) (orchestration, flux de données,
 états, mémoire, formats — RAG + LynX), `notebooks/` (3 notebooks exécutés).
 
@@ -57,7 +56,7 @@ chiffres mesurés), [docs/MULTI_AGENT.md](docs/MULTI_AGENT.md) (orchestration, f
    - **8 Go de VRAM** : `OLLAMA_NUM_PARALLEL=1` (+ `OLLAMA_KEEP_ALIVE=5m`). GPU plus large : assouplir.
 4. **Données** : l'index (Chroma + chunks Mongo + BM25) **n'est pas versionné** (`.gitignore`).
    Ré-ingérer un PDF via l'UI (vue **Documents**) ou `python -m core.ingest`.
-5. **Lancer** : `python serve.py` (Mongo + Ollama + app) ou `.venv/bin/python -m streamlit run app/app.py`.
+5. **Lancer** : `python serve.py` (Mongo + Ollama + app) ou `.venv/bin/python -m streamlit run app/main.py`.
    Éval : `python -m evals.run_eval --mode retrieval`.
 
 ## Améliorations — session 2026-06-29 (poste Ubuntu, 2×48 Go VRAM)
@@ -79,8 +78,8 @@ Portage et durcissement du PoC sur une machine bien plus capable que le poste d'
 - **Refonte UX du chat.** Flux **upload → absorption → réponse** : la question déposée avec un fichier
   (ou tapée pendant l'absorption) **attend que le document soit indexé** avant la réponse (gate global).
   **Options d'ingestion au moment du dépôt** (plus dans la popover « Options », qui ne garde que la
-  recherche). **Sélection d'UN seul document à interroger** (cocher un autre décoche le précédent ;
-  avertissement si aucun = recherche sur tout l'index). **Exploration par chunks dans le chat** ;
+  recherche). **Sélection multi-documents à interroger** (le multiselect autorise plusieurs documents ;
+  aucun sélectionné = recherche sur tout l'index). **Exploration par chunks dans le chat** ;
   **visualisation page blanche** (fond corrigé) + résumé restent dans l'onglet Documents (agrandie).
   **Renommage de session**, **documents en mémoire par session** (`core/chat_sessions.py`).
 - **Robustesse mono-poste.** Bannière si **Ollama/Mongo hors ligne**, génération/vérif en `try/except`
@@ -92,7 +91,7 @@ Portage et durcissement du PoC sur une machine bien plus capable que le poste d'
 Objectif : **réduire la friction** pour un utilisateur non-expert en IA (comparaison Mistral/
 Claude/Gemini), sans perdre le côté pédagogique « chaque technique = un levier ».
 
-- **Ingestion en FILE séquentielle multi-documents** (`app/app.py`). Remplace le singleton
+- **Ingestion en FILE séquentielle multi-documents** (`app/main.py`). Remplace le singleton
   `_INGEST` par `_INGEST_JOBS` + un **worker unique** (`_ingest_worker`) qui absorbe les jobs
   l'un après l'autre. Chaque job a sa **barre de progression** (statut queued→running→success/
   error). Dépôt **multi-fichiers** dans l'onglet Documents (`accept_multiple_files`), options
@@ -174,18 +173,16 @@ embeddings (dim 1024), `process_query` complet (réponse + 13 citations), boucle
   scores et cassait le filtrage sur l'index global). Couvert par `tests/test_bm25.py`.
 - **Recherche MULTI-DOCUMENT unifiée** ✅ **fait** (2026-06-30) : le périmètre `source_filter` accepte
   désormais **un nom, une liste de noms, ou None** (= tout l'index), normalisé par
-  `utils/sources.normalize_sources`. Unifié sur les **trois chemins** + l'agent :
-  - **sémantique** (`retrieval/vector_store`) : clause `$in` (Chroma) / `MatchAny` (Qdrant) ;
+  `utils/sources.normalize_sources`. Unifié sur les **deux chemins** de retrieval + l'agent :
+  - **sémantique** (`retrieval/vector_store`) : clause `$in` (Chroma) ;
   - **BM25** (`bm25_search`) : appartenance `source ∈ {sélection}` ;
-  - **graphe** (`core/ask._load_entity_graph`) : **fusion** de plusieurs graphes via `nx.compose_all`
-    (None = fusion de TOUS les graphes, au lieu du 1er seul auparavant) ;
   - **agent** : l'outil `rag_search` accepte `document` en string OU liste (`tools/rag_tool`).
-  **UI** (`app/app.py`) : le multiselect autorise plusieurs documents (plus de déselection forcée) ;
+  **UI** (`app/main.py`) : le multiselect autorise plusieurs documents (plus de déselection forcée) ;
   warning conservé quand aucun n'est coché. Tests : `tests/test_sources.py`, `tests/test_bm25.py`,
   `tests/test_vector_store.py` (cas multi-doc). ⚠️ Validé end-to-end sur l'index actuel (1 seul doc
   ingéré) : pour une démo réelle du mélange multi-doc, **ingérer un 2e document**
   (`data/ANSSI-CC-cible_2011-1-20.md` est dispo).
-- Optionnel : A/B « précision du contexte » (`CONTEXT_DEDUP`/`CONTEXT_REORDER`), démo Qdrant.
+- Optionnel : A/B « précision du contexte » (`CONTEXT_DEDUP`/`CONTEXT_REORDER`).
 
 ## LynX (AI for Requirements) — session 2026-07-01
 

@@ -5,7 +5,7 @@ Serveur MCP (Model Context Protocol) exposant le RAG documentaire.
 Annonce l'outil `rag_search` et l'exécute à la demande via le transport stdio (local).
 Réutilise le contrat d'outil de tools.rag_tool (validation + exécution du pipeline RAG).
 
-Branchement dans un hôte MCP (ex. Claude Desktop) :
+Branchement dans un hôte MCP compatible :
     {
       "mcpServers": {
         "rag": {
@@ -82,8 +82,8 @@ async def rag_search(
         - « Quelles sont les fonctions de sécurité ? » (sur un doc précis) -> document="ANSSI-CC-cible_2011-1-20.md"
     """
     def _work():
-        # stdout est RÉSERVÉ au JSON-RPC en transport stdio : on redirige les print()
-        # du pipeline (rewrite/graph/ner...) vers stderr pour ne pas corrompre le protocole.
+        # stdout est réservé au JSON-RPC en transport stdio : on redirige les print()
+        # du pipeline (rewrite/ner...) vers stderr pour ne pas corrompre le protocole.
         with contextlib.redirect_stdout(sys.stderr):
             return run_tool(
                 "rag_search",

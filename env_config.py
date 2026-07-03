@@ -71,7 +71,7 @@ def _detect_available_gpus() -> int:
 
 
 def _detect_optimal_device(num_gpus: int) -> str:
-    """Sélectionne le device optimal en fonction des GPUs disponibles."""
+    """Sélectionne le device en fonction des GPUs disponibles."""
     if num_gpus == 0:
         return "cpu"
     elif num_gpus == 1:
@@ -184,7 +184,7 @@ def get_config() -> Dict[str, Any]:
         embed_model = "bge-m3:567m"
 
     # Timeout HTTP des embeddings. Sur VRAM contrainte (8 Go), le 1er appel à bge-m3
-    # déclenche un SWAP de modèle (décharge llama, charge bge-m3) qui peut dépasser
+    # déclenche un swap de modèle (décharge llama, charge bge-m3) qui peut dépasser
     # 60 s -> l'ancien timeout court retombait silencieusement sur un vecteur nul
     # (jambe sémantique morte). 180 s couvre le swap à froid documenté.
     embed_timeout_s = int(os.environ.get("EMBED_TIMEOUT_S", "180"))
@@ -216,7 +216,7 @@ def get_config() -> Dict[str, Any]:
     # --------------------- CROSS-ENCODER (GPU) -------------------
     use_cross_encoder = os.environ.get("USE_CROSS_ENCODER", "true").lower() in ("true", "1", "yes")
     
-    # Fallback smart pour device du cross-encoder
+    # Fallback pour le device du cross-encoder
     if num_gpus >= 2:
         default_ce_device = "cuda:1"  # Si 2+ GPUs, utiliser GPU 1 pour CE
     else:
@@ -234,7 +234,7 @@ def get_config() -> Dict[str, Any]:
         "CE_DEVICE": ce_device,
         "CROSS_ENCODER_LOCAL_PATH": cross_encoder_model,
         # Seuil hors-scope : le cross-encoder renvoie ~0.500 (neutre) pour le hors-sujet
-        # et juste au-dessus pour l'in-domain. 0.505 sépare proprement (calibré).
+        # et juste au-dessus pour l'in-domain. 0.505 les sépare (calibré).
         "CE_RELEVANCE_THRESHOLD": float(os.environ.get("CE_RELEVANCE_THRESHOLD", "0.505")),
     }
     
@@ -276,13 +276,13 @@ def get_config() -> Dict[str, Any]:
     # --------------------- MODE RAPIDE (latence) -------------------
     # Levier de latence : sur petit GPU, la GÉNÉRATION = ~85 % du temps,
     # car un modèle 8B + contexte 16k déborde la VRAM -> offload CPU lent. Activer
-    # RAG_FAST_MODE bascule sur un prompt système ÉPURÉ (un 3B se NOIE dans le prompt
+    # RAG_FAST_MODE bascule sur un prompt système épuré (un 3B se noie dans le prompt
     # détaillé tuné pour le 8B). Recette « rapide » dans .env : RAG_FAST_MODE=true +
     # GEN_MODEL=llama3.2:3b -> ~5-6x plus rapide (mesuré 27 s vs 150 s).
-    # COMPROMIS : un 3B est moins fiable qu'un 8B sur l'extraction critique (peut se
+    # Compromis : un 3B est moins fiable qu'un 8B sur l'extraction critique (peut se
     # tromper de niveau EAL p.ex.) -> mode pour l'exploratoire ; 8B (défaut) pour
-    # l'autoritatif. NB mesuré : plafonner les chunks ne gagne RIEN en vitesse (la
-    # latence vient de la TAILLE du modèle) et risque d'éjecter la bonne info -> on
+    # l'autoritatif. NB mesuré : plafonner les chunks ne gagne rien en vitesse (la
+    # latence vient de la taille du modèle) et risque d'éjecter la bonne info -> on
     # garde tous les chunks par défaut ; GEN_NUM_CHUNKS reste réglable manuellement.
     fast_mode = os.environ.get("RAG_FAST_MODE", "false").lower() in ("true", "1", "yes")
     fast_config = {

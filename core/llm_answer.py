@@ -362,7 +362,7 @@ def answer_stream(question: str, chunks: list[dict], gpu_ids="0", system_prompt=
                 if chunk:
                     yield chunk
         except (BrokenPipeError, ConnectionResetError, GeneratorExit):
-            # Connexion Ollama coupée (ex: re-render Streamlit) - on arrête proprement
+            # Connexion Ollama coupée (ex: re-render Streamlit) - on arrête
             return
         except Exception as e:
             # Tout autre erreur réseau/LLM : on log et on sort

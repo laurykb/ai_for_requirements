@@ -157,7 +157,7 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
                 d.metadata.setdefault("questions", [])
                 d.metadata.setdefault("questions_str", "")
 
-        # Étape 7 : NER sur tous les chunks (même si enrichissement LLM désactivé)
+        # NER sur tous les chunks (même si enrichissement LLM désactivé)
         # Le NER spaCy est rapide (~0.5ms/chunk) donc on le fait toujours
         from nlp.ner_extractor import extract_entities, entities_to_str, entities_to_flat_list
         for d in docs:

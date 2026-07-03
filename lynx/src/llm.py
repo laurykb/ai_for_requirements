@@ -7,7 +7,7 @@ seul).
 - ``call_skill`` / ``call_agent`` : appel JSON structuré (dict, ou ``{"error":…}``).
 - ``stream_agent`` : appel texte en streaming (générateur de tokens).
 - ``set_model`` : change le modèle à chaud.
-- Toute indisponibilité dégrade proprement (les analyseurs continuent).
+- En cas d'indisponibilité, les analyseurs continuent.
 """
 
 from __future__ import annotations

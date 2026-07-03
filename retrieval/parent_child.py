@@ -5,7 +5,7 @@ Parent-Child Retrieval (Small-to-Big).
 Principe :
   - Le retrieval (semantic + BM25 + cross-encoder) identifie les chunks ENFANTS
     les plus pertinents (petits, précis, bons scores CE).
-  - On remonte dans MongoDB pour récupérer TOUS les chunks des sections matchées
+  - On remonte dans MongoDB pour récupérer tous les chunks des sections matchées
     en UNE SEULE requête ($in), puis on groupe en Python.
   - Le LLM reçoit le contexte parent (riche) au lieu du seul chunk enfant (court).
   - Le score de classement reste celui du chunk enfant (c'est lui qui a matché).
@@ -121,7 +121,7 @@ def expand_to_parent(fused_items: list[dict]) -> list[dict]:
     if not to_fetch:
         return fused_items
 
-    # 2) UNE SEULE requête MongoDB avec $or exact sur les paires (source, section_idx)
+    # 2) Une seule requête MongoDB avec $or exact sur les paires (source, section_idx)
     #    Évite le produit cartésien source x section_idx qui ramènerait des sections hors-scope.
     try:
         col = _get_collection()
