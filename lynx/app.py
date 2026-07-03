@@ -124,12 +124,32 @@ def draw_graph(corpus, impacted=None, selected=None, flagged=None):
     impacted = set(impacted or [])
     flagged = set(flagged or [])
     ids = {str(r.get("id")) for r in corpus}
+    # Positions FIXES : y = niveau (racine L0 en haut), x = rang stable dans le niveau.
+    # On n'utilise PAS le layout hiérarchique auto de vis.js : il re-dérive les niveaux
+    # depuis les arêtes et réorganise tout dès qu'on ajoute un lien. Avec des positions
+    # fixes + physique coupée, ajouter un lien ne fait que dessiner une flèche.
+    LEVEL_SEP, NODE_SEP = 170, 210
+    parent_of = {str(r.get("id")): str(r.get("parent_id") or "") for r in corpus if r.get("id")}
+    by_level: dict = {}
+    for r in corpus:
+        rid = str(r.get("id") or "").strip()
+        if rid:
+            by_level.setdefault(_lvl(r.get("niveau", 0)), []).append(rid)
+    # x calculé de haut en bas : chaque niveau est ordonné par la position de la mère
+    # (déjà placée) puis par id -> les filles se regroupent sous leur mère. Déterministe et
+    # basé sur parent_id (pas sur les liens ajoutés) -> ajouter un lien ne bouge aucun nœud.
+    xpos: dict = {}
+    for lvl in sorted(by_level):
+        rids = sorted(by_level[lvl], key=lambda rid: (xpos.get(parent_of.get(rid, ""), 0.0), rid))
+        for i, rid in enumerate(rids):
+            xpos[rid] = (i - (len(rids) - 1) / 2) * NODE_SEP
     nodes, edges = [], []
     for item in corpus:
         rid = str(item.get("id") or "").strip()
         if not rid:
             continue  # pas de nœud fantôme « None »/vide
-        color = NIVEAU_COLORS.get(_lvl(item.get("niveau", 0)), "#9CA3AF")
+        lvl = _lvl(item.get("niveau", 0))
+        color = NIVEAU_COLORS.get(lvl, "#9CA3AF")
         hot = rid in impacted
         weak = rid in flagged
         is_sel = rid == selected
@@ -139,7 +159,8 @@ def draw_graph(corpus, impacted=None, selected=None, flagged=None):
         nodes.append(Node(id=rid, label=rid, title=item.get("texte", ""), color=color,
                           size=26 if emph else 14, shape="dot",
                           borderWidth=5 if emph else 2, borderColor=border,
-                          font={"size": 13, "face": "Inter, sans-serif", "color": "#E7E8EC"}))
+                          font={"size": 13, "face": "Inter, sans-serif", "color": "#E7E8EC"},
+                          x=xpos.get(rid, 0), y=lvl * LEVEL_SEP, fixed=True))
         pid = item.get("parent_id")
         if pid and str(pid) in ids:
             edges.append(Edge(source=str(pid), target=rid, color="#CBD5E1"))
@@ -149,16 +170,8 @@ def draw_graph(corpus, impacted=None, selected=None, flagged=None):
                 edges.append(Edge(source=str(tgt), target=rid, color="#E5E7EB", dashes=True))
     config = Config(
         height=820, width=1560, directed=True,
-        physics=False,                 # plus de re-simulation : le graphe ne part plus dans tous les sens
-        hierarchical=True,             # disposition en arbre
-        direction="UD",                # racine (L0) en haut, déclinaison vers le bas
-        sortMethod="directed",         # respecte le sens des liens (vrai arbre de décision)
-        shakeTowards="roots",
-        levelSeparation=160,           # plus d'espace vertical entre niveaux
-        nodeSpacing=210,               # plus d'espace horizontal -> les labels ne se chevauchent plus
-        treeSpacing=260,
-        nodeHighlightBehavior=True, highlightColor="#93C5FD",
-        stabilization=True, fit=True,
+        physics=False,                 # aucune re-simulation : positions fixes fournies par nœud
+        nodeHighlightBehavior=True, highlightColor="#93C5FD", fit=True,
     )
     return agraph(nodes=nodes, edges=edges, config=config)
 
@@ -421,6 +434,7 @@ AXIS_LABELS = {
     "LIEN": "Lien manquant", "DOUBLON": "Doublon d'ID", "CYCLE": "Cycle",
     "ALLOCATION": "Allocation", "REDACTION": "Rédaction", "PERTINENCE": "Pertinence",
     "COUVERTURE": "Couverture", "REDONDANCE": "Redondance",
+    "PERTINENCE_AVAL": "Pertinence aval", "COHERENCE_REF": "Co-références",
 }
 
 
@@ -513,10 +527,12 @@ def render_audit_summary():
     if rep.findings:
         order = {"BLOQUANT": 0, "WARNING": 1, "INFO": 2}
         with st.expander(f"Détail ({len(notable)})", expanded=bool(n_bloq)):
-            for f in sorted(rep.findings, key=lambda x: (order.get(x.severity, 3), x.axis)):
+            for i, f in enumerate(sorted(rep.findings, key=lambda x: (order.get(x.severity, 3), x.axis))):
+                # L'index garantit l'unicité de la clé même si une exigence porte
+                # plusieurs constats du même axe (ex. plusieurs co-références).
                 st.button(f"[{_SEV_PREFIX.get(f.severity, f.severity)}] {f.req_id} · "
                           f"{AXIS_LABELS.get(f.axis, f.axis)} — {f.message}",
-                          key=f"af_{f.req_id}_{f.axis}_{f.message[:12]}", use_container_width=True,
+                          key=f"af_{i}_{f.req_id}_{f.axis}", use_container_width=True,
                           on_click=_select_node, args=(f.req_id,))
     _render_audit_glassbox(st.session_state.get("audit_exchanges") or [], rep)
 
