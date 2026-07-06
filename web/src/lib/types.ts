@@ -46,4 +46,6 @@ export type ChatMessage = {
   chunks?: ChunkView[];
   /** Réponse interrompue (flux coupé, erreur) — affichée avec une bannière. */
   error?: string;
+  /** Génération arrêtée volontairement (bouton Stop) — réponse partielle. */
+  stopped?: boolean;
 };

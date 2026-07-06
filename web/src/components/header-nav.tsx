@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/rag", label: "Outil RAG" },
+  { href: "/documents", label: "Documents" },
   { href: "/requirements", label: "AI for Requirements" },
 ];
 

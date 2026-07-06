@@ -90,7 +90,7 @@ function ChunksBlock({ chunks }: { chunks: ChunkView[] }) {
 function PipelineStrip({ phase, nChunks }: { phase: Phase; nChunks: number | null }) {
   const retrieving = phase === "retrieve";
   return (
-    <p className="mb-2 flex items-center gap-2 text-xs text-fg-faint">
+    <p className="flex items-center gap-2 text-xs text-fg-faint">
       <Dot tone={retrieving ? "accent" : "good"} pulse={retrieving} />
       Recherche
       <span className="text-fg-faint">▸</span>
@@ -108,6 +108,11 @@ function AssistantMessage({ m }: { m: ChatMessage }) {
       <div className="chat-md text-sm leading-relaxed">
         <ReactMarkdown>{m.content}</ReactMarkdown>
       </div>
+      {m.stopped && (
+        <p className="mt-2 flex items-center gap-2 text-xs text-fg-faint">
+          <Dot tone="warn" /> Génération arrêtée — réponse partielle.
+        </p>
+      )}
       {m.error && (
         <div className="mt-2">
           <Banner tone="bad">{m.error}</Banner>
@@ -128,6 +133,7 @@ export function Chat() {
   const [partial, setPartial] = useState<string>("");
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const busy = phase !== "idle";
 
   useEffect(() => {
@@ -155,6 +161,8 @@ export function Chat() {
       const draft: ChatMessage = { role: "assistant", content: "" };
       let chunks: ChunkView[] = [];
       let gotDone = false;
+      const controller = new AbortController();
+      abortRef.current = controller;
 
       try {
         await streamAsk({ question: q, source: selected || null, history }, (ev) => {
@@ -173,13 +181,19 @@ export function Chat() {
             gotDone = true; // trame terminale : pas un flux coupé
             draft.error = `Une erreur est survenue pendant la génération : ${ev.message}`;
           }
-        });
+        }, controller.signal);
         if (!gotDone)
           draft.error =
             "Le flux s'est interrompu avant la fin (API redémarrée ?). Réponse partielle affichée.";
       } catch (e) {
-        draft.error = `L'API locale est injoignable (${String(e)}). Lancer : python serve.py --web`;
+        if (controller.signal.aborted) {
+          // Arrêt volontaire : la coupure remonte jusqu'à Ollama via l'API.
+          draft.stopped = true;
+        } else {
+          draft.error = `L'API locale est injoignable (${String(e)}). Lancer : python serve.py --web`;
+        }
       }
+      abortRef.current = null;
 
       if (chunks.length) draft.chunks = chunks;
       setMessages((ms) => [...ms, draft]);
@@ -251,10 +265,19 @@ export function Chat() {
           ),
         )}
 
-        {/* Réponse en cours : pipeline + texte streamé. */}
+        {/* Réponse en cours : pipeline + texte streamé + arrêt d'urgence. */}
         {busy && (
           <div className="rounded-xl border border-edge bg-surface px-4 py-3">
-            <PipelineStrip phase={phase} nChunks={nChunks} />
+            <div className="mb-2 flex items-start justify-between gap-3">
+              <PipelineStrip phase={phase} nChunks={nChunks} />
+              <button
+                onClick={() => abortRef.current?.abort()}
+                title="Arrête la génération immédiatement (la réponse partielle est conservée)."
+                className="cursor-pointer rounded-md border border-bad/40 px-2 py-0.5 text-xs text-bad transition-colors hover:bg-bad/15"
+              >
+                ■ Stop
+              </button>
+            </div>
             {partial ? (
               <div className="chat-md stream-caret text-sm leading-relaxed">
                 <ReactMarkdown>{partial}</ReactMarkdown>

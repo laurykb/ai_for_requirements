@@ -56,6 +56,11 @@ class VectorStore(ABC):
     def reset(self) -> None:
         """Vide la collection et la recrée (réingestion propre, anti-doublons)."""
 
+    def delete_source(self, source: str) -> None:
+        """Supprime tous les vecteurs d'UN document (métadonnée `source`).
+        Optionnel : les backends qui ne le supportent pas gardent ce no-op
+        (le nettoyage se fait alors par `reset()` + réingestion)."""
+
 
 class ChromaVectorStore(VectorStore):
     """Adaptateur ChromaDB persistant (le backend par défaut, embarqué)."""
@@ -99,6 +104,12 @@ class ChromaVectorStore(VectorStore):
         self._coll(configuration=_CHROMA_HNSW).add(
             ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings
         )
+
+    def delete_source(self, source: str) -> None:
+        try:
+            self._coll().delete(where={"source": source})
+        except Exception as e:
+            logger.warning("delete_source(%s) : %s", source, e)
 
     # -- lecture ---------------------------------------------------------------
     def query(self, embedding, n_results, source_filter=None) -> list[VectorHit]:

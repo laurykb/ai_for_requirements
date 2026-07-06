@@ -9,15 +9,18 @@ Lancer : `python serve.py --web` (ou `uvicorn api.main:app --port 8000`).
 from __future__ import annotations
 
 import json
+import re
 import socket
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pymongo import MongoClient
 
 from env_config import MONGO_URI, MONGO_DB
+from core import ingest_queue
 
 app = FastAPI(title="AI for SSH — API")
 # Front Next.js local (`web/`) : REST cross-origin depuis :3000.
@@ -142,3 +145,118 @@ def sources() -> dict:
         "available": True,
         "sources": [{"name": r["_id"], "chunks": r["chunks"]} for r in rows],
     }
+
+
+# ─────────────── Documents & ingestion ───────────────
+
+@app.get("/api/ingest/defaults")
+def ingest_defaults() -> dict:
+    """Options d'ingestion par défaut (.env) + types de fichiers acceptés."""
+    return {"params": ingest_queue.default_params(),
+            "upload_types": list(ingest_queue.UPLOAD_TYPES)}
+
+
+@app.post("/api/documents")
+async def upload_documents(
+    files: list[UploadFile] = File(...),
+    nkw: int = Form(...),
+    nq: int = Form(...),
+    mode: str = Form(...),
+    raptor: bool = Form(...),
+    enh_model: str = Form(""),
+) -> dict:
+    """Dépose un LOT de documents et le met en file d'ingestion séquentielle.
+    Les options sont choisies AU MOMENT de l'upload (règle produit) et
+    partagées par le lot."""
+    ingest_queue.DOCS_OUT.mkdir(parents=True, exist_ok=True)
+    ingest_queue.DOCS_PDF.mkdir(parents=True, exist_ok=True)
+    items = []
+    for up in files:
+        name = (up.filename or "document").replace("/", "_").replace("\\", "_")
+        if name.split(".")[-1].lower() not in ingest_queue.UPLOAD_TYPES:
+            raise HTTPException(400, f"Type non accepté : {name}")
+        # Documents source -> docs/PDF ; markdown déjà converti -> docs/out.
+        target = (ingest_queue.DOCS_OUT / name if name.lower().endswith(".md")
+                  else ingest_queue.DOCS_PDF / name)
+        target.write_bytes(await up.read())
+        items.append({"name": name, "path": str(target)})
+    params = {"nkw": nkw, "nq": nq,
+              "mode": mode if mode in ("technical", "naive") else "technical",
+              "raptor": raptor, "enh_model": enh_model.strip()}
+    return {"added": ingest_queue.enqueue(items, params)}
+
+
+@app.get("/api/ingest/status")
+def ingest_status() -> dict:
+    """File d'ingestion : une entrée par document, dans l'ordre de lancement."""
+    jobs = []
+    for j in ingest_queue.snapshot():
+        res = j.get("result") or {}
+        jobs.append({
+            "id": j["id"], "name": j["name"], "status": j["status"],
+            "pct": j["pct"], "step": j["step"],
+            "elapsed": (int(time.time() - j["t0"]) if j["status"] == "running" and j["t0"]
+                        else int((j["t_end"] or 0) - (j["t0"] or 0)) or None),
+            "num_chunks": res.get("num_chunks"),
+            "message": res.get("message"),
+        })
+    return {"active": ingest_queue.active(), "jobs": jobs}
+
+
+@app.post("/api/ingest/clear")
+def ingest_clear() -> dict:
+    ingest_queue.clear_finished()
+    return {"ok": True}
+
+
+@app.delete("/api/documents/{name}")
+def delete_document(name: str) -> dict:
+    """Supprime un document de TOUS les index : chunks Mongo, vecteurs Chroma,
+    index BM25. (Le Streamlit ne purgeait que Mongo ; ici le retrait est complet.)"""
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
+        n = client[MONGO_DB]["chunks"].delete_many({"source": name}).deleted_count
+        client[MONGO_DB]["bm25_indexes"].delete_many({"source_doc": name})
+    except Exception as e:
+        raise HTTPException(503, f"Mongo injoignable : {e}")
+    try:
+        from retrieval.vector_store import get_vector_store
+        get_vector_store().delete_source(name)
+    except Exception:
+        pass  # Chroma indisponible : les vecteurs orphelins partiront à la réingestion
+    try:
+        from core.ask import clear_retrieval_caches
+        clear_retrieval_caches()
+    except Exception:
+        pass
+    return {"deleted": n}
+
+
+@app.get("/api/documents/{name}/chunks")
+def document_chunks(name: str, search: str = "", chunk_type: str = "tous",
+                    limit: int = 200) -> dict:
+    """Exploration d'un document : ses passages indexés, filtrables (boîte de
+    verre de l'indexation — ce que la base contient réellement)."""
+    q: dict = {"source": name}
+    if chunk_type == "texte":
+        q["chunk_type"] = {"$nin": ["summary", "table", "figure", "mixed"]}
+    elif chunk_type == "resumes":
+        q["chunk_type"] = "summary"
+    elif chunk_type == "tabfig":
+        q["chunk_type"] = {"$in": ["table", "figure", "mixed"]}
+    if search:
+        q["content"] = {"$regex": re.escape(search), "$options": "i"}
+    try:
+        rows = list(_chunks_col().find(q).sort([("section_idx", 1), ("chunk_idx", 1)])
+                    .limit(max(1, min(limit, 500))))
+    except Exception as e:
+        raise HTTPException(503, f"Mongo injoignable : {e}")
+    chunks = [{
+        "content": r.get("content", ""),
+        "heading": r.get("heading"), "breadcrumb": r.get("breadcrumb"),
+        "section_idx": r.get("section_idx"), "page_number": r.get("page_number"),
+        "chunk_type": r.get("chunk_type"),
+        "keywords_str": r.get("keywords_str"), "questions_str": r.get("questions_str"),
+        "entities_str": r.get("entities_str"),
+    } for r in rows]
+    return {"total": len(chunks), "chunks": chunks}
