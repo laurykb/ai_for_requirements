@@ -268,9 +268,14 @@ def get_config() -> Dict[str, Any]:
     # --------------------- AGENT ReAct -------------------
     # Agent ReAct : modèle de raisonnement, séparable du modèle de génération.
     # Par défaut le même que GEN_MODEL, mais surchargeable indépendamment.
+    agent_model = os.environ.get("AGENT_MODEL", "").strip() or gen_model
     agent_config = {
-        "AGENT_MODEL": os.environ.get("AGENT_MODEL", "").strip() or gen_model,
+        "AGENT_MODEL": agent_model,
         "AGENT_MAX_ITERATIONS": int(os.environ.get("AGENT_MAX_ITERATIONS", "4")),
+        # Planificateur multi-hop (rôle « planner ») : produit le plan JSON du mode
+        # agent (sous-questions) et le révise en cours de route. Par défaut le même
+        # modèle que l'agent, surchargeable indépendamment via .env.
+        "PLANNER_MODEL": os.environ.get("PLANNER_MODEL", "").strip() or agent_model,
     }
 
     # --------------------- MODE RAPIDE (latence) -------------------
@@ -383,6 +388,7 @@ ENHANCE_NUM_CTX = CONFIG["ENHANCE_NUM_CTX"]
 
 AGENT_MODEL = CONFIG["AGENT_MODEL"]
 AGENT_MAX_ITERATIONS = CONFIG["AGENT_MAX_ITERATIONS"]
+PLANNER_MODEL = CONFIG["PLANNER_MODEL"]
 RAG_FAST_MODE = CONFIG["RAG_FAST_MODE"]
 GEN_NUM_CHUNKS = CONFIG["GEN_NUM_CHUNKS"]
 CONTEXT_DEDUP = CONFIG["CONTEXT_DEDUP"]

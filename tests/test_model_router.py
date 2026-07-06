@@ -9,20 +9,23 @@ import pytest
 
 from core.model_router import model_for, routing_table, llm_kwargs, ollama_options
 from env_config import (
-    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, ENHANCEMENT_MODEL,
+    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
     NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX,
 )
 
 
 def test_routing_table_covers_all_roles():
     table = routing_table()
-    assert set(table) == {"rewrite", "agent", "generate", "judge", "enhance"}
+    assert set(table) == {"rewrite", "agent", "planner", "generate", "judge", "enhance"}
     assert all(isinstance(m, str) and m for m in table.values())
 
 
 def test_model_for_maps_roles_to_configured_models():
     assert model_for("rewrite") == REWRITER_MODEL
     assert model_for("agent") == AGENT_MODEL
+    # planner : override explicite PLANNER_MODEL, sinon repli sur le modèle de l'agent.
+    assert model_for("planner") == PLANNER_MODEL
+    assert PLANNER_MODEL  # jamais vide : AGENT_MODEL (lui-même GEN_MODEL) en défaut
     assert model_for("generate") == GEN_MODEL
     assert model_for("judge") == REWRITER_MODEL  # défaut historique du juge
     # enhance : override explicite ENHANCEMENT_MODEL, sinon repli sur REWRITER_MODEL.
@@ -89,7 +92,7 @@ def test_enhance_options_match_legacy_tuning():
 
 def test_no_role_forces_keep_alive_forever():
     # Garde-fou de non-régression : aucun rôle ne doit re-pinner un modèle « Forever ».
-    for role in ("rewrite", "agent", "generate", "judge", "enhance"):
+    for role in ("rewrite", "agent", "planner", "generate", "judge", "enhance"):
         assert "keep_alive" not in llm_kwargs(role)
 
 
