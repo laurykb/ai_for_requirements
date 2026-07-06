@@ -26,8 +26,16 @@ const TOOLS = [
 
 export default function HomePage() {
   return (
-    <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-center gap-12 py-8 text-center">
+    <div className="relative flex min-h-[calc(100vh-9rem)] flex-col items-center justify-center gap-12 py-8 text-center">
       <Intro />
+      {/* Le perchoir du logo : l'intro vient s'y loger, centré en haut de page. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        id="home-thales"
+        src="/thales.svg"
+        alt="Thales"
+        className="absolute left-1/2 top-2 h-7 w-auto -translate-x-1/2"
+      />
       <div className="rise-in">
         <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-fg-faint">
           AI for SSH

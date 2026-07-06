@@ -160,17 +160,6 @@ body {
   }
 }
 
-/* Le voile entier s'efface à la fin (l'accueil respire derrière). */
-.intro-overlay {
-  animation: intro-overlay-out 0.7s ease-in 4.9s both;
-}
-@keyframes intro-overlay-out {
-  to {
-    opacity: 0;
-    visibility: hidden;
-  }
-}
-
 /* ===== Chat ==================================================================== */
 
 /* Blocs repliés (sources, passages) : progressive disclosure sobre. */

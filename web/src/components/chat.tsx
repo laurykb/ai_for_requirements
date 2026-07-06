@@ -9,10 +9,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { getJSON, type SourcesResponse } from "@/lib/api";
+import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { fmt } from "@/lib/format";
+import { loadPrefs } from "@/lib/prefs";
 import type { ChatMessage, ChunkView, Citation } from "@/lib/types";
+import { useExpert } from "@/components/expert-toggle";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 
 const EXAMPLES = [
@@ -102,7 +104,7 @@ function PipelineStrip({ phase, nChunks }: { phase: Phase; nChunks: number | nul
   );
 }
 
-function AssistantMessage({ m }: { m: ChatMessage }) {
+function AssistantMessage({ m, expert }: { m: ChatMessage; expert: boolean }) {
   return (
     <div className="rounded-xl border border-edge bg-surface px-4 py-3">
       <div className="chat-md text-sm leading-relaxed">
@@ -119,7 +121,72 @@ function AssistantMessage({ m }: { m: ChatMessage }) {
         </div>
       )}
       {m.citations && <SourcesBlock citations={m.citations} />}
-      {m.chunks && <ChunksBlock chunks={m.chunks} />}
+      {/* Passages récupérés : détail technique — mode expert seulement. */}
+      {expert && m.chunks && <ChunksBlock chunks={m.chunks} />}
+    </div>
+  );
+}
+
+type EvalResult = {
+  faithfulness?: number | null;
+  answer_relevance?: number | null;
+  context_relevance?: number | null;
+  issues?: string[];
+};
+
+/** Vérification LLM-as-judge de la dernière réponse (expert, à la demande) :
+ * 1 appel fusionné → 3 axes + extraits problématiques. */
+function VerifyBlock({ question, m }: { question: string; m: ChatMessage }) {
+  const [result, setResult] = useState<EvalResult | null>(null);
+  const [running, setRunning] = useState(false);
+  if (!m.chunks?.length) return null;
+
+  const run = async () => {
+    setRunning(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, answer: m.content, chunks: m.chunks }),
+      });
+      setResult(res.ok ? await res.json() : {});
+    } catch {
+      setResult({});
+    }
+    setRunning(false);
+  };
+
+  return (
+    <div className="mt-1">
+      {!result && (
+        <button
+          onClick={run}
+          disabled={running}
+          title="Contrôle la fidélité aux sources (1 appel LLM, à la demande)."
+          className="cursor-pointer rounded-md border border-edge px-2 py-1 text-xs text-fg-faint transition-colors hover:border-accent/60 hover:text-foreground disabled:opacity-50"
+        >
+          {running ? "Vérification…" : "Vérifier la réponse"}
+        </button>
+      )}
+      {result && (
+        <div className="rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-fg-faint">
+            Vérification automatique (LLM-as-judge, 0 → 1)
+          </p>
+          <div className="mt-1.5 flex gap-5 font-mono tabular-nums text-fg-muted">
+            <span>Fidélité {fmt(result.faithfulness ?? 0)}</span>
+            <span>Pertinence réponse {fmt(result.answer_relevance ?? 0)}</span>
+            <span>Pertinence contexte {fmt(result.context_relevance ?? 0)}</span>
+          </div>
+          {(result.issues?.length ?? 0) > 0 && (
+            <ul className="mt-1.5 list-disc pl-4 text-fg-faint">
+              {result.issues!.map((it, i) => (
+                <li key={i}>{it}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -134,6 +201,7 @@ export function Chat() {
   const [input, setInput] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const expert = useExpert();
   const busy = phase !== "idle";
 
   useEffect(() => {
@@ -151,7 +219,10 @@ export function Chat() {
       const q = question.trim();
       if (!q || busy) return;
       setInput("");
-      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const prefs = loadPrefs();
+      const history = prefs.useMemory
+        ? messages.map((m) => ({ role: m.role, content: m.content }))
+        : [];
       setMessages((ms) => [...ms, { role: "user", content: q }]);
       setPhase("retrieve");
       setNChunks(null);
@@ -165,7 +236,14 @@ export function Chat() {
       abortRef.current = controller;
 
       try {
-        await streamAsk({ question: q, source: selected || null, history }, (ev) => {
+        await streamAsk({
+          question: q,
+          source: selected || null,
+          history,
+          parent_child: prefs.parentChild,
+          self_rag: prefs.selfRag,
+          system_prompt: prefs.systemPrompt,
+        }, (ev) => {
           if (ev.type === "stage" && ev.stage === "generate") setPhase("generate");
           else if (ev.type === "retrieved") {
             chunks = ev.chunks;
@@ -261,7 +339,13 @@ export function Chat() {
               {m.content}
             </p>
           ) : (
-            <AssistantMessage key={i} m={m} />
+            <div key={i}>
+              <AssistantMessage m={m} expert={expert} />
+              {/* Vérification de la DERNIÈRE réponse seulement (expert). */}
+              {expert && i === messages.length - 1 && !busy && (
+                <VerifyBlock question={messages[i - 1]?.content ?? ""} m={m} />
+              )}
+            </div>
           ),
         )}
 
