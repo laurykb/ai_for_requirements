@@ -104,6 +104,73 @@ body {
   }
 }
 
+/* ===== Introduction Thales (accueil) =========================================== */
+/* La planète est posée à sa place finale (le point du A) : tout le voyage est
+   raconté par scale() — loin (petit), plongée (grand), atterrissage (taille du
+   point). Les lettres apparaissent pendant le dézoom. */
+
+.intro-globe {
+  animation: intro-globe 4.6s cubic-bezier(0.45, 0.05, 0.35, 1) both;
+  will-change: transform;
+}
+@keyframes intro-globe {
+  0% {
+    transform: scale(7);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(8);
+    opacity: 1;
+  }
+  55% {
+    transform: scale(24);
+  }
+  88% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Rotation : les « continents » défilent derrière le clip circulaire. */
+.intro-spin {
+  animation: intro-spin 2.6s linear infinite;
+}
+@keyframes intro-spin {
+  from {
+    transform: translateX(-100px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Les lettres se révèlent pendant l'atterrissage de la planète. */
+.intro-letters {
+  animation: intro-letters 1.4s ease-out 3.1s both;
+}
+@keyframes intro-letters {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Le voile entier s'efface à la fin (l'accueil respire derrière). */
+.intro-overlay {
+  animation: intro-overlay-out 0.7s ease-in 4.9s both;
+}
+@keyframes intro-overlay-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 /* ===== Chat ==================================================================== */
 
 /* Blocs repliés (sources, passages) : progressive disclosure sobre. */
