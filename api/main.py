@@ -198,9 +198,9 @@ def ask(body: AskBody) -> StreamingResponse:
                 yield _sse({"type": "retrieved",
                             "chunks": [_trim_chunk(c) for c in chunks]})
                 yield _sse({"type": "sources", "citations": citations})
-                yield _sse({"type": "done", "found": True})
                 _persist_exchange(session_id, body.source, body.question, answer_txt,
                                   citations, "\n\n".join(reasoning_parts), chunks)
+                yield _sse({"type": "done", "found": True})
                 return
 
             # ─ RAG direct ─
@@ -227,15 +227,21 @@ def ask(body: AskBody) -> StreamingResponse:
                 answer_txt += token
                 yield _sse({"type": "token", "text": token})
             yield _sse({"type": "sources", "citations": citations or []})
-            yield _sse({"type": "done", "found": bool(chunks)})
+            # Persistance AVANT `done` : le front rafraîchit la liste des
+            # conversations sur `done` (le titre auto doit déjà être posé).
             _persist_exchange(session_id, body.source, body.question, answer_txt,
                               citations or [], None, chunks or [])
+            yield _sse({"type": "done", "found": bool(chunks)})
 
-            # Vérification ciblée (Auto + question à enjeu, pas de double éval
-            # si le Self-RAG a déjà vérifié) — émise après la réponse.
+            # Vérification ciblée (Auto + question à enjeu). Pas de double
+            # éval si le Self-RAG a DÉJÀ vérifié — flag EFFECTIF (.env par
+            # défaut quand le front envoie null).
             try:
                 from core.router import should_verify
-                if (body.mode == "auto" and citations and not body.self_rag
+                from env_config import SELF_RAG_ENABLED
+                self_rag_on = (body.self_rag if body.self_rag is not None
+                               else SELF_RAG_ENABLED)
+                if (body.mode == "auto" and citations and not self_rag_on
                         and should_verify(body.question)["verify"]):
                     from core.evaluation import verify_answer
                     yield _sse({"type": "eval",
@@ -349,12 +355,16 @@ def document_summary(name: str) -> dict:
 
 @app.get("/api/documents/{name}/markdown")
 def document_markdown(name: str) -> dict:
-    """Texte markdown source du document (visionneuse page blanche)."""
+    """Texte markdown source du document (visionneuse page blanche).
+    Cherche dans docs/out ET dans le dossier des markdown nettoyés (les PDF
+    convertis y vivent sous <nom>-clean.md)."""
     safe = name.replace("/", "_").replace("\\", "_")
-    path = ingest_queue.DOCS_OUT / safe
-    if not path.exists():
-        raise HTTPException(404, "Markdown source introuvable.")
-    return {"name": safe, "markdown": path.read_text(encoding="utf-8")}
+    candidates = [ingest_queue.DOCS_OUT / safe,
+                  ingest_queue.DOCS_OUT.parent / "out_clean_md" / safe]
+    for path in candidates:
+        if path.exists():
+            return {"name": safe, "markdown": path.read_text(encoding="utf-8")}
+    raise HTTPException(404, "Markdown source introuvable.")
 
 @app.get("/api/ingest/defaults")
 def ingest_defaults() -> dict:
@@ -399,11 +409,19 @@ def ingest_status() -> dict:
     jobs = []
     for j in ingest_queue.snapshot():
         res = j.get("result") or {}
+        if j["status"] == "running" and j["t0"]:
+            elapsed = int(time.time() - j["t0"])
+        elif j["t_end"] and j["t0"]:
+            elapsed = int(j["t_end"] - j["t0"])
+        else:
+            elapsed = None
         jobs.append({
             "id": j["id"], "name": j["name"], "status": j["status"],
             "pct": j["pct"], "step": j["step"],
-            "elapsed": (int(time.time() - j["t0"]) if j["status"] == "running" and j["t0"]
-                        else int((j["t_end"] or 0) - (j["t0"] or 0)) or None),
+            "elapsed": elapsed,
+            # Nom de source RÉEL en base (un PDF devient <nom>-clean.md) :
+            # c'est lui que l'UI doit cibler pour interroger le document.
+            "source_name": j.get("source_name"),
             "num_chunks": res.get("num_chunks"),
             "message": res.get("message"),
         })

@@ -51,6 +51,10 @@ def _process_job(job: dict) -> None:
             md_path = convert_and_clean(str(path), out_dir=str(DOCS_OUT))
         else:
             md_path = str(path)
+        # Nom de SOURCE réel (celui enregistré en base) : pour un PDF converti,
+        # c'est le nom du markdown produit (ex. rapport-clean.md), PAS le nom
+        # du fichier déposé — l'UI en a besoin pour cibler le bon document.
+        job["source_name"] = Path(md_path).name
         from core.ingest import ingest_markdown
         stats = ingest_markdown(md_path, num_keywords=p["nkw"], num_questions=p["nq"],
                                 enhancement_model=p["enh_model"] or None,
@@ -107,6 +111,7 @@ def enqueue(items: list[dict], params: dict) -> int:
                 "id": _SEQ, "name": it["name"], "path": it["path"],
                 "params": dict(params), "status": "queued", "pct": 0,
                 "step": "En file d'attente...", "result": None, "t0": 0.0, "t_end": 0.0,
+                "source_name": None,
             })
             added += 1
     if added:

@@ -22,12 +22,20 @@ from env_config import MONGO_URI as _MONGO_URI, MONGO_DB as _DB_NAME
 
 
 _COL_NAME  = "chat_sessions"
+_CLIENT = None  # client singleton : un pool partagé, jamais un client par appel
 
 
 def _col():
-    """Retourne la collection des sessions chat."""
-    client = MongoClient(_MONGO_URI)
-    return client[_DB_NAME][_COL_NAME]
+    """Retourne la collection des sessions chat.
+
+    Client SINGLETON avec timeout court : l'ancien code créait un MongoClient
+    par appel (fuite de sockets/threads au fil des requêtes) et, sans
+    serverSelectionTimeoutMS, chaque opération gelait 30 s quand Mongo était
+    éteint (dont create_session au tout début du flux SSE du chat)."""
+    global _CLIENT
+    if _CLIENT is None:
+        _CLIENT = MongoClient(_MONGO_URI, serverSelectionTimeoutMS=1500)
+    return _CLIENT[_DB_NAME][_COL_NAME]
 
 
 # -----------------------------------------------------------------------------

@@ -167,9 +167,12 @@ function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
         </div>
       )}
       {m.citations && <SourcesBlock citations={m.citations} />}
-      {expert && m.chunks && (
-        <ChunksBlock chunks={m.chunks} canRegenerate={canRegenerate}
-                     onRegenerate={onRegenerate} />
+      {/* Passages récupérés : boîte de verre pour TOUS les modes (cocher/
+          décocher + régénérer sur la dernière réponse). key : remonte le bloc
+          quand la liste change (régénération) pour réaligner les cases. */}
+      {m.chunks && (
+        <ChunksBlock key={m.chunks.length} chunks={m.chunks}
+                     canRegenerate={canRegenerate} onRegenerate={onRegenerate} />
       )}
       {m.eval && <EvalBlock e={m.eval} />}
     </div>
@@ -414,13 +417,15 @@ export function Chat() {
 
   /** Pièce jointe façon chatbot : réglages par défaut, barre de progression
    * visible, envoi BLOQUÉ tant que l'indexation tourne, puis le périmètre est
-   * automatiquement fixé sur le document ajouté (le prompt suivant porte
-   * dessus). Réglages fins : onglet Documents. */
+   * automatiquement fixé sur le document ajouté — via son NOM DE SOURCE réel
+   * en base (un PDF devient <nom>-clean.md). Réglages fins : onglet
+   * Documents. Suit TOUT le lot déposé ; abandon propre si l'API redémarre. */
   const attachFiles = async (files: FileList | null) => {
     if (!files?.length || attaching) return;
-    const name = files[0].name;
+    const names = Array.from(files).map((f) => f.name);
+    const label = names.length > 1 ? `${names[0]} (+${names.length - 1})` : names[0];
     setAttachError(null);
-    setAttach({ name, pct: 0, step: "Dépôt du document…" });
+    setAttach({ name: label, pct: 0, step: "Dépôt du document…" });
     const d = await getJSON<{ params: Record<string, unknown> }>("/api/ingest/defaults")
       .catch(() => null);
     const p = d?.params ?? { nkw: 5, nq: 3, mode: "technical", raptor: true, enh_model: "" };
@@ -436,28 +441,53 @@ export function Chat() {
     if (fileRef.current) fileRef.current.value = "";
     if (!res?.ok) {
       setAttach(null);
-      setAttachError(`Dépôt impossible pour « ${name} » — type non accepté ou API indisponible.`);
+      setAttachError(`Dépôt impossible pour « ${label} » — type non accepté ou API indisponible.`);
       return;
     }
-    // Suivi de LA tâche de ce document jusqu'au bout.
+    // Suivi de TOUTES les tâches du lot jusqu'au bout.
+    let misses = 0;
+    type Job = { name: string; status: string; pct: number; step: string;
+                 message: string | null; source_name: string | null };
     pollRef.current = setInterval(async () => {
-      const s = await getJSON<{ active: boolean; jobs: { name: string; status: string;
-        pct: number; step: string; message: string | null }[] }>("/api/ingest/status")
+      const s = await getJSON<{ active: boolean; jobs: Job[] }>("/api/ingest/status")
         .catch(() => null);
-      const job = s?.jobs.filter((j) => j.name === name).at(-1);
-      if (!job) return;
-      if (job.status === "queued" || job.status === "running") {
-        setAttach({ name, pct: job.pct, step: job.step });
+      const jobs = names
+        .map((n) => s?.jobs.filter((j) => j.name === n).at(-1))
+        .filter((j): j is Job => !!j);
+      if (!s || jobs.length < names.length) {
+        // File en mémoire disparue (API redémarrée ?) : ne pas bloquer à vie.
+        if (++misses >= 5) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setAttach(null);
+          setAttachError(
+            "Suivi d'indexation perdu (API redémarrée ?) — vérifiez l'onglet Documents.");
+        }
+        return;
+      }
+      misses = 0;
+      const pending = jobs.filter((j) => j.status === "queued" || j.status === "running");
+      if (pending.length) {
+        const cur = pending.find((j) => j.status === "running") ?? pending[0];
+        const done = jobs.length - pending.length;
+        const pct = Math.round((100 * done + cur.pct) / jobs.length);
+        setAttach({ name: label, pct, step: cur.step });
         return;
       }
       if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = null;
       setAttach(null);
-      if (job.status === "success") {
+      const ok = jobs.filter((j) => j.status === "success");
+      const failed = jobs.filter((j) => j.status === "error");
+      if (ok.length) {
         refreshDocs();
-        setSelected(name); // le prompt suivant porte sur CE document
-      } else {
-        setAttachError(`Indexation de « ${name} » échouée : ${job.message ?? "erreur."}`);
+        // Le prompt suivant porte sur le document ajouté (source réelle).
+        setSelected(ok[0].source_name ?? ok[0].name);
+      }
+      if (failed.length) {
+        setAttachError(failed
+          .map((j) => `Indexation de « ${j.name} » échouée : ${j.message ?? "erreur."}`)
+          .join(" — "));
       }
     }, 1200);
   };
@@ -539,7 +569,7 @@ export function Chat() {
               <div key={i} className="rounded-2xl border border-edge bg-surface px-4 py-3">
                 <AssistantMessage
                   m={m} expert={expert}
-                  canRegenerate={expert && i === messages.length - 1 && !busy}
+                  canRegenerate={i === messages.length - 1 && !busy}
                   onRegenerate={regenerate}
                 />
               </div>

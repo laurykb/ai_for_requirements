@@ -78,7 +78,9 @@ async def upload_corpus(files: list[UploadFile] = File(...)) -> dict:
     merged, errors = [], []
     seen = set()
     for raw in payloads:
-        valides, errs = corpus_io.validate_corpus(raw)
+        # _unwrap : accepte le format enveloppé {"meta":…, "exigences":[…]}
+        # (celui que LynX exporte lui-même) comme la liste nue.
+        valides, errs = corpus_io.validate_corpus(corpus_io._unwrap(raw))
         errors.extend(errs)
         for r in valides:
             if r["id"] not in seen:
@@ -158,15 +160,38 @@ def _candidate(corpus: list[dict], a: ActionBody) -> list[dict]:
     return cand
 
 
+class _Cancelled(Exception):
+    """Le client SSE a disparu : on interrompt le worker au plus tôt (sinon il
+    poursuivrait ses appels LLM en tenant _LLM_LOCK — UI « pendue » ensuite)."""
+
+
+def _sse_error_stream(message: str) -> StreamingResponse:
+    """Erreur de validation AVANT le flux : une trame `error` propre (un 500
+    JSON serait affiché « API injoignable » par le front)."""
+    def gen():
+        yield _sse({"type": "error", "message": message})
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store"})
+
+
 @router.post("/analyze")
 def analyze(body: AnalyzeBody) -> StreamingResponse:
     """Analyse d'impact d'UNE action, en boîte de verre SSE : `agent`
     (start/done par agent), `report` (verdict + constats), `token` (synthèse
     streamée), `exchanges` (timeline humanisée), `done` / `error`."""
     corpus = [dict(r) for r in _get_corpus()]
-    action = _build_action(body.action)
+    try:
+        action = _build_action(body.action)
+    except Exception as e:
+        return _sse_error_stream(f"Action invalide : {str(e)[:200]}")
 
     q: queue.Queue = queue.Queue()
+    cancelled = threading.Event()
+
+    def emit(item: dict) -> None:
+        if cancelled.is_set():
+            raise _Cancelled()
+        q.put(item)
 
     def worker():
         try:
@@ -174,17 +199,17 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
                 llm.start_trace()
                 report = run_impact_analysis(
                     corpus, action, semantic=body.semantic,
-                    on_event=lambda kind, label: q.put(
+                    on_event=lambda kind, label: emit(
                         {"type": "agent", "kind": kind, "label": label}))
                 findings = _ui_findings(report)
-                q.put({"type": "report", "verdict": verdict_label(report),
-                       "findings": findings, "impacted": report.impacted_ids,
-                       "narrative": report.narrative})
+                emit({"type": "report", "verdict": verdict_label(report),
+                      "findings": findings, "impacted": report.impacted_ids,
+                      "narrative": report.narrative})
                 for piece in stream_synthesis(report, action, use_llm=body.semantic):
-                    q.put({"type": "token", "text": piece})
+                    emit({"type": "token", "text": piece})
                 records = llm.stop_trace()
-                q.put({"type": "exchanges",
-                       "exchanges": trace.build_timeline(records, findings)})
+                emit({"type": "exchanges",
+                      "exchanges": trace.build_timeline(records, findings)})
                 # ROI : défauts captés tôt (shift-left), comme le Streamlit.
                 try:
                     roi.record_catches("edition", action.action_type.value,
@@ -192,6 +217,8 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
                 except Exception:
                     pass
             q.put({"type": "done"})
+        except _Cancelled:
+            llm.stop_trace()  # purge le buffer de trace global
         except Exception as e:
             q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
         q.put(None)
@@ -199,11 +226,14 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
     threading.Thread(target=worker, daemon=True).start()
 
     def gen():
-        while True:
-            item = q.get()
-            if item is None:
-                return
-            yield _sse(item)
+        try:
+            while True:
+                item = q.get()
+                if item is None:
+                    return
+                yield _sse(item)
+        finally:
+            cancelled.set()  # client parti : le worker s'arrête au prochain emit
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store"})
@@ -214,13 +244,26 @@ class ApplyBody(BaseModel):
     rationale: str = ""               # renseigné si passage en force (BLOQUANT)
 
 
+_LINK_TYPES = {"DERIVE", "SATISFIES", "VERIFIES", "REFINES", "ALLOCATES_TO"}
+_ACTION_TYPES = {"CREATE", "UPDATE", "DELETE", "LINK", "UNLINK"}
+
+
 @router.post("/apply")
 def apply_action(body: ApplyBody) -> dict:
     """Applique une action à la matrice de travail (après verdict côté front) :
-    état process + working.json + journal d'historique."""
+    état process + working.json + journal d'historique.
+
+    Validation stricte AVANT écriture : un link_type hors enum persisterait
+    dans working.json et casserait ensuite CHAQUE analyse (RequirementTree
+    valide les liens) jusqu'au reset du corpus."""
     global _corpus
     corpus = _get_corpus()
     a = body.action
+    if a.action_type not in _ACTION_TYPES:
+        raise HTTPException(400, f"action_type invalide : {a.action_type}")
+    if a.action_type in ("LINK", "UNLINK") and a.link_type is not None \
+            and a.link_type not in _LINK_TYPES:
+        raise HTTPException(400, f"link_type invalide : {a.link_type}")
     old = next((r.get("texte", "") for r in corpus if r["id"] == a.target_id), "")
     _corpus = _candidate(corpus, a)
     store.save_working(_corpus)
@@ -241,6 +284,12 @@ def audit(body: AuditBody) -> StreamingResponse:
     (score /100, constats par axe, exigences signalées) + `exchanges`."""
     corpus = [dict(r) for r in _get_corpus()]
     q: queue.Queue = queue.Queue()
+    cancelled = threading.Event()
+
+    def emit(item: dict) -> None:
+        if cancelled.is_set():
+            raise _Cancelled()
+        q.put(item)
 
     def worker():
         try:
@@ -248,7 +297,7 @@ def audit(body: AuditBody) -> StreamingResponse:
                 llm.start_trace()
                 rep = lynx_audit.audit_matrix(
                     corpus, deep=body.deep,
-                    on_event=lambda done, total: q.put(
+                    on_event=lambda done, total: emit(
                         {"type": "progress", "done": done, "total": total}))
                 records = llm.stop_trace()
             q.put({"type": "report", "n": rep.n, "score": rep.score,
@@ -257,6 +306,8 @@ def audit(body: AuditBody) -> StreamingResponse:
                    "findings": [vars(f) for f in rep.findings],
                    "exchanges": trace.humanize_audit(records)})
             q.put({"type": "done"})
+        except _Cancelled:
+            llm.stop_trace()
         except Exception as e:
             q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
         q.put(None)
@@ -264,11 +315,14 @@ def audit(body: AuditBody) -> StreamingResponse:
     threading.Thread(target=worker, daemon=True).start()
 
     def gen():
-        while True:
-            item = q.get()
-            if item is None:
-                return
-            yield _sse(item)
+        try:
+            while True:
+                item = q.get()
+                if item is None:
+                    return
+                yield _sse(item)
+        finally:
+            cancelled.set()
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store"})
