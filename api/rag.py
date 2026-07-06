@@ -25,16 +25,30 @@ _LOOP_MIN_REPEATS = 3           # ... au moins 3 fois d'affilée
 def _degenerate(text: str) -> str | None:
     """Détecte une génération dégénérée. Retourne la raison, ou None.
 
-    Heuristique volontairement simple (appelée à chaque token) : si les
-    `_LOOP_WINDOW` derniers caractères se répètent >= 3 fois consécutivement
-    en fin de texte, le modèle boucle.
+    Appelée à chaque token. La boucle est détectée par la plus petite
+    période de la fin du texte (préfixe-fonction de KMP sur les
+    `_LOOP_WINDOW × _LOOP_MIN_REPEATS` derniers caractères) : si un motif
+    de <= `_LOOP_WINDOW` caractères y est répété >= `_LOOP_MIN_REPEATS`
+    fois, le modèle boucle — quelle que soit la longueur du motif
+    (un simple `endswith(tail * 3)` ratait tout motif dont la période ne
+    divise pas la fenêtre).
     """
     if len(text) > MAX_ANSWER_CHARS:
         return "réponse anormalement longue"
-    if len(text) < _LOOP_WINDOW * _LOOP_MIN_REPEATS:
+    n = _LOOP_WINDOW * _LOOP_MIN_REPEATS
+    if len(text) < n:
         return None
-    tail = text[-_LOOP_WINDOW:]
-    if text.endswith(tail * _LOOP_MIN_REPEATS):
+    window = text[-n:]
+    fail = [0] * n  # préfixe-fonction : plus long bord de window[:i+1]
+    k = 0
+    for i in range(1, n):
+        while k and window[i] != window[k]:
+            k = fail[k - 1]
+        if window[i] == window[k]:
+            k += 1
+        fail[i] = k
+    period = n - fail[-1]
+    if period <= _LOOP_WINDOW:
         return "boucle de répétition détectée"
     return None
 
