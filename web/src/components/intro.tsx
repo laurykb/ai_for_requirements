@@ -8,7 +8,7 @@
  * Jouée une fois par session (sessionStorage), passée d'un clic,
  * `prefers-reduced-motion` : pas d'animation du tout. */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Géométrie du logotype (viewBox 484×57.4) : le point du A est centré en
 // (209.5, 41.4), rayon 9.55. Le globe est posé À SA PLACE FINALE dès le
@@ -17,7 +17,8 @@ const LOGO_W = 340;
 const LOGO_H = (LOGO_W * 57.4) / 484;
 const DOT = { cx: 209.5 / 484, cy: 41.4 / 57.4, d: (2 * 9.55) / 484 };
 
-const TOTAL_MS = 5600;
+const DOCK_MS = 4600; // départ du logo vers son perchoir (haut de page)
+const TOTAL_MS = 5700; // fin : le logo statique de l'accueil prend le relais
 
 function Globe({ size }: { size: number }) {
   // Planète aqua : disque, graticule discret, « continents » qui défilent
@@ -55,17 +56,39 @@ function Globe({ size }: { size: number }) {
 
 export function Intro() {
   const [show, setShow] = useState<boolean | null>(null);
+  const [docking, setDocking] = useState(false);
+  const logoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced || sessionStorage.getItem("thales_intro_seen")) {
-      setShow(false);
-      return;
-    }
-    sessionStorage.setItem("thales_intro_seen", "1");
-    setShow(true);
-    const t = setTimeout(() => setShow(false), TOTAL_MS);
-    return () => clearTimeout(t);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    // Décision différée d'un tick (la règle set-state-in-effect n'aime pas
+    // les setState synchrones, même pour un choix ne dépendant pas du rendu).
+    timers.push(setTimeout(() => {
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduced || sessionStorage.getItem("thales_intro_seen")) {
+        setShow(false);
+        return;
+      }
+      sessionStorage.setItem("thales_intro_seen", "1");
+      setShow(true);
+      // Docking : le logo file se loger sur son perchoir statique (#home-thales),
+      // mesuré au vol (FLIP) — pendant que le voile s'efface.
+      timers.push(setTimeout(() => {
+        const target = document.getElementById("home-thales");
+        const el = logoRef.current;
+        if (target && el) {
+          const t = target.getBoundingClientRect();
+          const w = el.getBoundingClientRect();
+          const dx = t.left + t.width / 2 - (w.left + w.width / 2);
+          const dy = t.top + t.height / 2 - (w.top + w.height / 2);
+          el.style.transition = "transform 0.9s cubic-bezier(0.5, 0, 0.2, 1)";
+          el.style.transform = `translate(${dx}px, ${dy}px) scale(${t.width / w.width})`;
+        }
+        setDocking(true);
+      }, DOCK_MS));
+      timers.push(setTimeout(() => setShow(false), TOTAL_MS));
+    }, 0));
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   if (!show) return null;
@@ -73,11 +96,17 @@ export function Intro() {
   const dotSize = DOT.d * LOGO_W;
   return (
     <div
-      className="intro-overlay fixed inset-0 z-50 flex items-center justify-center bg-background"
+      className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={() => setShow(false)}
       role="presentation"
     >
-      <div className="relative" style={{ width: LOGO_W, height: LOGO_H }}>
+      {/* Voile : opaque pendant le voyage, s'efface pendant le docking. */}
+      <div
+        className={`absolute inset-0 bg-background transition-opacity duration-700 ${
+          docking ? "opacity-0" : "opacity-100"
+        }`}
+      />
+      <div ref={logoRef} className="relative" style={{ width: LOGO_W, height: LOGO_H }}>
         {/* Les lettres du logotype (sans le point : le globe le devient). */}
         <svg
           viewBox="0 0 484 57.4"
@@ -110,7 +139,9 @@ export function Intro() {
         </div>
       </div>
 
-      <p className="absolute bottom-8 text-xs text-fg-faint">cliquer pour passer</p>
+      {!docking && (
+        <p className="absolute bottom-8 text-xs text-fg-faint">cliquer pour passer</p>
+      )}
     </div>
   );
 }

@@ -8,7 +8,14 @@ import { API_BASE } from "@/lib/api";
 import type { AskEvent } from "@/lib/types";
 
 export async function streamAsk(
-  body: { question: string; source: string | null; history: { role: string; content: string }[] },
+  body: {
+    question: string;
+    source: string | null;
+    history: { role: string; content: string }[];
+    parent_child?: boolean | null;
+    self_rag?: boolean | null;
+    system_prompt?: string | null;
+  },
   onEvent: (ev: AskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
