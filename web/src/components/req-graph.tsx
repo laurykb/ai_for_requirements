@@ -156,7 +156,9 @@ export const ReqGraph = memo(function ReqGraph({
   };
 
   return (
-    <div className="req-graph h-[520px] overflow-hidden rounded-xl border border-edge bg-surface">
+    <div className="flex flex-col gap-1.5">
+      {/* La vue centrale de LynX : le graphe prend la hauteur disponible. */}
+      <div className="req-graph h-[calc(100vh-22rem)] min-h-[560px] overflow-hidden rounded-xl border border-edge bg-surface">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -175,8 +177,9 @@ export const ReqGraph = memo(function ReqGraph({
         <Background color="rgba(148,163,214,0.10)" gap={26} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
-      {/* Légende des halos (le niveau est déjà étiqueté dans le graphe). */}
-      <p className="pointer-events-none absolute bottom-2 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-fg-faint">
+      </div>
+      {/* Légende des halos, sous le cadre (le niveau est étiqueté dans le graphe). */}
+      <p className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] text-fg-faint">
         <span><span style={{ color: "#7fd4e6" }}>●</span> sélection</span>
         <span><span style={{ color: "#eef1f8" }}>●</span> citée par la synthèse</span>
         <span><span style={{ color: "#fbbf24" }}>●</span> impactée / attention</span>

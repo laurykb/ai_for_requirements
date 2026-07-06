@@ -412,7 +412,7 @@ export function Requirements() {
         <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
                   flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
 
-        <aside className="rounded-xl border border-edge bg-surface p-4 xl:max-h-[520px] xl:overflow-y-auto">
+        <aside className="rounded-xl border border-edge bg-surface p-4 xl:max-h-[calc(100vh-22rem)] xl:min-h-[560px] xl:overflow-y-auto">
           {!sel ? (
             <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 text-center">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden
