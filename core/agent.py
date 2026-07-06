@@ -532,8 +532,11 @@ def _fallback_answer(steps: list[dict]) -> str:
 
 
 def run_agent(question: str, **kwargs) -> dict:
-    """Raccourci : instancie un agent par défaut et exécute la boucle."""
-    return ReActAgent(**kwargs).run(question)
+    """Raccourci : le chemin agent PAR DÉFAUT du produit - planificateur-exécuteur
+    multi-hop (plan visible, adaptatif) avec repli silencieux sur le ReAct
+    historique si la planification échoue. Voir core.planner."""
+    from core.planner import PlannerAgent
+    return PlannerAgent(**kwargs).run(question)
 
 
 if __name__ == "__main__":
@@ -542,13 +545,19 @@ if __name__ == "__main__":
     q = " ".join(sys.argv[1:]).strip() or input("Question : ").strip()
     res = run_agent(q)
     print("\n" + "=" * 70)
-    for n, step in enumerate(res.get("steps", []), start=1):
-        if step.get("thought"):
-            print(f"[{n}] Pensée    : {step['thought']}")
-        if step.get("action"):
-            print(f"    Action    : {step['action']}  {json.dumps(step.get('action_input'), ensure_ascii=False)}")
-            obs = (step.get("observation") or "")[:200]
-            print(f"    Observation: {obs}...")
+    if res.get("plan"):
+        print("Plan exécuté" + (" (re-planifié en cours de route)" if res.get("replanned") else "") + " :")
+        for n, step in enumerate(res.get("steps", []), start=1):
+            print(f"[{n}] {step.get('sous_question')}")
+            print(f"    -> {step.get('resume')}")
+    else:
+        for n, step in enumerate(res.get("steps", []), start=1):
+            if step.get("thought"):
+                print(f"[{n}] Pensée    : {step['thought']}")
+            if step.get("action"):
+                print(f"    Action    : {step['action']}  {json.dumps(step.get('action_input'), ensure_ascii=False)}")
+                obs = (step.get("observation") or "")[:200]
+                print(f"    Observation: {obs}...")
     print("=" * 70)
     print(f"\nRéponse finale ({res.get('stopped_reason')}, "
           f"{res.get('tool_calls')} appel(s) d'outil, {res.get('latency_s')}s) :\n")

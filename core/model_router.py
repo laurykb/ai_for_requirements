@@ -11,6 +11,8 @@ est surchargeable via .env (REWRITER_MODEL / AGENT_MODEL / GEN_MODEL).
 Rôles :
     rewrite   réécriture/condensation de requête, réécriture Self-RAG (REWRITER_MODEL)
     agent     raisonnement de l'agent ReAct (AGENT_MODEL)
+    planner   planification multi-hop du mode agent : plan JSON, révision, affinage
+              des sous-questions (PLANNER_MODEL, défaut = AGENT_MODEL)
     generate  réponse finale ancrée et citée (GEN_MODEL)
     judge     LLM-as-judge du harnais d'éval (REWRITER_MODEL par défaut)
     enhance   enrichissement d'ingestion : mots-clés/questions/résumés/descriptions
@@ -26,7 +28,7 @@ from __future__ import annotations
 
 from utils.logging_config import get_logger
 from env_config import (
-    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, ENHANCEMENT_MODEL,
+    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
     NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX,
 )
 
@@ -55,6 +57,9 @@ def get_generate_model() -> str:
 _ROLE_MODELS = {
     "rewrite":  lambda: REWRITER_MODEL,
     "agent":    lambda: AGENT_MODEL,
+    # Planificateur multi-hop du mode agent : plan JSON + révision (PLANNER_MODEL,
+    # défaut = AGENT_MODEL).
+    "planner":  lambda: PLANNER_MODEL,
     "generate": lambda: _GENERATE_OVERRIDE or GEN_MODEL,
     "judge":    lambda: REWRITER_MODEL,
     # ENHANCEMENT_MODEL est l'override explicite (historique, .env) ; à défaut on
@@ -77,6 +82,9 @@ _ROLE_PARAMS = {
     # tâches légères (rewrite/judge) n'ont besoin que de quelques k tokens.
     "rewrite":  {"temperature": 0.2, "num_ctx": 8192},
     "agent":    {"temperature": 0.1, "num_ctx": LLM_NUM_CTX},
+    # Plans courts et structurés : température nulle, contexte modéré (question +
+    # observations résumées), sortie plafonnée (un plan JSON tient en ~300 tokens).
+    "planner":  {"temperature": 0.0, "num_ctx": 8192, "num_predict": 600},
     "generate": {"temperature": 0.3, "top_k": NUM_CHUNKS, "top_p": 0.8,
                  "repeat_penalty": 1.5, "num_ctx": LLM_NUM_CTX},
     "judge":    {"temperature": 0.0, "num_ctx": 8192},
