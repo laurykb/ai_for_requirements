@@ -16,7 +16,7 @@ export type AttachState = { name: string; pct: number; step: string };
 
 export function Composer({
   input, setInput, busy, attaching, attach, attachError, onDismissError,
-  onAsk, fileRef, onAttachFiles, selected, setSelected, docs,
+  onAsk, onStop, fileRef, onAttachFiles, selected, setSelected, docs,
   models, genModel, onLoadModel, modelStatus, mode, setMode, expert,
 }: {
   input: string;
@@ -27,6 +27,7 @@ export function Composer({
   attachError: string | null;
   onDismissError: () => void;
   onAsk: (question: string) => void;
+  onStop: () => void;
   fileRef: RefObject<HTMLInputElement | null>;
   onAttachFiles: (files: FileList | null) => void;
   selected: string;
@@ -153,17 +154,31 @@ export function Composer({
                 <option value="agent">Agent</option>
               </select>
             )}
-            <button
-              type="submit"
-              disabled={busy || attaching || !input.trim()}
-              className="ml-auto cursor-pointer rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-background transition-all duration-200 hover:bg-accent-bright active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
-              aria-label="Envoyer"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M4 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2"
-                      strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            {busy ? (
+              <button
+                type="button"
+                onClick={onStop}
+                title="Arrête la génération immédiatement (la réponse partielle est conservée)."
+                className="ml-auto cursor-pointer rounded-xl border border-bad/40 px-3.5 py-1.5 text-sm font-medium text-bad transition-all duration-200 hover:bg-bad/15 active:scale-[0.97]"
+                aria-label="Arrêter la génération"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={attaching || !input.trim()}
+                className="ml-auto cursor-pointer rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-background transition-all duration-200 hover:bg-accent-bright active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
+                aria-label="Envoyer"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path d="M4 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           </div>
         </form>
       </div>

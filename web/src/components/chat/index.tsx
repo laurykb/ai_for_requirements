@@ -433,6 +433,7 @@ export function Chat() {
           attach={attach} attachError={attachError}
           onDismissError={() => setAttachError(null)}
           onAsk={ask}
+          onStop={() => abortRef.current?.abort()}
           fileRef={fileRef} onAttachFiles={attachFiles}
           selected={selected} setSelected={setSelected} docs={docs}
           models={models} genModel={genModel} onLoadModel={loadModel}
