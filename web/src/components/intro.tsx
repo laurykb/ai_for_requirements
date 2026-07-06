@@ -95,7 +95,7 @@ export function Intro() {
   const dotSize = DOT.d * LOGO_W;
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="intro-overlay fixed inset-0 z-50 flex items-center justify-center"
       onClick={() => setShow(false)}
       role="presentation"
     >

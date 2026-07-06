@@ -30,12 +30,25 @@ export type ChunkView = {
 
 /** Trames SSE de POST /api/ask. */
 export type AskEvent =
+  | { type: "session"; id: string }
+  | { type: "route"; mode: "rag" | "agent"; reason: string }
   | { type: "stage"; stage: "retrieve" | "generate" }
   | { type: "retrieved"; chunks: ChunkView[] }
+  | { type: "thought"; text: string }
+  | { type: "action"; text: string }
+  | { type: "observation"; text: string }
   | { type: "token"; text: string }
   | { type: "sources"; citations: Citation[] }
+  | { type: "eval"; faithfulness?: number; answer_relevance?: number;
+      context_relevance?: number; issues?: string[] }
   | { type: "done"; found: boolean }
   | { type: "error"; message: string };
+
+export type EvalResult = { faithfulness?: number | null; answer_relevance?: number | null;
+                           context_relevance?: number | null; issues?: string[] };
+
+export type SessionInfo = { id: string; title: string; updated_at: string;
+                            source_filter: string | null };
 
 export type ChatRole = "user" | "assistant";
 
@@ -48,4 +61,10 @@ export type ChatMessage = {
   error?: string;
   /** Génération arrêtée volontairement (bouton Stop) — réponse partielle. */
   stopped?: boolean;
+  /** Raisonnement de l'agent ReAct (pensées/recherches), replié. */
+  reasoning?: string | null;
+  /** Routage affiché (mode Auto) : « RAG — raison ». */
+  route?: string;
+  /** Vérification automatique (question à enjeu). */
+  eval?: EvalResult;
 };

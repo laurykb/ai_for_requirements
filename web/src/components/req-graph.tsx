@@ -35,12 +35,15 @@ export const NIVEAU_COLORS = ["#818cf8", "#60a5fa", "#22d3ee", "#34d399", "#fbbf
 export const LEVEL_LABELS = ["L0 · Besoin", "L1 · Système", "L2 · Sous-système",
                              "L3 · Composant", "L4 · Configuration", "L5 · Test"];
 
-type ReqNodeData = { rid: string; niveau: number; state: "none" | "selected" | "impacted" | "flagged" };
+type NodeState = "none" | "selected" | "mentioned" | "flagged-bad" | "flagged-warn" | "impacted";
+type ReqNodeData = { rid: string; niveau: number; state: NodeState };
 
 const STATE_RING: Record<string, string> = {
   selected: "0 0 0 2px #7fd4e6, 0 0 18px rgba(93,191,213,0.45)",
+  mentioned: "0 0 0 2px #eef1f8, 0 0 16px rgba(238,241,248,0.35)",
   impacted: "0 0 0 2px #fbbf24, 0 0 14px rgba(251,191,36,0.35)",
-  flagged: "0 0 0 2px #f87171, 0 0 14px rgba(248,113,113,0.35)",
+  "flagged-warn": "0 0 0 2px #fbbf24, 0 0 14px rgba(251,191,36,0.35)",
+  "flagged-bad": "0 0 0 2px #f87171, 0 0 16px rgba(248,113,113,0.45)",
 };
 
 /** Nœud exigence : pastille couleur de niveau + id mono sur surface sombre. */
@@ -89,13 +92,17 @@ export const ReqGraph = memo(function ReqGraph({
   corpus,
   selected,
   impacted,
-  flagged,
+  flaggedSev,
+  mentioned,
   onSelect,
 }: {
   corpus: Req[];
   selected: string | null;
   impacted: Set<string>;
-  flagged: Set<string>;
+  /** Signalées par l'audit, avec leur pire sévérité ("bad" | "warn"). */
+  flaggedSev: Map<string, "bad" | "warn">;
+  /** Citées par la synthèse LLM du verdict. */
+  mentioned: Set<string>;
   onSelect: (id: string) => void;
 }) {
   const { nodes, edges } = useMemo(() => {
@@ -122,9 +129,11 @@ export const ReqGraph = memo(function ReqGraph({
           position: { x: i * 150, y: lvl * 140 },
           data: {
             rid: r.id, niveau: lvl,
-            state: selected === r.id ? "selected"
-              : flagged.has(r.id) ? "flagged"
-              : impacted.has(r.id) ? "impacted" : "none",
+            state: (selected === r.id ? "selected"
+              : mentioned.has(r.id) ? "mentioned"
+              : flaggedSev.get(r.id) === "bad" ? "flagged-bad"
+              : flaggedSev.get(r.id) === "warn" ? "flagged-warn"
+              : impacted.has(r.id) ? "impacted" : "none") as NodeState,
           },
           draggable: false, connectable: false,
         });
@@ -140,7 +149,7 @@ export const ReqGraph = memo(function ReqGraph({
                      style: { stroke: "rgba(93,191,213,0.35)", strokeDasharray: "4 4" } });
     }
     return { nodes, edges };
-  }, [corpus, selected, impacted, flagged]);
+  }, [corpus, selected, impacted, flaggedSev, mentioned]);
 
   const onNodeClick: NodeMouseHandler = (_e, node) => {
     if (node.type === "req") onSelect(node.id);
@@ -166,6 +175,13 @@ export const ReqGraph = memo(function ReqGraph({
         <Background color="rgba(148,163,214,0.10)" gap={26} size={1} />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
+      {/* Légende des halos (le niveau est déjà étiqueté dans le graphe). */}
+      <p className="pointer-events-none absolute bottom-2 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-fg-faint">
+        <span><span style={{ color: "#7fd4e6" }}>●</span> sélection</span>
+        <span><span style={{ color: "#eef1f8" }}>●</span> citée par la synthèse</span>
+        <span><span style={{ color: "#fbbf24" }}>●</span> impactée / attention</span>
+        <span><span style={{ color: "#f87171" }}>●</span> bloquante</span>
+      </p>
     </div>
   );
 });
