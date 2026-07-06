@@ -1,22 +1,17 @@
-import { ApiStatus } from "@/components/api-status";
-import { Banner, PanelTitle } from "@/components/ui";
+import { Requirements } from "@/components/requirements";
+import { PanelTitle } from "@/components/ui";
 
-/** AI for Requirements (LynX) — vue en construction (étape 5 de la migration). */
+/** AI for Requirements (LynX) : seconde lecture de la matrice d'exigences. */
 
 export default function RequirementsPage() {
   return (
-    <div className="rise-in mx-auto max-w-2xl py-12">
+    <div className="rise-in py-4">
       <PanelTitle
         kicker="Vérification d'exigences"
         title="AI for Requirements"
-        hint="Relecture de la matrice d'exigences par des agents : verdicts, corrections, boîte de verre."
+        hint="Des agents relisent votre matrice : impact d'une action, audit complet, corrections suggérées — raisonnement visible."
       />
-      <Banner tone="neutral">
-        Cette vue arrive dans une prochaine étape de la migration. L&apos;outil reste
-        disponible dans l&apos;interface actuelle : <code>python serve.py</code> depuis la
-        racine du projet.
-      </Banner>
-      <ApiStatus />
+      <Requirements />
     </div>
   );
 }
