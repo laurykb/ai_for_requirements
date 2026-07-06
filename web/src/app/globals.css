@@ -1,0 +1,102 @@
+@import "tailwindcss";
+
+/* Direction artistique (héritée d'AI_for_geopolitics) : dark OLED sobre,
+   fond nuit, accent périwinkle propre à AI for SSH, statuts vert/ambre/rouge,
+   motion discrète. */
+:root {
+  --background: #0d0e12;
+  --surface: #15171f;
+  --surface-2: #1b1e27;
+  --muted: #232634;
+  --foreground: #e7e8ec;
+  --foreground-muted: #9aa0aa;
+  --foreground-faint: #646b78;
+  --border: rgba(148, 163, 184, 0.14);
+  --border-strong: rgba(148, 163, 184, 0.3);
+  --accent: #7c83ff;
+  --accent-bright: #a5aaff;
+  --good: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-muted: var(--muted);
+  --color-foreground: var(--foreground);
+  --color-fg-muted: var(--foreground-muted);
+  --color-fg-faint: var(--foreground-faint);
+  --color-edge: var(--border);
+  --color-edge-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+::selection {
+  background: rgba(124, 131, 255, 0.35);
+}
+
+/* Curseur de streaming : un trait périwinkle qui bat, discret (chat, étape 3). */
+.stream-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent-bright);
+  animation: caret-blink 1s steps(2) infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 240ms ease-out both;
+}
+
+/* Entrées décalées pour les cartes de l'accueil. */
+.rise-in-2 {
+  animation: rise-in 240ms ease-out 80ms both;
+}
+.rise-in-3 {
+  animation: rise-in 240ms ease-out 160ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .rise-in-2,
+  .rise-in-3 {
+    animation: none;
+  }
+  .stream-caret::after {
+    animation: none;
+  }
+}
