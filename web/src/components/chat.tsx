@@ -239,12 +239,19 @@ export function Chat() {
   const [route, setRoute] = useState<string>("");
   const [mode, setMode] = useState<"auto" | "rag" | "agent">("auto");
   const [input, setInput] = useState("");
-  const [attachBusy, setAttachBusy] = useState<string | null>(null);
+  /** Indexation d'une pièce jointe : { name, pct, step } — bloque l'envoi. */
+  const [attach, setAttach] = useState<{ name: string; pct: number; step: string } | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expert = useExpert();
   const busy = phase !== "idle";
+  const attaching = attach !== null;
+
+  // Nettoyage du poll d'ingestion au démontage.
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const refreshDocs = useCallback(() => {
     getJSON<SourcesResponse>("/api/sources")
@@ -405,10 +412,15 @@ export function Chat() {
     setPhase("idle");
   };
 
-  /** Pièce jointe rapide : ajoutée avec les réglages par défaut, indexation
-   * en arrière-plan — le chat reste disponible. */
-  const attach = async (files: FileList | null) => {
-    if (!files?.length) return;
+  /** Pièce jointe façon chatbot : réglages par défaut, barre de progression
+   * visible, envoi BLOQUÉ tant que l'indexation tourne, puis le périmètre est
+   * automatiquement fixé sur le document ajouté (le prompt suivant porte
+   * dessus). Réglages fins : onglet Documents. */
+  const attachFiles = async (files: FileList | null) => {
+    if (!files?.length || attaching) return;
+    const name = files[0].name;
+    setAttachError(null);
+    setAttach({ name, pct: 0, step: "Dépôt du document…" });
     const d = await getJSON<{ params: Record<string, unknown> }>("/api/ingest/defaults")
       .catch(() => null);
     const p = d?.params ?? { nkw: 5, nq: 3, mode: "technical", raptor: true, enh_model: "" };
@@ -419,18 +431,35 @@ export function Chat() {
     fd.append("mode", String(p.mode));
     fd.append("raptor", String(p.raptor));
     fd.append("enh_model", String(p.enh_model ?? ""));
-    setAttachBusy(files[0].name);
-    await fetch(`${API_BASE}/api/documents`, { method: "POST", body: fd }).catch(() => null);
+    const res = await fetch(`${API_BASE}/api/documents`, { method: "POST", body: fd })
+      .catch(() => null);
     if (fileRef.current) fileRef.current.value = "";
-    // Suivi discret jusqu'à la fin de l'indexation.
-    const poll = setInterval(async () => {
-      const s = await getJSON<{ active: boolean }>("/api/ingest/status").catch(() => null);
-      if (!s?.active) {
-        clearInterval(poll);
-        setAttachBusy(null);
-        refreshDocs();
+    if (!res?.ok) {
+      setAttach(null);
+      setAttachError(`Dépôt impossible pour « ${name} » — type non accepté ou API indisponible.`);
+      return;
+    }
+    // Suivi de LA tâche de ce document jusqu'au bout.
+    pollRef.current = setInterval(async () => {
+      const s = await getJSON<{ active: boolean; jobs: { name: string; status: string;
+        pct: number; step: string; message: string | null }[] }>("/api/ingest/status")
+        .catch(() => null);
+      const job = s?.jobs.filter((j) => j.name === name).at(-1);
+      if (!job) return;
+      if (job.status === "queued" || job.status === "running") {
+        setAttach({ name, pct: job.pct, step: job.step });
+        return;
       }
-    }, 1500);
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = null;
+      setAttach(null);
+      if (job.status === "success") {
+        refreshDocs();
+        setSelected(name); // le prompt suivant porte sur CE document
+      } else {
+        setAttachError(`Indexation de « ${name} » échouée : ${job.message ?? "erreur."}`);
+      }
+    }, 1200);
   };
 
   return (
@@ -570,6 +599,33 @@ export function Chat() {
           <div ref={endRef} />
         </div>
 
+        {/* Pièce jointe en cours : barre de progression visible, envoi bloqué. */}
+        {attach && (
+          <div className="mb-2 rounded-xl border border-edge bg-surface-2 px-3 py-2">
+            <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
+              <span className="flex items-center gap-2 text-fg-muted">
+                <Dot tone="accent" pulse /> Indexation de {attach.name}
+              </span>
+              <span className="font-mono tabular-nums text-fg-faint">{attach.pct} %</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-accent transition-[width] duration-500"
+                   style={{ width: `${attach.pct}%` }} />
+            </div>
+            <p className="mt-1 text-[11px] text-fg-faint">
+              {attach.step} — vous pourrez interroger ce document dès la fin de
+              l&apos;indexation.
+            </p>
+          </div>
+        )}
+        {attachError && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-bad/40 bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+            <span>{attachError}</span>
+            <button onClick={() => setAttachError(null)} aria-label="Fermer"
+                    className="cursor-pointer text-fg-faint hover:text-foreground">✕</button>
+          </div>
+        )}
+
         {/* Composeur. */}
         <div className="rounded-2xl border border-edge bg-surface-2 p-2 focus-within:border-accent/60">
           <form
@@ -581,7 +637,7 @@ export function Chat() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  ask(input);
+                  if (!attaching) ask(input);
                 }
               }}
               disabled={busy}
@@ -593,12 +649,13 @@ export function Chat() {
             <div className="mt-1 flex items-center gap-2">
               <input ref={fileRef} type="file" multiple hidden
                      accept=".pdf,.docx,.pptx,.xlsx,.html,.md"
-                     onChange={(e) => attach(e.target.files)} />
+                     onChange={(e) => attachFiles(e.target.files)} />
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                title="Joindre un document : indexé en arrière-plan avec les réglages par défaut, le chat reste disponible."
-                className="cursor-pointer rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-muted hover:text-foreground"
+                disabled={attaching}
+                title="Joindre un document : indexé avec les réglages par défaut (réglages fins dans l'onglet Documents). L'envoi attend la fin de l'indexation."
+                className="cursor-pointer rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
                 aria-label="Joindre un document"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -633,14 +690,9 @@ export function Chat() {
                   <option value="agent">Agent</option>
                 </select>
               )}
-              {attachBusy && (
-                <span className="flex items-center gap-1.5 text-[11px] text-fg-faint">
-                  <Dot tone="accent" pulse /> indexation de {attachBusy}…
-                </span>
-              )}
               <button
                 type="submit"
-                disabled={busy || !input.trim()}
+                disabled={busy || attaching || !input.trim()}
                 className="ml-auto cursor-pointer rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-background transition-all duration-200 hover:bg-accent-bright active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
                 aria-label="Envoyer"
               >
