@@ -87,9 +87,11 @@ def _persist_exchange(session_id: str | None, source: str | None, question: str,
 
 
 def _agent_events(question: str, source: str | None, history: list[dict]):
-    """Mode Agent (ReAct) : traduit les événements de l'agent en trames SSE
-    (pensées/actions/observations = boîte de verre, puis réponse streamée)."""
-    from core.agent import ReActAgent
+    """Mode Agent : traduit les événements du planificateur-exécuteur multi-hop en
+    trames SSE (plan/étapes en direct = boîte de verre, puis réponse streamée).
+    Si la planification échoue, l'agent retombe sur le ReAct historique dont les
+    pensées/actions/observations sont relayées à l'identique."""
+    from core.planner import PlannerAgent
     from tools.rag_tool import run_tool as _rt
 
     def _scoped_runner(name, arguments):
@@ -100,10 +102,28 @@ def _agent_events(question: str, source: str | None, history: list[dict]):
 
     trace: list[str] = []
     result: dict = {}
-    for ev in ReActAgent(tool_runner=_scoped_runner).run_stream(
+    for ev in PlannerAgent(tool_runner=_scoped_runner).run_stream(
             question, conversation_history=history):
         kind = ev.get("type")
-        if kind == "thought":
+        if kind == "plan":
+            steps = ev.get("steps") or []
+            lines = "\n".join(f"{i}. {s.get('sous_question', '')}"
+                              for i, s in enumerate(steps, 1))
+            trace.append(f"**Plan** ({len(steps)} étapes)\n{lines}")
+            yield {"type": "plan", "steps": steps}, trace, result
+        elif kind == "step_start":
+            trace.append(f"→ **Étape {ev['index']}/{ev['total']}** — {ev['sous_question']}")
+            yield {"type": "step_start", "index": ev["index"], "total": ev["total"],
+                   "text": ev["sous_question"]}, trace, result
+        elif kind == "step_done":
+            trace.append(f"_{ev['resume']}_")
+            yield {"type": "step_done", "index": ev["index"], "text": ev["resume"],
+                   "hors_scope": bool(ev.get("hors_scope"))}, trace, result
+        elif kind == "replan":
+            trace.append("**Re-planification** — les étapes restantes ont été révisées.")
+            yield {"type": "replan", "index": ev["index"],
+                   "steps": ev.get("steps") or []}, trace, result
+        elif kind == "thought":
             trace.append(f"**Pensée** — {ev['text']}")
             yield {"type": "thought", "text": ev["text"]}, trace, result
         elif kind == "action":
@@ -123,7 +143,8 @@ def _agent_events(question: str, source: str | None, history: list[dict]):
 @router.post("/api/ask")
 def ask(body: AskBody) -> StreamingResponse:
     """Q&A en SSE — boîte de verre : routage (`route`), étapes du pipeline
-    (`stage`, `retrieved`), pensées de l'agent (`thought`/`action`/
+    (`stage`, `retrieved`), plan de l'agent en direct (`plan`/`step_start`/
+    `step_done`/`replan`), pensées du repli ReAct (`thought`/`action`/
     `observation`), `token`, `sources`, vérification automatique (`eval`),
     `done` ; les erreurs une trame `error` (le front ne pend jamais).
     Persiste l'échange dans la session (`session` renvoie l'id créé)."""
