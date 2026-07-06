@@ -245,7 +245,11 @@ def run_impact_analysis(corpus: List[dict], action: Action, semantic: bool = Tru
 
     ctx = Ctx(current=current, candidate=candidate, action=action)
     findings: List[Finding] = []
-    for analyzer in DETERMINISTIC_ANALYZERS:
+    # Ordre et activation PILOTABLES depuis l'UI (corpus/orchestration.json).
+    from .orchestration_config import active_analyzers
+    det_analyzers, sem_analyzers = active_analyzers()
+
+    for analyzer in det_analyzers:
         label = AGENT_LABELS.get(analyzer, "analyseur")
         emit("start", label)
         findings += _safe(analyzer, ctx)
@@ -253,10 +257,10 @@ def run_impact_analysis(corpus: List[dict], action: Action, semantic: bool = Tru
     # Les agents LLM (pertinence, couverture, redondance) sont indépendants :
     # on les lance en parallèle et on remonte chaque résultat dès qu'il arrive.
     if semantic:
-        for analyzer in SEMANTIC_ANALYZERS:
+        for analyzer in sem_analyzers:
             emit("start", AGENT_LABELS.get(analyzer, "agent"))
-        with ThreadPoolExecutor(max_workers=len(SEMANTIC_ANALYZERS)) as pool:
-            futures = {pool.submit(_safe, a, ctx): a for a in SEMANTIC_ANALYZERS}
+        with ThreadPoolExecutor(max_workers=max(1, len(sem_analyzers))) as pool:
+            futures = {pool.submit(_safe, a, ctx): a for a in sem_analyzers}
             for fut in as_completed(futures):
                 findings += fut.result()
                 emit("done", AGENT_LABELS.get(futures[fut], "agent"))

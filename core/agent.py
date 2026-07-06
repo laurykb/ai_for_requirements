@@ -281,19 +281,29 @@ class ReActAgent:
         }
 
     # -- boucle STREAMING (vitesse perçue) --------------------------------------
-    def run_stream(self, question: str):
+    def run_stream(self, question: str, conversation_history: list[dict] | None = None):
         """Variante générateur : émet des ÉVÉNEMENTS au fil de l'eau pour l'UI -
         chaque Pensée/Action/Observation dès qu'elle survient, puis les tokens de la
         synthèse finale. À temps total égal, l'expérience est bien plus fluide
         (ressenti type assistant conversationnel). Termine par un événement {"type":"done","result":...}.
 
         Types d'événements : thought | action | observation | answer_token | done.
+        `conversation_history` : échanges précédents [{role, content}] — injectés
+        en tête de prompt pour que les questions de suivi gardent leur contexte
+        (aligné sur le chemin RAG direct).
         """
         if not question or not str(question).strip():
             yield {"type": "done", "result": {"ok": False, "error": "La question est requise."}}
             return
 
         question = str(question).strip()
+        history_block = ""
+        if conversation_history:
+            lines = [f"{'Utilisateur' if m.get('role') == 'user' else 'Assistant'}: "
+                     f"{str(m.get('content', ''))[:800]}"
+                     for m in conversation_history[-6:]]
+            history_block = ("Contexte de conversation (échanges précédents) :\n"
+                             + "\n".join(lines) + "\n\n")
         t0 = time.perf_counter()
         scratchpad = ""
         steps: list[dict] = []
@@ -308,7 +318,8 @@ class ReActAgent:
 
         with start_trace("rag.agent_stream", question=question, model=AGENT_MODEL) as tr:
             for i in range(self.max_iterations):
-                completion = self._llm_call(f"{self.system_prompt}\nQuestion: {question}\n{scratchpad}")
+                completion = self._llm_call(
+                    f"{self.system_prompt}\n{history_block}Question: {question}\n{scratchpad}")
                 scratchpad += completion
 
                 thought = _first(_RE_THOUGHT, completion)

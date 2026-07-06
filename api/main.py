@@ -115,7 +115,7 @@ def _persist_exchange(session_id: str | None, source: str | None, question: str,
         pass  # la persistance est un bonus : ne jamais casser la réponse
 
 
-def _agent_events(question: str, source: str | None):
+def _agent_events(question: str, source: str | None, history: list[dict]):
     """Mode Agent (ReAct) : traduit les événements de l'agent en trames SSE
     (pensées/actions/observations = boîte de verre, puis réponse streamée)."""
     from core.agent import ReActAgent
@@ -129,7 +129,8 @@ def _agent_events(question: str, source: str | None):
 
     trace: list[str] = []
     result: dict = {}
-    for ev in ReActAgent(tool_runner=_scoped_runner).run_stream(question):
+    for ev in ReActAgent(tool_runner=_scoped_runner).run_stream(
+            question, conversation_history=history):
         kind = ev.get("type")
         if kind == "thought":
             trace.append(f"**Pensée** — {ev['text']}")
@@ -180,7 +181,8 @@ def ask(body: AskBody) -> StreamingResponse:
                 reasoning_parts: list[str] = []
                 result: dict = {}
                 answer_txt = ""
-                for frame, trace, res in _agent_events(body.question, body.source):
+                for frame, trace, res in _agent_events(body.question, body.source,
+                                                       body.history or []):
                     reasoning_parts = trace
                     result = res
                     if frame["type"] == "_done":

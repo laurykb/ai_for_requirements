@@ -241,6 +241,11 @@ export function Chat() {
   const [agentTrace, setAgentTrace] = useState<string[]>([]);
   const [route, setRoute] = useState<string>("");
   const [mode, setMode] = useState<"auto" | "rag" | "agent">("auto");
+  /** Modèle de génération : changement à chaud + chargement VRAM (parité
+   * Streamlit « Charger le modèle » depuis le chat). */
+  const [models, setModels] = useState<string[]>([]);
+  const [genModel, setGenModel] = useState("");
+  const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [input, setInput] = useState("");
   /** Indexation d'une pièce jointe : { name, pct, step } — bloque l'envoi. */
   const [attach, setAttach] = useState<{ name: string; pct: number; step: string } | null>(null);
@@ -266,9 +271,27 @@ export function Chat() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => { refreshDocs(); refreshSessions(); }, 0);
+    const t = setTimeout(() => {
+      refreshDocs();
+      refreshSessions();
+      getJSON<{ models: string[]; routing: Record<string, string> }>("/api/models")
+        .then((m) => { setModels(m.models); setGenModel(m.routing?.generate ?? m.models[0] ?? ""); })
+        .catch(() => setModels([]));
+    }, 0);
     return () => clearTimeout(t);
   }, [refreshDocs, refreshSessions]);
+
+  const loadModel = async (model: string) => {
+    setGenModel(model);
+    setModelStatus("chargement…");
+    const res = await fetch(`${API_BASE}/api/models/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, action: "load" }),
+    }).catch(() => null);
+    setModelStatus(res?.ok ? "chargé" : "échec du chargement");
+    setTimeout(() => setModelStatus(null), 4000);
+  };
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -481,8 +504,11 @@ export function Chat() {
       const failed = jobs.filter((j) => j.status === "error");
       if (ok.length) {
         refreshDocs();
-        // Le prompt suivant porte sur le document ajouté (source réelle).
-        setSelected(ok[0].source_name ?? ok[0].name);
+        // Le prompt suivant porte sur LE document ajouté (source réelle) —
+        // seulement si le lot n'en contient qu'un (sinon : tous les documents).
+        if (ok.length === 1 && !failed.length) {
+          setSelected(ok[0].source_name ?? ok[0].name);
+        }
       }
       if (failed.length) {
         setAttachError(failed
@@ -706,6 +732,26 @@ export function Chat() {
                   <option key={d.name} value={d.name}>{d.name}</option>
                 ))}
               </select>
+              {models.length > 0 && (
+                <select
+                  value={genModel}
+                  onChange={(e) => loadModel(e.target.value)}
+                  disabled={busy}
+                  aria-label="Modèle de génération"
+                  title="Modèle de génération : changé à chaud et épinglé en VRAM. Sert aux prochaines réponses."
+                  className="max-w-44 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted focus:outline-none"
+                >
+                  {(models.includes(genModel) ? models : [genModel, ...models]).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+              {modelStatus && (
+                <span className={`text-[11px] ${modelStatus === "chargé" ? "text-good"
+                  : modelStatus === "chargement…" ? "text-fg-faint" : "text-bad"}`}>
+                  {modelStatus}
+                </span>
+              )}
               {expert && (
                 <select
                   value={mode}
