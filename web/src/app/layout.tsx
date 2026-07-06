@@ -32,7 +32,11 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <header className="sticky top-0 z-40 border-b border-edge bg-background/80 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-            <Link href="/" className="group flex items-baseline gap-3">
+            <Link href="/" className="group flex items-center gap-3">
+              {/* Logotype Thales (version négatif pour fond sombre). */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/thales.svg" alt="Thales" className="h-3.5 w-auto" />
+              <span className="text-fg-faint">│</span>
               <span className="text-sm font-semibold tracking-wide">AI for SSH</span>
               <span className="hidden text-xs text-fg-faint transition-colors group-hover:text-fg-muted sm:inline">
                 RAG documentaire · vérification d&apos;exigences
