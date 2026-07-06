@@ -31,6 +31,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# LynX (AI for Requirements) : routeur dédié, importé paresseusement pour ne
+# pas payer l'init de lynx/src au démarrage si on n'utilise que le RAG.
+from api.lynx_api import router as lynx_router  # noqa: E402
+app.include_router(lynx_router)
+
 _client: MongoClient | None = None
 
 

@@ -11,10 +11,11 @@ d'AI_for_geopolitics : dark OLED, motion sobre, kit UI maison (`src/components/u
 |---|---|---|
 | 1 | Fondations (tokens, kit, layout) + page d'accueil | fait |
 | 2 | Backbone FastAPI (`/health`, `/api/sources`) + orchestration `serve.py` | fait |
-| 3 | Chat RAG (SSE, sources, boîte de verre) | à venir |
-| 4 | Documents & ingestion | à venir |
-| 5 | LynX / AI for Requirements (verdicts, boîte de verre, DAG React Flow) | à venir |
-| 6 | Settings/observabilité, archivage du Streamlit dans `legacy/` | à venir |
+| 3 | Chat RAG (SSE, sources, boîte de verre, bouton Stop) | fait |
+| 4 | Documents & ingestion (options à l'upload, file, exploration, suppression) | fait |
+| 5 | LynX / AI for Requirements (graphe React Flow, verdicts, audit, correction) | fait |
+| — | Thème Thales (nuit bleue + aqua), intro animée, mode expert, Paramètres, Observabilité | fait |
+| 6 | Archivage du Streamlit dans `legacy/` (après période de recette) | à venir |
 
 Pendant la migration, **l'application fonctionnelle reste le Streamlit** :
 `python serve.py` depuis la racine du repo.
