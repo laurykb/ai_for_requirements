@@ -25,7 +25,7 @@ if _LYNX_DIR not in sys.path:
 
 from src import audit as lynx_audit          # noqa: E402
 from src import correction as lynx_correction  # noqa: E402
-from src import corpus_io, llm, store, trace  # noqa: E402
+from src import corpus_io, feedback, llm, roi, store, trace  # noqa: E402
 from src.models import Action                 # noqa: E402
 from src.orchestrator import (                # noqa: E402
     run_impact_analysis, stream_synthesis, verdict_label,
@@ -185,6 +185,12 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
                 records = llm.stop_trace()
                 q.put({"type": "exchanges",
                        "exchanges": trace.build_timeline(records, findings)})
+                # ROI : défauts captés tôt (shift-left), comme le Streamlit.
+                try:
+                    roi.record_catches("edition", action.action_type.value,
+                                       action.target_id, findings)
+                except Exception:
+                    pass
             q.put({"type": "done"})
         except Exception as e:
             q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
@@ -269,6 +275,33 @@ def audit(body: AuditBody) -> StreamingResponse:
 
 
 # ─────────────── Correction ───────────────
+
+class FeedbackBody(BaseModel):
+    action_type: str
+    target_id: str
+    verdict: str
+    message: str
+    correct: bool
+
+
+@router.post("/feedback")
+def record_feedback(body: FeedbackBody) -> dict:
+    """Pouce haut/bas sur un verdict (journal d'apprentissage + stats)."""
+    feedback.record(body.action_type, body.target_id, body.verdict,
+                    body.message, body.correct)
+    return {"ok": True, "stats": feedback.stats()}
+
+
+class ModelBody(BaseModel):
+    model: str
+
+
+@router.post("/model")
+def set_model(body: ModelBody) -> dict:
+    """Changement à chaud du modèle des agents LynX."""
+    llm.set_model(body.model)
+    return {"ok": True, "model": llm.current_model()}
+
 
 class CorrectBody(BaseModel):
     req_id: str
