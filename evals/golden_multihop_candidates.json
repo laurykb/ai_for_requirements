@@ -1,0 +1,91 @@
+{
+  "dataset": "Mistral VS9 IPsec Gateway (cds_mistral_anssi_thales) — questions multi-hop CANDIDATES",
+  "source_doc": "cds_mistral_anssi_thales-clean.md",
+  "description": "Questions multi-hop candidates générées depuis le document réellement ingéré (cible de sécurité Mistral VS9). Chaque réponse exige de croiser 2 à 3 passages distincts du document (rôles + états, menace + objectif, mise à jour + auto-tests...). Statut 'candidate' : ces questions n'entrent PAS dans le golden officiel tant qu'elles n'ont pas été validées par l'utilisateur.",
+  "items": [
+    {
+      "question": "Quel rôle peut lancer l'effacement sécurisé de la TOE, et dans quel état de configuration la TOE se retrouve-t-elle après cet effacement ?",
+      "answer": "L'opérateur local U.ROLE_GW_OPERATOR peut lancer l'effacement sécurisé ; après un effacement sécurisé, la TOE revient à l'état usine ST_GW_FACTORY (logiciel chargé avec les paramètres de compte par défaut, sans paramètres client).",
+      "expected_keywords": ["ROLE_GW_OPERATOR", "ST_GW_FACTORY"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quelles sont les deux voies possibles pour mettre à jour le logiciel de la TOE, et quels rôles peuvent demander le téléchargement ou l'import de la mise à jour ?",
+      "answer": "À distance depuis le centre de gestion SS_MMC (téléchargement via VPN, demandé par ROLE_SYS_ADMIN à distance ou ROLE_GW_OPERATOR localement) ou localement via un support USB amovible CSS_USB_MEDIA (import demandé par ROLE_GW_OPERATOR).",
+      "expected_keywords": ["SS_MMC", "CSS_USB_MEDIA", "ROLE_SYS_ADMIN"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quelle menace vise la base de temps de la TOE, dans quel but, et quel objectif de sécurité y répond ?",
+      "answer": "La menace T.TIME_BASE : un attaquant perturbe ou altère la base de temps de la TOE dans le but de falsifier les données d'audit. L'objectif de sécurité O.TIME_BASE y répond (base de temps fiable pour l'horodatage des événements d'audit).",
+      "expected_keywords": ["T.TIME_BASE", "audit"],
+      "statut": "candidate"
+    },
+    {
+      "question": "À quelle version des Critères Communs cette cible de sécurité est-elle conforme, et revendique-t-elle la conformité au profil de protection collaboratif pour les équipements réseau ?",
+      "answer": "Elle est conforme aux Critères Communs 3.1 révision 5 d'avril 2017 ([CC-02] extended, [CC-03] conformant). Elle est basée sur le profil de protection collaboratif pour les équipements réseau (cPP Network Devices) mais n'en revendique PAS la conformité.",
+      "expected_keywords": ["3.1", "revision 5"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quels services externes doivent être accessibles depuis le réseau rouge selon la configuration de la passerelle Mistral, et à quelles RFC doivent-ils être conformes ?",
+      "answer": "Le répondeur OCSP externe CSS_OCSP_RESPONDER, conforme à la RFC 6960 (en mode OCSP, pour la vérification en ligne de la révocation des certificats), et le serveur DHCP externe CSS_DHCP, conforme à la RFC 2131 (en configuration avec capacités de mobilité).",
+      "expected_keywords": ["RFC 6960", "RFC 2131", "OCSP"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Comment la TOE protège-t-elle les flux de gestion, par opposition aux flux de données utilisateur ?",
+      "answer": "Les flux de gestion sont protégés (contre la divulgation, la modification, l'insertion et le rejeu) par TLS ; les flux de données utilisateur sont protégés par IPsec en encapsulation ESP mode tunnel, selon les algorithmes cryptographiques du profil IPsec DR, avec rejet des flux sans politique de protection.",
+      "expected_keywords": ["TLS", "ESP", "IPsec"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Que fait la TOE après l'activation d'une mise à jour logicielle, et que prévoit le processus en cas d'échec de la mise à jour ?",
+      "answer": "Après activation, la TOE installe la mise à jour puis redémarre, ce qui lance automatiquement les auto-tests (self-tests). En cas d'échec de la mise à jour, la version précédente peut être réactivée ; en cas d'erreur, la TOE arrête le processus et poursuit son activité nominale (SS_MMC connaît l'état et la version et peut relancer la procédure).",
+      "expected_keywords": ["self-test", "version"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quels sont les trois états de configuration de la TOE, et quel état fonctionnel est atteint lorsqu'une défaillance est détectée ?",
+      "answer": "Les trois états de configuration sont ST_GW_FACTORY (état usine), ST_GW_PERSONALIZED (mot de passe opérateur posé, données de chiffrement chargées) et ST_GW_CONFIGURED (heure configurée et fichier de configuration chargé). En cas de défaillance détectée, la TOE entre dans l'état fonctionnel ST_FAILURE.",
+      "expected_keywords": ["ST_GW_FACTORY", "ST_GW_CONFIGURED", "ST_FAILURE"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Qui sont les agents de menace considérés dans la définition du problème de sécurité, et les administrateurs en font-ils partie ?",
+      "answer": "Les agents de menace sont les attaquants internes (entités du réseau de confiance, accès logique via CSS_RED_NETWORK), les attaquants externes (tiers non autorisés, accès logique via CS_BLACK_NETWORK) et les dysfonctionnements/défaillances matériels et logiciels. Les administrateurs et opérateurs ne sont PAS considérés comme des agents de menace.",
+      "expected_keywords": ["internes", "externes", "administrateurs"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Par quels mécanismes la TOE protège-t-elle l'intégrité de son logiciel, et comment la livraison du logiciel est-elle protégée ?",
+      "answer": "L'intégrité du logiciel est protégée par le démarrage sécurisé (secure boot) et des auto-tests réguliers utilisant des mécanismes cryptographiques (PBIT au démarrage, IBIT à la demande). La livraison est protégée : le logiciel est chiffré et signé par THALES, et délivré depuis la Cryptobox via un lien temporaire dédié envoyé au client.",
+      "expected_keywords": ["secure boot", "Cryptobox", "THALES"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quelle interface de la TOE sert à importer les certificats et les conteneurs de clés, et quel dispositif externe est utilisé pour la génération des certificats ?",
+      "answer": "L'interface IF_IMPORT_EXPORT (import/export de données via CSS_USB_MEDIA : fichiers INIT_CONF ou FULL_CONF, certificats et conteneurs de clés, exports d'EVENT_LOG et de demandes de signature). La génération des certificats est assurée par le dispositif externe d'infrastructure à clés publiques CSS_PKI.",
+      "expected_keywords": ["IF_IMPORT_EXPORT", "CSS_PKI"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Qu'est-ce qui constitue la TOE Mistral VS9, et quels composants du système Mistral sont hors de son périmètre ?",
+      "answer": "La TOE est le logiciel Mistral s'exécutant sur la passerelle SS_IPSEC_GW (profil IPsec DR en environnement IPv4), composé d'un OS Linux durci (conforme aux guides ANSSI) et des applications Mistral. Sont hors périmètre : le matériel, le centre de gestion SS_MMC, l'annuaire LDAP optionnel CSS_DIRECTORY, la PKI CSS_PKI, ainsi que CSS_DHCP et CSS_OCSP_RESPONDER.",
+      "expected_keywords": ["Linux", "SS_MMC", "CSS_PKI"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Dans le format de version V9.x.y.z de la passerelle Mistral, que désignent x, y et z, et quelle version logicielle est identifiée pour les matériels IP9001 et IP9010 ?",
+      "answer": "x est la version système, y identifie la version fonctionnelle majeure, z est un champ libre optionnel (version de test, de debug si elle contient un d, ou évolutions mineures à périmètre fonctionnel constant). Les matériels IP9001 (TRC7540-2) et IP9010 (TRC7540-3) embarquent la version logicielle 9.2.3.5.",
+      "expected_keywords": ["9.2.3.5", "IP9001", "IP9010"],
+      "statut": "candidate"
+    },
+    {
+      "question": "Quel rôle interagit avec la TOE via le centre de gestion distant, et par quelle interface la TOE communique-t-elle avec ce centre ?",
+      "answer": "L'administrateur central U.ROLE_SYS_ADMIN interagit avec la TOE via le service de gestion distant installé sur SS_MMC. La communication passe par l'interface IF_REMOTE_MGT, entre SS_IPSEC_GW et SS_MMC, via IF_RED_NETWORK ou IF_VPN_ADMIN.",
+      "expected_keywords": ["ROLE_SYS_ADMIN", "IF_REMOTE_MGT", "SS_MMC"],
+      "statut": "candidate"
+    }
+  ]
+}
