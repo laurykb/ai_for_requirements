@@ -1,30 +1,42 @@
 "use client";
 
-/** Navigation du haut : les deux outils + vues d'opérateur.
- * Masquée sur l'accueil (`/`) — on entre par les cartes, sans détour.
- * Observabilité : réservée au mode Expert pour garder l'interface simple. */
+/** Navigation contextuelle : l'Outil RAG et AI for Requirements (LynX) sont
+ * deux applications SÉPARÉES, choisies sur l'accueil (comme dans le
+ * Streamlit). Une fois dans un outil, on ne voit que la navigation de cet
+ * outil — et « ← Accueil » pour changer d'outil.
+ * Observabilité : réservée au mode Expert (monde RAG). */
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ExpertToggle, useExpert } from "@/components/expert-toggle";
 
-const LINKS = [
-  { href: "/rag", label: "Outil RAG" },
+// Monde RAG : le chat et ses vues d'opérateur (mêmes onglets que le Streamlit).
+const RAG_LINKS = [
+  { href: "/rag", label: "Chat" },
   { href: "/documents", label: "Documents" },
-  { href: "/requirements", label: "AI for Requirements" },
 ];
-const EXPERT_LINKS = [{ href: "/observability", label: "Observabilité" }];
-const TAIL_LINKS = [{ href: "/settings", label: "Paramètres" }];
+const RAG_EXPERT = [{ href: "/observability", label: "Observabilité" }];
+const RAG_TAIL = [{ href: "/settings", label: "Paramètres" }];
+const RAG_PREFIXES = ["/rag", "/documents", "/observability", "/settings"];
 
 export function HeaderNav() {
   const pathname = usePathname();
   const expert = useExpert();
   if (pathname === "/") return null; // accueil : rien d'autre que les deux cartes
 
-  const links = [...LINKS, ...(expert ? EXPERT_LINKS : []), ...TAIL_LINKS];
+  const inLynx = pathname.startsWith("/requirements");
+  const inRag = RAG_PREFIXES.some((p) => pathname.startsWith(p));
+  const links = inRag
+    ? [...RAG_LINKS, ...(expert ? RAG_EXPERT : []), ...RAG_TAIL]
+    : [];
+
   return (
     <nav className="flex items-center gap-5 text-sm text-fg-muted">
+      <Link href="/" className="text-fg-faint transition-colors hover:text-foreground">
+        ← Accueil
+      </Link>
+      {inLynx && <span className="text-foreground">AI for Requirements</span>}
       {links.map((l) => (
         <Link
           key={l.href}
@@ -37,7 +49,7 @@ export function HeaderNav() {
           {l.label}
         </Link>
       ))}
-      <ExpertToggle />
+      {inRag && <ExpertToggle />}
     </nav>
   );
 }
