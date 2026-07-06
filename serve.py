@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Lance tout d'un coup : MongoDB + Ollama, puis l'application Streamlit.
+Lance tout d'un coup : MongoDB + Ollama, puis l'application.
 
-    python serve.py
+    python serve.py          # interface actuelle (Streamlit)
+    python serve.py --web    # nouvelle interface (API FastAPI :8000 + front Next.js :3000)
 
 - Démarre les services seulement s'ils ne tournent pas déjà.
 - Multi-OS : utilise `mongod` / `ollama` du PATH, ou les chemins MONGO_BIN /
@@ -85,13 +86,33 @@ def _wait(port: int, name: str, timeout: int = 30) -> None:
     print(f"  {name} : pas prêt après {timeout}s (l'app démarre quand même).")
 
 
+def run_web() -> None:
+    """Nouvelle interface : API FastAPI (:8000) + front Next.js (:3000).
+
+    L'API tourne en arrière-plan ; le front reste au premier plan pour que
+    Ctrl+C arrête tout (l'API est tuée à la sortie).
+    """
+    api = subprocess.Popen([sys.executable, "-m", "uvicorn", "api.main:app",
+                            "--port", "8000"], cwd=ROOT)
+    _wait(8000, "API")
+    print("\nFront Next.js : http://localhost:3000 (API : http://127.0.0.1:8000)\n")
+    try:
+        # dev.sh charge nvm (Node >= 20) et fait `npm install` au premier lancement.
+        subprocess.run(["bash", str(ROOT / "web" / "dev.sh")])
+    finally:
+        api.terminate()
+
+
 def main() -> None:
     start_mongo()
     start_ollama()
     _wait(27017, "MongoDB")
     _wait(11434, "Ollama")
     print("\nLancement de l'application...\n")
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "main.py")])
+    if "--web" in sys.argv:
+        run_web()
+    else:
+        subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "main.py")])
 
 
 if __name__ == "__main__":
