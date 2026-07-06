@@ -108,7 +108,13 @@ def start_trace(name: str, **metadata):
         yield tr
     finally:
         tr.root.duration_ms = round((time.perf_counter() - tr._start) * 1000, 1)
-        _current_trace.reset(token)
+        try:
+            _current_trace.reset(token)
+        except ValueError:
+            # Générateur SSE : chaque tranche peut s'exécuter dans un contexte
+            # de threadpool différent — le token n'est alors pas résettable
+            # (« was created in a different Context »). On retombe sur None.
+            _current_trace.set(None)
         _persist(tr)
 
 

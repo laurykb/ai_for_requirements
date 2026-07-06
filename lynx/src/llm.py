@@ -115,12 +115,18 @@ def load_skill_prompt(skill_name: str) -> str:
 def llm_available() -> bool:
     if LLM_DISABLED:
         return False
-    if "ok" not in _available_cache:
+    # Cache avec TTL : l'ancien cache "pour toujours" figeait un Ollama
+    # éteint au premier appel — l'audit IA restait alors désactivé jusqu'au
+    # redémarrage du process, même une fois Ollama revenu.
+    import time as _time
+    now = _time.monotonic()
+    if "ok" not in _available_cache or now - _available_cache.get("ts", 0) > 10:
         try:
             r = httpx.get(f"{LLM_BASE_URL}/models", headers=_headers(), timeout=3)
             _available_cache["ok"] = r.status_code == 200
         except Exception:
             _available_cache["ok"] = False
+        _available_cache["ts"] = now
     return _available_cache["ok"]
 
 

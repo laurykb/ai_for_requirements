@@ -365,9 +365,12 @@ def answer_stream(question: str, chunks: list[dict], gpu_ids="0", system_prompt=
             # Connexion Ollama coupée (ex: re-render Streamlit) - on arrête
             return
         except Exception as e:
-            # Tout autre erreur réseau/LLM : on log et on sort
+            # Erreur réseau/LLM en PLEINE génération : ne plus l'avaler en
+            # silence (l'appelant croyait la réponse complète et la persistait
+            # tronquée). On log et on RE-LÈVE : l'UI affiche l'erreur avec la
+            # réponse partielle.
             logger.warning("[generation] Erreur pendant le stream : %s", e)
-            return
+            raise RuntimeError(f"Génération interrompue (Ollama) : {e}") from e
 
     gen = _gen()
     return gen, citations
