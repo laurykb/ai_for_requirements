@@ -31,4 +31,6 @@ def check_redaction(texte: str) -> Dict[str, Any]:
     if not texte or not texte.strip():
         return {"conforme": False, "violations": [], "score": 0,
                 "reecriture": "", "synthese": "Texte vide."}
-    return llm.call_agent(_prompt(), texte.strip())
+    # Le label branche le schéma de réponse du registre (schemas.py) et
+    # identifie l'agent dans la boîte de verre.
+    return llm.call_agent(_prompt(), texte.strip(), label="redaction_exigence")
