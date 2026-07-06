@@ -28,12 +28,19 @@ export type ChunkView = {
   };
 };
 
+/** Étape du plan de l'agent (planificateur-exécuteur multi-hop). */
+export type PlanStep = { sous_question: string; but?: string };
+
 /** Trames SSE de POST /api/ask. */
 export type AskEvent =
   | { type: "session"; id: string }
   | { type: "route"; mode: "rag" | "agent"; reason: string }
   | { type: "stage"; stage: "retrieve" | "generate" }
   | { type: "retrieved"; chunks: ChunkView[] }
+  | { type: "plan"; steps: PlanStep[] }
+  | { type: "step_start"; index: number; total: number; text: string }
+  | { type: "step_done"; index: number; text: string; hors_scope?: boolean }
+  | { type: "replan"; index: number; steps: PlanStep[] }
   | { type: "thought"; text: string }
   | { type: "action"; text: string }
   | { type: "observation"; text: string }
