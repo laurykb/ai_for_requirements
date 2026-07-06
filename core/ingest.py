@@ -110,6 +110,14 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         
         # 2) Découper en chunks
         docs = decoupe_semantic_md(md_path, max_characters=1000, mode=chunking_mode)
+        if not docs:
+            # Garde-fou : document vide ou conversion échouée. On s'arrête AVANT
+            # de toucher aux index (sinon : reset Chroma puis add([]) -> crash
+            # « Expected Embeddings to be non-empty list » + perte des vecteurs).
+            raise ValueError(
+                f"Aucun chunk extrait de {Path(md_path).name} : document vide ou "
+                "conversion échouée. Les index existants n'ont pas été modifiés."
+            )
         stats["num_chunks"] = len(docs)
         stats["chunking_mode"] = chunking_mode
         logger.info("%d chunks générés à partir de %s (mode: %s)", len(docs), md_path, chunking_mode)
@@ -215,9 +223,16 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         logger.info("Embeddings générés")
         
         _notify_progress(progress_callback, "Indexation ChromaDB...", 75)
-        
-        # 6) Indexation Chroma
-        _ = index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_NAME)
+
+        # 6) Indexation Chroma — PAR DOCUMENT : on ne purge que les vecteurs de
+        # CE document (anti-doublons) puis on ajoute les nouveaux. L'ancien
+        # clean_collection=True vidait TOUTE la collection à chaque ingestion :
+        # les autres documents perdaient silencieusement leur recherche
+        # sémantique (le multi-document ne tenait que par BM25).
+        _ = index_chroma(ids, texts, metadatas, embeddings,
+                         collection_name=COLLECTION_NAME,
+                         clean_collection=False,
+                         replace_source=Path(md_path).name)
         logger.info("Indexation vector store terminée")
         
         _notify_progress(progress_callback, "Sauvegarde MongoDB...", 85)

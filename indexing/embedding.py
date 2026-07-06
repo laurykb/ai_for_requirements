@@ -94,13 +94,18 @@ def build_embeddings(docs):
     return texts, vecs, metadatas, ids
 
 
-def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_NAME, clean_collection=True):
+def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_NAME,
+                 clean_collection=True, replace_source=None):
     """
     Indexe (ids, textes, métadonnées, embeddings) dans le magasin vectoriel abstrait.
-    Si clean_collection=True, vide la collection avant d'ajouter (évite les doublons).
 
-    Le nom historique `index_chroma` est conservé (appelé par l'ingestion) ; il écrit
-    dans le magasin vectoriel ChromaDB via l'interface VectorStore.
+    Anti-doublons :
+    - clean_collection=True : vide TOUTE la collection avant d'ajouter (rebuild
+      complet — scripts/outils seulement, jamais l'ingestion d'UN document).
+    - replace_source=<nom> : ne retire que les vecteurs de CE document avant
+      d'ajouter — les autres documents restent interrogeables (multi-document).
+
+    Le nom historique `index_chroma` est conservé (appelé par l'ingestion).
 
     Args:
         ids (list[str]): Identifiants uniques des chunks
@@ -108,7 +113,8 @@ def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_N
         metadatas (list[dict]): Métadonnées associées à chaque chunk
         embeddings (list[list[float]]): Embeddings vectoriels
         collection_name (str): Nom de la collection (défaut: COLLECTION_NAME)
-        clean_collection (bool): Vider la collection avant l'indexation (défaut: True)
+        clean_collection (bool): Vider la collection avant l'indexation
+        replace_source (str|None): purge ciblée des vecteurs d'une source
 
     Returns:
         VectorStore: le magasin vectoriel contenant les données indexées
@@ -116,6 +122,13 @@ def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_N
     store = get_vector_store(collection_name)
     if clean_collection:
         store.reset()  # supprime + recrée (métrique cosine), anti-doublons
+    elif replace_source:
+        store.delete_source(replace_source)
+    if not ids:
+        # Ne jamais appeler add([]) : Chroma lève « Expected Embeddings to be
+        # non-empty list ». Rien à indexer -> on s'arrête là, sans casser.
+        logger.warning("index_chroma : aucun embedding à indexer (ids vides).")
+        return store
     store.add(ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings)
     return store
 
