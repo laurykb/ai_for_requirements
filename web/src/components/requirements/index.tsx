@@ -18,7 +18,8 @@ import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 import { NIVEAU_COLORS, type Req } from "@/components/req-graph";
 import {
   GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
-  type AuditReport, type Exchange, type Finding, type Suggestion, type Verdict,
+  type AuditReport, type Exchange, type Finding, type FixProgress, type FixRecap,
+  type Suggestion, type Verdict,
 } from "@/components/requirements/blocks";
 import { AuditPanel, CreateChildForm, LinkForm } from "@/components/requirements/panels";
 
@@ -52,6 +53,11 @@ export function Requirements() {
   const [auditProgress, setAuditProgress] = useState<[number, number] | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [deep, setDeep] = useState(true);
+
+  const [fixing, setFixing] = useState(false);
+  const [fixProgress, setFixProgress] = useState<FixProgress | null>(null);
+  const [fixRecap, setFixRecap] = useState<FixRecap | null>(null);
+  const fixAbort = useRef<AbortController | null>(null);
 
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -166,6 +172,7 @@ export function Requirements() {
     setVerdict(null);
     setPendingAction(null);
     setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
+    setFixRecap(null);
     await refresh();
   };
 
@@ -184,10 +191,11 @@ export function Requirements() {
   };
 
   const runAudit = async () => {
-    if (auditRunning) return;
+    if (auditRunning || fixing) return;
     setAuditRunning(true);
     setAudit(null);
     setAuditProgress(null);
+    setFixRecap(null);
     try {
       await streamPost("/api/lynx/audit", { deep }, (ev) => {
         if (ev.type === "progress") setAuditProgress([Number(ev.done), Number(ev.total)]);
@@ -198,6 +206,47 @@ export function Requirements() {
       setError(`API injoignable (${String(e)})`);
     }
     setAuditRunning(false);
+  };
+
+  /** Correction en lot : corriger → ré-auditer (3 passes max), sur une copie
+   * côté API — rien n'est appliqué avant la validation sélective du récap. */
+  const runBatchFix = async () => {
+    if (!audit || fixing || auditRunning) return;
+    setFixing(true);
+    setFixRecap(null);
+    setFixProgress(null);
+    const ctl = new AbortController();
+    fixAbort.current = ctl;
+    try {
+      await streamPost("/api/lynx/audit/fix", { findings: audit.findings, deep }, (ev) => {
+        if (ev.type === "progress") setFixProgress(ev as unknown as FixProgress);
+        else if (ev.type === "result") setFixRecap(ev as unknown as FixRecap);
+        else if (ev.type === "error") setError(`Correction en lot : ${String(ev.message)}`);
+      }, ctl.signal);
+    } catch (e) {
+      if (!ctl.signal.aborted) setError(`API injoignable (${String(e)})`);
+    }
+    fixAbort.current = null;
+    setFixProgress(null);
+    setFixing(false);
+  };
+
+  const cancelBatchFix = () => fixAbort.current?.abort();
+
+  /** Applique les corrections cochées à la matrice réelle. */
+  const applyBatchFix = async (items: { req_id: string; texte: string }[]) => {
+    const res = await fetch(`${API_BASE}/api/lynx/audit/fix/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setError("Application des corrections impossible.");
+      return;
+    }
+    setFixRecap(null);
+    setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
+    await refresh();
   };
 
   const suggest = async () => {
@@ -231,6 +280,7 @@ export function Requirements() {
       setSelected(null);
       setVerdict(null);
       setAudit(null);
+      setFixRecap(null);
       await refresh();
     } else {
       setError("Import impossible : JSON de matrice invalide.");
@@ -296,7 +346,7 @@ export function Requirements() {
           <button
             onClick={async () => {
               await fetch(`${API_BASE}/api/lynx/corpus/reset`, { method: "POST" }).catch(() => null);
-              setSelected(null); setVerdict(null); setAudit(null);
+              setSelected(null); setVerdict(null); setAudit(null); setFixRecap(null);
               await refresh();
             }}
             title="Abandonne la matrice de travail et recharge la matrice d'origine."
@@ -570,6 +620,14 @@ export function Requirements() {
         setDeep={setDeep}
         onRun={runAudit}
         onSelect={select}
+        llmOk={llmOk}
+        fixing={fixing}
+        fixProgress={fixProgress}
+        fixRecap={fixRecap}
+        onFix={runBatchFix}
+        onCancelFix={cancelBatchFix}
+        onApplyFix={applyBatchFix}
+        onCloseRecap={() => setFixRecap(null)}
       />
     </div>
   );

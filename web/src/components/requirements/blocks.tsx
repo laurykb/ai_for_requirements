@@ -25,6 +25,13 @@ export type AuditReport = { n: number; score: number; counts: Record<string, num
                                          flagged: boolean }[] };
 export type Suggestion = { texte?: string; justification?: string; changements?: string[];
                            corrige_tout?: boolean; error?: string };
+export type FixProgress = { phase: string; passe: number; done: number; total: number;
+                            req_id?: string | null };
+export type FixItem = { req_id: string; texte_avant: string; texte_apres: string;
+                        findings_avant: AuditFinding[]; findings_apres: AuditFinding[];
+                        justification: string; erreur: string; statut: string; passes: number };
+export type FixRecap = { recap: FixItem[]; compteurs: Record<string, number>;
+                         passes: number; score_apres: number | null };
 
 export const SEV_TONE: Record<string, Tone> = { INFO: "good", WARNING: "warn",
                                                 BLOCKING: "bad", BLOQUANT: "bad" };
@@ -93,11 +100,13 @@ export function GlassBox({ exchanges, title }: { exchanges: Exchange[]; title: s
 }
 
 export async function streamPost(path: string, body: unknown,
-                                 onEvent: (ev: Record<string, unknown>) => void): Promise<void> {
+                                 onEvent: (ev: Record<string, unknown>) => void,
+                                 signal?: AbortSignal): Promise<void> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
   if (!res.ok || !res.body) throw new Error(`${path} → HTTP ${res.status}`);
   const reader = res.body.getReader();
