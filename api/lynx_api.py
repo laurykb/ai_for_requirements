@@ -26,6 +26,7 @@ if _LYNX_DIR not in sys.path:
     sys.path.insert(0, _LYNX_DIR)
 
 from src import audit as lynx_audit          # noqa: E402
+from src import autofix as lynx_autofix      # noqa: E402
 from src import correction as lynx_correction  # noqa: E402
 from src import corpus_io, feedback, llm, roi, store, trace  # noqa: E402
 from src.models import Action                 # noqa: E402
@@ -324,6 +325,94 @@ def audit(body: AuditBody) -> StreamingResponse:
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store"})
+
+
+# ─────────────── Correction en lot depuis l'audit (SSE) ───────────────
+
+class FixBody(BaseModel):
+    findings: list[dict]              # constats de l'audit courant (req_id, severity, message…)
+    deep: bool = True                 # profondeur du ré-audit entre les passes
+
+
+@router.post("/audit/fix")
+def audit_fix(body: FixBody) -> StreamingResponse:
+    """Correction en lot : pour chaque exigence signalée (BLOQUANT/WARNING),
+    l'agent de rédaction propose une réécriture appliquée à une COPIE du
+    corpus, puis la copie est ré-auditée — jusqu'à 3 passes. Events
+    `progress` {phase, passe, done, total, req_id} puis `result` (récap par
+    exigence + compteurs). Le corpus réel n'est PAS modifié : la validation
+    sélective passe par /audit/fix/apply."""
+    corpus = [dict(r) for r in _get_corpus()]
+    q: queue.Queue = queue.Queue()
+    cancelled = threading.Event()
+
+    def emit(item: dict) -> None:
+        if cancelled.is_set():
+            raise _Cancelled()
+        q.put(item)
+
+    def worker():
+        try:
+            with _LLM_LOCK:
+                out = lynx_autofix.run_batch_fix(
+                    corpus, body.findings, max_passes=3, deep=body.deep,
+                    on_progress=lambda info: emit({"type": "progress", **info}),
+                    cancelled=cancelled)
+            q.put({"type": "result", **out})
+            q.put({"type": "done"})
+        except (_Cancelled, lynx_autofix.BatchCancelled):
+            pass  # client parti : la copie de travail est simplement jetée
+        except Exception as e:
+            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
+        q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        try:
+            while True:
+                item = q.get()
+                if item is None:
+                    return
+                yield _sse(item)
+        finally:
+            cancelled.set()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store"})
+
+
+class FixApplyItem(BaseModel):
+    req_id: str
+    texte: str
+
+
+class FixApplyBody(BaseModel):
+    items: list[FixApplyItem]
+
+
+@router.post("/audit/fix/apply")
+def audit_fix_apply(body: FixApplyBody) -> dict:
+    """Applique les corrections COCHÉES du récap à la matrice réelle, comme
+    une série d'UPDATE : état process + working.json + journal d'historique.
+    Renvoie le corpus à jour."""
+    corpus = _get_corpus()
+    by_id = {r["id"]: r for r in corpus}
+    if not body.items:
+        raise HTTPException(400, "Aucune correction sélectionnée.")
+    inconnues = [it.req_id for it in body.items if it.req_id not in by_id]
+    if inconnues:
+        raise HTTPException(400, f"Exigences inconnues : {', '.join(inconnues[:5])}")
+    for it in body.items:
+        if not it.texte.strip():
+            raise HTTPException(400, f"Texte vide pour {it.req_id}.")
+    for it in body.items:
+        old = by_id[it.req_id].get("texte", "")
+        by_id[it.req_id]["texte"] = it.texte
+        store.append_history("UPDATE", it.req_id, old, it.texte,
+                             "Correction en lot (audit)")
+    store.save_working(corpus)
+    return {"n": len(corpus), "exigences": corpus}
 
 
 # ─────────────── Correction ───────────────
