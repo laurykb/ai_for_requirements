@@ -18,6 +18,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from api.common import _sse
+
 # lynx/ utilise des imports `from src import ...` : on l'ajoute au path.
 _LYNX_DIR = str(Path(__file__).resolve().parent.parent / "lynx")
 if _LYNX_DIR not in sys.path:
@@ -42,10 +44,6 @@ def _get_corpus() -> list[dict]:
     if _corpus is None:
         _corpus = store.load_initial()
     return _corpus
-
-
-def _sse(payload: dict) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def _ui_findings(report) -> list[dict]:

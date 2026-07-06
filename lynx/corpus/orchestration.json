@@ -1,0 +1,38 @@
+{
+  "deterministic": [
+    {
+      "name": "analyze_allocation",
+      "enabled": true
+    },
+    {
+      "name": "analyze_downstream",
+      "enabled": true
+    }
+  ],
+  "semantic": [
+    {
+      "name": "analyze_pertinence",
+      "enabled": true
+    },
+    {
+      "name": "analyze_couverture",
+      "enabled": true
+    },
+    {
+      "name": "analyze_redondance",
+      "enabled": true
+    },
+    {
+      "name": "analyze_pertinence_aval",
+      "enabled": true
+    },
+    {
+      "name": "analyze_impact_latent",
+      "enabled": true
+    },
+    {
+      "name": "analyze_coreference",
+      "enabled": true
+    }
+  ]
+}

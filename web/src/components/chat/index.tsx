@@ -4,18 +4,24 @@
  * conversations persistées à gauche, fil au centre, composeur en bas
  * (pièce jointe, périmètre documentaire, mode, envoi/stop).
  * Boîte de verre : routage affiché, pipeline visible, raisonnement de
- * l'agent replié, sources et passages sous chaque réponse. */
+ * l'agent replié, sources et passages sous chaque réponse.
+ *
+ * Ce fichier porte la machine à états (SSE, sessions, pièce jointe) ;
+ * l'affichage est découpé : blocks.tsx (réponse), sessions-sidebar.tsx
+ * (colonne conversations), composer.tsx (saisie + options). */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
-import { fmt } from "@/lib/format";
 import { loadPrefs } from "@/lib/prefs";
-import type { ChatMessage, ChunkView, Citation, EvalResult, SessionInfo } from "@/lib/types";
+import type { ChatMessage, ChunkView, SessionInfo } from "@/lib/types";
 import { useExpert } from "@/components/expert-toggle";
-import { Banner, Dot, Hint, Spinner } from "@/components/ui";
+import { Dot, Spinner } from "@/components/ui";
+import { AssistantMessage, NOT_FOUND_MESSAGE } from "@/components/chat/blocks";
+import { SessionsSidebar } from "@/components/chat/sessions-sidebar";
+import { Composer, type Mode } from "@/components/chat/composer";
 
 const EXAMPLES = [
   "Quelles sont les exigences de chiffrement ?",
@@ -23,211 +29,7 @@ const EXAMPLES = [
   "Résume les principales fonctions de sécurité.",
 ];
 
-const NOT_FOUND_MESSAGE =
-  "Je n'ai pas trouvé d'information sur ce sujet dans vos documents. " +
-  "Essayez de reformuler, ou choisissez un autre document à interroger.";
-
 type Phase = "idle" | "retrieve" | "agent" | "generate";
-
-/** Libellé d'un passage : source – section – page – score. */
-function chunkLabel(c: ChunkView, i: number): string {
-  const m = c.meta;
-  const loc =
-    m.heading ?? m.breadcrumb ?? (m.section_idx != null ? `section ${m.section_idx}` : "");
-  const page = m.page_number ? ` – p. ${m.page_number}` : "";
-  const score = typeof c.ce_score === "number" ? ` – score ${fmt(c.ce_score)}` : "";
-  return `[${i + 1}] ${m.source ?? "document"}${loc ? ` – ${loc}` : ""}${page}${score}`;
-}
-
-function SourcesBlock({ citations }: { citations: Citation[] }) {
-  if (!citations.length) return null;
-  return (
-    <details className="chat-details">
-      <summary>Sources ({citations.length})</summary>
-      <ul className="mt-2 space-y-1 text-xs text-fg-muted">
-        {citations.map((c) => (
-          <li key={c.idx}>
-            <span className="font-mono text-fg-faint">[{c.idx}]</span> {c.source}
-            {" – "}
-            {c.heading ?? c.breadcrumb ?? `section ${c.section ?? "?"}`}
-            {c.page ? ` – p. ${c.page}` : ""}
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-/** Passages récupérés (boîte de verre). Sur la DERNIÈRE réponse : cases à
- * cocher + « Régénérer avec la sélection ». */
-function ChunksBlock({ chunks, canRegenerate, onRegenerate }: {
-  chunks: ChunkView[];
-  canRegenerate?: boolean;
-  onRegenerate?: (selected: ChunkView[]) => void;
-}) {
-  const [checked, setChecked] = useState<boolean[]>(() => chunks.map(() => true));
-  if (!chunks.length) return null;
-  return (
-    <details className="chat-details">
-      <summary>
-        Passages récupérés ({chunks.length})
-        <Hint text="Le contenu exact que le moteur de recherche a retrouvé et fourni au modèle pour répondre." />
-      </summary>
-      <div className="mt-2 space-y-2">
-        {chunks.map((c, i) => (
-          <div key={i} className="flex items-start gap-2">
-            {canRegenerate && (
-              <input
-                type="checkbox"
-                checked={checked[i] ?? true}
-                onChange={(e) =>
-                  setChecked((cs) => cs.map((v, j) => (j === i ? e.target.checked : v)))}
-                className="mt-2.5 accent-(--accent)"
-                aria-label={`garder le passage ${i + 1}`}
-              />
-            )}
-            <details className="chat-details min-w-0 flex-1">
-              <summary className="text-xs">{chunkLabel(c, i)}</summary>
-              <div className="chat-md mt-2 max-h-72 overflow-y-auto text-xs text-fg-muted">
-                <ReactMarkdown>{c.doc}</ReactMarkdown>
-              </div>
-              {(c.meta.keywords_str || c.meta.entities_str) && (
-                <p className="mt-2 border-t border-edge pt-2 text-[11px] text-fg-faint">
-                  {c.meta.keywords_str && <>Mots-clés – {c.meta.keywords_str}</>}
-                  {c.meta.keywords_str && c.meta.entities_str && <br />}
-                  {c.meta.entities_str && <>Entités – {c.meta.entities_str}</>}
-                </p>
-              )}
-            </details>
-          </div>
-        ))}
-        {canRegenerate && onRegenerate && (
-          <button
-            onClick={() => onRegenerate(chunks.filter((_, i) => checked[i] ?? true))}
-            className="cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10"
-          >
-            Régénérer avec la sélection
-          </button>
-        )}
-      </div>
-    </details>
-  );
-}
-
-function EvalBlock({ e }: { e: EvalResult }) {
-  return (
-    <div className="mt-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs">
-      <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-fg-faint">
-        Vérification automatique
-        <Hint text="Question à enjeu détectée : fidélité aux sources contrôlée par LLM-as-judge (0 → 1)." />
-      </p>
-      <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 font-mono tabular-nums text-fg-muted">
-        <span>Fidélité {fmt(e.faithfulness ?? 0)}</span>
-        <span>Pertinence réponse {fmt(e.answer_relevance ?? 0)}</span>
-        <span>Pertinence contexte {fmt(e.context_relevance ?? 0)}</span>
-      </div>
-      {(e.issues?.length ?? 0) > 0 && (
-        <ul className="mt-1.5 list-disc pl-4 text-fg-faint">
-          {e.issues!.map((it, i) => <li key={i}>{it}</li>)}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
-  m: ChatMessage; expert: boolean;
-  canRegenerate?: boolean;
-  onRegenerate?: (selected: ChunkView[]) => void;
-}) {
-  return (
-    <div className="min-w-0">
-      {m.route && expert && (
-        <p className="mb-1 text-[11px] text-fg-faint">Routage : {m.route}</p>
-      )}
-      {m.reasoning && (
-        <details className="chat-details mb-2">
-          <summary>Raisonnement de l&apos;agent</summary>
-          <div className="chat-md mt-2 text-xs text-fg-muted">
-            <ReactMarkdown>{m.reasoning}</ReactMarkdown>
-          </div>
-        </details>
-      )}
-      <div className="chat-md text-sm leading-relaxed">
-        <ReactMarkdown>{m.content}</ReactMarkdown>
-      </div>
-      {m.stopped && (
-        <p className="mt-2 flex items-center gap-2 text-xs text-fg-faint">
-          <Dot tone="warn" /> Génération arrêtée — réponse partielle.
-        </p>
-      )}
-      {m.error && (
-        <div className="mt-2">
-          <Banner tone="bad">{m.error}</Banner>
-        </div>
-      )}
-      {m.citations && <SourcesBlock citations={m.citations} />}
-      {/* Passages récupérés : boîte de verre pour TOUS les modes (cocher/
-          décocher + régénérer sur la dernière réponse). key : remonte le bloc
-          quand la liste change (régénération) pour réaligner les cases. */}
-      {m.chunks && (
-        <ChunksBlock key={m.chunks.length} chunks={m.chunks}
-                     canRegenerate={canRegenerate} onRegenerate={onRegenerate} />
-      )}
-      {m.eval && <EvalBlock e={m.eval} />}
-    </div>
-  );
-}
-
-/** Une conversation dans la barre latérale (renommage inline, suppression). */
-function SessionRow({ s, active, onOpen, onRename, onDelete }: {
-  s: SessionInfo; active: boolean;
-  onOpen: () => void; onRename: (t: string) => void; onDelete: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState(s.title);
-  return (
-    <div
-      className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs transition-colors ${
-        active ? "bg-accent/15 text-foreground" : "text-fg-muted hover:bg-surface-2"}`}
-    >
-      {editing ? (
-        <input
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => { setEditing(false); onRename(title); }}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-          className="w-full rounded border border-accent/50 bg-surface px-1 py-0.5 text-xs text-foreground focus:outline-none"
-        />
-      ) : (
-        <>
-          <button onClick={onOpen}
-                  className="min-w-0 flex-1 cursor-pointer truncate text-left"
-                  title={s.title}>
-            {s.title || "Conversation"}
-          </button>
-          <button onClick={() => setEditing(true)} title="Renommer"
-                  className="hidden cursor-pointer px-1 text-fg-faint hover:text-foreground group-hover:block">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M4 20h4L19 9l-4-4L4 16v4Z" stroke="currentColor" strokeWidth="2"
-                    strokeLinejoin="round" />
-            </svg>
-          </button>
-          <button onClick={onDelete} title="Supprimer"
-                  className="hidden cursor-pointer px-1 text-fg-faint hover:text-bad group-hover:block">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2"
-                    strokeLinecap="round" />
-            </svg>
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── Composant principal ───────────────────────────────────────────────────
 
 export function Chat() {
   const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
@@ -240,7 +42,7 @@ export function Chat() {
   const [partial, setPartial] = useState<string>("");
   const [agentTrace, setAgentTrace] = useState<string[]>([]);
   const [route, setRoute] = useState<string>("");
-  const [mode, setMode] = useState<"auto" | "rag" | "agent">("auto");
+  const [mode, setMode] = useState<Mode>("auto");
   /** Modèle de génération : changement à chaud + chargement VRAM (parité
    * Streamlit « Charger le modèle » depuis le chat). */
   const [models, setModels] = useState<string[]>([]);
@@ -521,43 +323,13 @@ export function Chat() {
   return (
     <div className="flex h-[calc(100vh-10.5rem)] min-h-105 gap-4">
       {/* Conversations. */}
-      <aside className="hidden w-56 shrink-0 flex-col gap-2 md:flex">
-        <button
-          onClick={newConversation}
-          className="cursor-pointer rounded-lg border border-edge px-3 py-2 text-left text-xs text-fg-muted transition-colors hover:border-accent/50 hover:text-foreground"
-        >
-          + Nouvelle conversation
-        </button>
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
-          {sessions.map((s) => (
-            <SessionRow
-              key={s.id}
-              s={s}
-              active={s.id === sessionId}
-              onOpen={() => openSession(s)}
-              onRename={async (t) => {
-                await fetch(`${API_BASE}/api/sessions/${s.id}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ title: t }),
-                }).catch(() => null);
-                refreshSessions();
-              }}
-              onDelete={async () => {
-                await fetch(`${API_BASE}/api/sessions/${s.id}`, { method: "DELETE" })
-                  .catch(() => null);
-                if (s.id === sessionId) newConversation();
-                refreshSessions();
-              }}
-            />
-          ))}
-          {sessions.length === 0 && (
-            <p className="px-2 py-1.5 text-[11px] text-fg-faint">
-              Vos conversations persistées apparaîtront ici.
-            </p>
-          )}
-        </div>
-      </aside>
+      <SessionsSidebar
+        sessions={sessions}
+        sessionId={sessionId}
+        onNew={newConversation}
+        onOpen={openSession}
+        refreshSessions={refreshSessions}
+      />
 
       {/* Fil de conversation. */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -655,131 +427,18 @@ export function Chat() {
           <div ref={endRef} />
         </div>
 
-        {/* Pièce jointe en cours : barre de progression visible, envoi bloqué. */}
-        {attach && (
-          <div className="mb-2 rounded-xl border border-edge bg-surface-2 px-3 py-2">
-            <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
-              <span className="flex items-center gap-2 text-fg-muted">
-                <Dot tone="accent" pulse /> Indexation de {attach.name}
-              </span>
-              <span className="font-mono tabular-nums text-fg-faint">{attach.pct} %</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-accent transition-[width] duration-500"
-                   style={{ width: `${attach.pct}%` }} />
-            </div>
-            <p className="mt-1 text-[11px] text-fg-faint">
-              {attach.step} — vous pourrez interroger ce document dès la fin de
-              l&apos;indexation.
-            </p>
-          </div>
-        )}
-        {attachError && (
-          <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-bad/40 bg-surface-2 px-3 py-2 text-xs text-fg-muted">
-            <span>{attachError}</span>
-            <button onClick={() => setAttachError(null)} aria-label="Fermer"
-                    className="cursor-pointer text-fg-faint hover:text-foreground">✕</button>
-          </div>
-        )}
-
-        {/* Composeur. */}
-        <div className="rounded-2xl border border-edge bg-surface-2 p-2 focus-within:border-accent/60">
-          <form
-            onSubmit={(e) => { e.preventDefault(); ask(input); }}
-          >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!attaching) ask(input);
-                }
-              }}
-              disabled={busy}
-              rows={1}
-              placeholder="Posez une question sur vos documents…"
-              aria-label="Question"
-              className="max-h-40 w-full resize-none bg-transparent px-2 py-1.5 text-sm text-foreground [field-sizing:content] placeholder:text-fg-faint focus:outline-none disabled:opacity-60"
-            />
-            <div className="mt-1 flex items-center gap-2">
-              <input ref={fileRef} type="file" multiple hidden
-                     accept=".pdf,.docx,.pptx,.xlsx,.html,.md"
-                     onChange={(e) => attachFiles(e.target.files)} />
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                disabled={attaching}
-                title="Joindre un document : indexé avec les réglages par défaut (réglages fins dans l'onglet Documents). L'envoi attend la fin de l'indexation."
-                className="cursor-pointer rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
-                aria-label="Joindre un document"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M21 12.5 12.6 21a5.6 5.6 0 0 1-8-8L13 4.5a3.7 3.7 0 0 1 5.3 5.3L10 18a1.9 1.9 0 0 1-2.7-2.7l7.6-7.5"
-                        stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-                </svg>
-              </button>
-              <select
-                value={selected}
-                onChange={(e) => setSelected(e.target.value)}
-                disabled={busy}
-                aria-label="Document interrogé"
-                title="Périmètre : un document, ou tous."
-                className="max-w-56 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 text-[11px] text-fg-muted focus:outline-none"
-              >
-                <option value="">Tous les documents</option>
-                {docs.map((d) => (
-                  <option key={d.name} value={d.name}>{d.name}</option>
-                ))}
-              </select>
-              {models.length > 0 && (
-                <select
-                  value={genModel}
-                  onChange={(e) => loadModel(e.target.value)}
-                  disabled={busy}
-                  aria-label="Modèle de génération"
-                  title="Modèle de génération : changé à chaud et épinglé en VRAM. Sert aux prochaines réponses."
-                  className="max-w-44 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted focus:outline-none"
-                >
-                  {(models.includes(genModel) ? models : [genModel, ...models]).map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              )}
-              {modelStatus && (
-                <span className={`text-[11px] ${modelStatus === "chargé" ? "text-good"
-                  : modelStatus === "chargement…" ? "text-fg-faint" : "text-bad"}`}>
-                  {modelStatus}
-                </span>
-              )}
-              {expert && (
-                <select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as typeof mode)}
-                  disabled={busy}
-                  aria-label="Mode de traitement"
-                  title="Auto : un routeur choisit RAG ou Agent selon la question. Agent : raisonnement multi-étapes (plus lent)."
-                  className="cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 text-[11px] text-fg-muted focus:outline-none"
-                >
-                  <option value="auto">Auto</option>
-                  <option value="rag">RAG</option>
-                  <option value="agent">Agent</option>
-                </select>
-              )}
-              <button
-                type="submit"
-                disabled={busy || attaching || !input.trim()}
-                className="ml-auto cursor-pointer rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-background transition-all duration-200 hover:bg-accent-bright active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
-                aria-label="Envoyer"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M4 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2"
-                        strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-          </form>
-        </div>
+        <Composer
+          input={input} setInput={setInput}
+          busy={busy} attaching={attaching}
+          attach={attach} attachError={attachError}
+          onDismissError={() => setAttachError(null)}
+          onAsk={ask}
+          fileRef={fileRef} onAttachFiles={attachFiles}
+          selected={selected} setSelected={setSelected} docs={docs}
+          models={models} genModel={genModel} onLoadModel={loadModel}
+          modelStatus={modelStatus}
+          mode={mode} setMode={setMode} expert={expert}
+        />
       </section>
     </div>
   );
