@@ -1,3 +1,4 @@
+import { ApiStatus } from "@/components/api-status";
 import { Banner, PanelTitle } from "@/components/ui";
 
 /** Outil RAG — vue en construction (étape 3 de la migration). */
@@ -15,6 +16,7 @@ export default function RagPage() {
         disponible dans l&apos;interface actuelle : <code>python serve.py</code> depuis la
         racine du projet.
       </Banner>
+      <ApiStatus />
     </div>
   );
 }
