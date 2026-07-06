@@ -8,6 +8,12 @@ seul).
 - ``stream_agent`` : appel texte en streaming (générateur de tokens).
 - ``set_model`` : change le modèle à chaud.
 - En cas d'indisponibilité, les analyseurs continuent.
+
+Sorties structurées : quand un skill a un schéma déclaré dans ``schemas.py``,
+la génération est contrainte (``response_format: json_schema``, repli
+``json_object`` si le backend le rejette) et la réponse est validée par le
+modèle Pydantic — un écart déclenche UN retry avec les erreurs de validation
+réinjectées, puis ``{"error": "SCHEMA_VALIDATION_ERROR"}`` s'il persiste.
 """
 
 from __future__ import annotations
@@ -16,9 +22,10 @@ import hashlib
 import json
 import threading
 import time
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
 from . import telemetry
 
@@ -26,10 +33,14 @@ from .config import (
     LLM_API_KEY, LLM_BASE_URL, LLM_CACHE, LLM_DISABLED, LLM_MODEL,
     LLM_TIMEOUT_SECONDS, SKILLS_DIR,
 )
+from .schemas import constrain_generation, response_format as _schema_format, schema_for
 
 _MODEL = LLM_MODEL
 _available_cache: Dict[str, bool] = {}
 _result_cache: Dict[str, dict] = {}
+# Le backend accepte-t-il ``response_format: json_schema`` ? None = pas encore
+# sondé ; False = rejeté une fois -> repli définitif sur json_object (process).
+_json_schema_supported: Optional[bool] = None
 
 # --- Boîte de verre : capture des échanges agent<->LLM -------------------------
 # Quand une capture est active, chaque appel LLM (payload envoyé + réponse reçue)
@@ -130,53 +141,83 @@ def llm_available() -> bool:
     return _available_cache["ok"]
 
 
-def call_agent(system_prompt: str, user_data: Any, label: Optional[str] = None) -> Dict[str, Any]:
-    """Appel JSON : renvoie le dict parsé ou ``{"error": ...}``.
+def call_agent(system_prompt: str, user_data: Any, label: Optional[str] = None,
+               schema: Optional[Type[BaseModel]] = None) -> Dict[str, Any]:
+    """Appel JSON : renvoie le dict parsé (validé si schéma) ou ``{"error": ...}``.
 
-    Cache par (modèle, prompt, entrée) -> reproductibilité des verdicts.
-    ``label`` identifie l'agent (nom du skill) pour la boîte de verre.
+    Cache par (modèle, prompt, entrée) -> reproductibilité des verdicts. Seules
+    les réponses valides y entrent : une réponse en erreur (invocation, JSON
+    illisible ou non conforme au schéma) n'est JAMAIS mise en cache.
+    ``label`` identifie l'agent (nom du skill) pour la boîte de verre ; il sert
+    aussi à résoudre le schéma dans le registre si ``schema`` n'est pas fourni.
     """
     if LLM_DISABLED:
         return {"error": "LLM_DISABLED"}
+    if schema is None:
+        schema = schema_for(label)
     key = _cache_key(system_prompt, user_data) if LLM_CACHE else None
     if key is not None and key in _result_cache:
         cached = dict(_result_cache[key])
         _record({"label": label, "input": user_data, "output": cached,
                  "cached": True, "ok": True, "latency_ms": None})
         return cached
-    result = _chat(system_prompt, user_data, temperature=0, label=label)
+    result = _chat(system_prompt, user_data, temperature=0, label=label, schema=schema,
+                   grammar=constrain_generation(label))
     if key is not None and not result.get("error"):
         _result_cache[key] = dict(result)
     return result
 
 
-def _chat(system_prompt: str, user_data: Any, temperature: float = 0,
-          label: Optional[str] = None) -> Dict[str, Any]:
-    """Un appel JSON sans cache (utilisé pour le cache et pour le vote)."""
-    if LLM_DISABLED:
-        return {"error": "LLM_DISABLED"}
-    body = {
-        "model": _MODEL,
-        "messages": _messages(system_prompt, user_data),
-        "temperature": temperature,
-        "response_format": {"type": "json_object"},
-    }
-    t0 = time.time()
+def _response_format(schema: Optional[Type[BaseModel]]) -> dict:
+    """``json_schema`` strict quand un schéma existe et que le backend l'accepte."""
+    if schema is not None and _json_schema_supported is not False:
+        return _schema_format(schema)
+    return {"type": "json_object"}
+
+
+def _post_chat(messages: List[dict], temperature: float,
+               schema: Optional[Type[BaseModel]]) -> dict:
+    """Un POST /chat/completions, avec repli json_schema -> json_object.
+
+    Si le backend rejette ``response_format: json_schema`` (400/404/422), on
+    mémorise le refus pour le process et on rejoue l'appel en ``json_object``.
+    """
+    global _json_schema_supported
+    fmt = _response_format(schema)
+    body = {"model": _MODEL, "messages": messages, "temperature": temperature,
+            "response_format": fmt}
     try:
         r = httpx.post(f"{LLM_BASE_URL}/chat/completions", headers=_headers(),
                        json=body, timeout=LLM_TIMEOUT_SECONDS)
         r.raise_for_status()
-        data = r.json()
+    except httpx.HTTPStatusError as exc:
+        if fmt.get("type") != "json_schema" or exc.response is None \
+                or exc.response.status_code not in (400, 404, 422):
+            raise
+        _json_schema_supported = False  # repli définitif pour ce process
+        body["response_format"] = {"type": "json_object"}
+        r = httpx.post(f"{LLM_BASE_URL}/chat/completions", headers=_headers(),
+                       json=body, timeout=LLM_TIMEOUT_SECONDS)
+        r.raise_for_status()
+    else:
+        if fmt.get("type") == "json_schema":
+            _json_schema_supported = True
+    return r.json()
+
+
+def _chat_once(messages: List[dict], temperature: float,
+               schema: Optional[Type[BaseModel]]) -> Tuple[Dict[str, Any], str, int]:
+    """Un aller-retour LLM : renvoie (dict parsé ou ``{"error":…}``, brut, latence)."""
+    t0 = time.time()
+    try:
+        data = _post_chat(messages, temperature, schema)
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {}) or {}
     except Exception as exc:
         latency = round((time.time() - t0) * 1000)
         telemetry.record({"model": _MODEL, "ok": False, "error": str(exc)[:80],
                           "latency_ms": latency})
-        err = {"error": "LLM_INVOCATION_ERROR", "detail": str(exc)[:200]}
-        _record({"label": label, "input": user_data, "output": err,
-                 "ok": False, "latency_ms": latency})
-        return err
+        return {"error": "LLM_INVOCATION_ERROR", "detail": str(exc)[:200]}, "", latency
     latency = round((time.time() - t0) * 1000)
     telemetry.record({
         "model": _MODEL, "ok": True, "latency_ms": latency,
@@ -186,29 +227,102 @@ def _chat(system_prompt: str, user_data: Any, temperature: float = 0,
         parsed = json.loads(content)
     except json.JSONDecodeError:
         parsed = {"error": "JSON_PARSE_ERROR", "raw_output": (content or "")[:500]}
-    _record({"label": label, "input": user_data, "output": parsed,
-             "ok": not parsed.get("error"), "latency_ms": latency})
-    return parsed
+    return parsed, content or "", latency
 
 
-def call_skill(skill_name: str, payload: Any) -> Dict[str, Any]:
+def _validation_errors(exc: ValidationError) -> str:
+    """Erreurs Pydantic condensées, réinjectables dans la conversation."""
+    return " ; ".join(
+        f"{'.'.join(map(str, e['loc'])) or '<racine>'} : {e['msg']}"
+        for e in exc.errors()[:8])
+
+
+_RETRY_PROMPT = ("Ta réponse précédente ne respecte pas le format JSON attendu. "
+                 "Erreurs de validation : {errors}. "
+                 "Réponds à nouveau avec UNIQUEMENT le JSON corrigé, strictement "
+                 "conforme au format demandé, sans texte autour.")
+
+
+def _chat(system_prompt: str, user_data: Any, temperature: float = 0,
+          label: Optional[str] = None, schema: Optional[Type[BaseModel]] = None,
+          validate_retry: bool = True, grammar: bool = True) -> Dict[str, Any]:
+    """Un appel JSON sans cache (utilisé pour le cache et pour le vote).
+
+    Avec ``schema``, la réponse est validée : un écart déclenche UN retry (les
+    erreurs de validation sont réinjectées dans la conversation), puis
+    ``{"error": "SCHEMA_VALIDATION_ERROR"}`` si l'écart persiste.
+    ``validate_retry=False`` (vote) : le tirage non conforme est simplement écarté.
+    ``grammar=False`` : validation seule, sans contrainte json_schema à la
+    génération (skills listés dans ``schemas.GENERATION_LIBRE``).
+    """
+    if LLM_DISABLED:
+        return {"error": "LLM_DISABLED"}
+    gen_schema = schema if grammar else None
+    messages = _messages(system_prompt, user_data)
+    parsed, content, latency = _chat_once(messages, temperature, gen_schema)
+    rec = {"label": label, "input": user_data, "latency_ms": latency}
+    if parsed.get("error"):
+        _record({**rec, "output": parsed, "ok": False})
+        return parsed
+    if schema is None:
+        _record({**rec, "output": parsed, "ok": True})
+        return parsed
+
+    # Validation Pydantic (le dump normalise : ids coercés, gravités unifiées).
+    try:
+        parsed = schema.model_validate(parsed).model_dump()
+        _record({**rec, "output": parsed, "ok": True, "validation": "valide"})
+        return parsed
+    except ValidationError as exc:
+        errors = _validation_errors(exc)
+
+    if validate_retry:
+        retry_messages = messages + [
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": _RETRY_PROMPT.format(errors=errors)}]
+        parsed2, content2, latency2 = _chat_once(retry_messages, temperature, gen_schema)
+        rec["latency_ms"] = latency + latency2
+        if not parsed2.get("error"):
+            try:
+                parsed2 = schema.model_validate(parsed2).model_dump()
+                _record({**rec, "output": parsed2, "ok": True,
+                         "validation": "valide_apres_retry", "retries": 1})
+                return parsed2
+            except ValidationError as exc2:
+                errors, content = _validation_errors(exc2), content2
+
+    err = {"error": "SCHEMA_VALIDATION_ERROR", "detail": errors[:500],
+           "raw_output": content[:500]}
+    _record({**rec, "output": err, "ok": False, "validation": "invalide",
+             "retries": 1 if validate_retry else 0})
+    return err
+
+
+def call_skill(skill_name: str, payload: Any,
+               schema: Optional[Type[BaseModel]] = None) -> Dict[str, Any]:
+    """Appelle un skill ; le schéma de réponse vient du registre ``schemas.py``
+    (surcharge possible via ``schema``), sans rien changer pour les appelants."""
     try:
         system_prompt = load_skill_prompt(skill_name)
     except Exception as exc:
         return {"error": "SKILL_NOT_FOUND", "detail": str(exc)}
-    return call_agent(system_prompt, payload, label=skill_name)
+    return call_agent(system_prompt, payload, label=skill_name, schema=schema)
 
 
 def sample_skill(skill_name: str, payload: Any, n: int = 3, temperature: float = 0.4) -> list:
     """``n`` tirages indépendants (température > 0, sans cache) pour le vote
-    de self-consistency sur les verdicts à fort enjeu."""
+    de self-consistency sur les verdicts à fort enjeu. Un tirage non conforme
+    au schéma du skill est écarté (pas de retry : le vote absorbe la perte)."""
     try:
         system_prompt = load_skill_prompt(skill_name)
     except Exception:
         return []
+    schema = schema_for(skill_name)
     out = []
     for _ in range(max(1, n)):
-        r = _chat(system_prompt, payload, temperature=temperature, label=f"{skill_name}#vote")
+        r = _chat(system_prompt, payload, temperature=temperature,
+                  label=f"{skill_name}#vote", schema=schema, validate_retry=False,
+                  grammar=constrain_generation(skill_name))
         if not r.get("error"):
             out.append(r)
     return out
