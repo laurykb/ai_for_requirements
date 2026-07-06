@@ -357,6 +357,64 @@ def set_model(body: ModelBody) -> dict:
     return {"ok": True, "model": llm.current_model()}
 
 
+# ─────────────── Pilotage : prompts des agents + orchestration ───────────────
+
+@router.get("/skills")
+def list_skills() -> dict:
+    """Les prompts (markdown) de TOUS les agents — la matière première de
+    LynX, éditable depuis l'onglet Informations. Rechargés du disque à chaque
+    appel LLM : une sauvegarde prend effet dès l'analyse suivante."""
+    from src.config import SKILLS_DIR
+    skills = []
+    for path in sorted(Path(SKILLS_DIR).glob("*.md")):
+        skills.append({"name": path.stem, "content": path.read_text(encoding="utf-8")})
+    return {"skills": skills}
+
+
+class SkillBody(BaseModel):
+    content: str
+
+
+@router.put("/skills/{name}")
+def save_skill(name: str, body: SkillBody) -> dict:
+    """Écrit le prompt d'un agent (uniquement un skill EXISTANT — pas de
+    création de fichier arbitraire)."""
+    from src.config import SKILLS_DIR
+    safe = name.replace("/", "").replace("\\", "").replace("..", "")
+    path = Path(SKILLS_DIR) / f"{safe}.md"
+    if not path.exists():
+        raise HTTPException(404, f"Skill inconnu : {safe}")
+    if not body.content.strip():
+        raise HTTPException(400, "Le prompt ne peut pas être vide.")
+    path.write_text(body.content, encoding="utf-8")
+    return {"ok": True, "name": safe}
+
+
+@router.get("/orchestration")
+def get_orchestration() -> dict:
+    """Ordre + activation des agents d'analyse (déterministes séquentiels,
+    sémantiques parallèles), avec leurs libellés humains."""
+    from src import orchestration_config as oc
+    from src.orchestrator import AGENT_LABELS
+    labels = {f.__name__: lbl for f, lbl in AGENT_LABELS.items()}
+    cfg = oc.load_config()
+    return {g: [{**e, "label": labels.get(e["name"], e["name"])} for e in cfg[g]]
+            for g in ("deterministic", "semantic")}
+
+
+class OrchestrationBody(BaseModel):
+    deterministic: list[dict]
+    semantic: list[dict]
+
+
+@router.put("/orchestration")
+def put_orchestration(body: OrchestrationBody) -> dict:
+    """Persiste l'ordre/activation — appliqué dès la PROCHAINE analyse."""
+    from src import orchestration_config as oc
+    oc.save_config({"deterministic": body.deterministic, "semantic": body.semantic})
+    return get_orchestration()
+
+
 class CorrectBody(BaseModel):
     req_id: str
     problems: list[str] = []
