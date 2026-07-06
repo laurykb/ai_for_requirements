@@ -10,6 +10,11 @@ from utils.logging_config import get_logger
 
 logger = get_logger("rag.rerank")
 
+
+def _is_oom(e: Exception) -> bool:
+    """Vrai si l'exception est un manque de mémoire GPU (CUDA out of memory)."""
+    return "out of memory" in str(e).lower()
+
 # Variables globales pour stocker le modèle Cross-Encoder et son chemin (singleton)
 _CE_MODEL = None  # Instance du modèle CrossEncoder
 _CE_PATH = None   # Chemin du modèle actuellement chargé
@@ -36,7 +41,16 @@ def _load_cross_encoder_local(model_path, device=None):
     if not os.path.isdir(model_path):
         raise FileNotFoundError(f"[cross_encoder] Dossier modèle introuvable: {model_path}")
     logger.info("[rerank] Chargement Cross-Encoder local: %s (device=%s)", model_path, device or "auto")
-    _CE_MODEL = CrossEncoder(model_path, device=device)
+    try:
+        _CE_MODEL = CrossEncoder(model_path, device=device)
+    except RuntimeError as e:
+        # Robustesse mono-poste : VRAM saturée (ex. gros modèle Ollama épinglé) ->
+        # repli CPU au lieu d'échouer. Le rerank de ~15 chunks reste rapide sur CPU.
+        if not _is_oom(e):
+            raise
+        logger.warning("[rerank] VRAM saturée -> repli du Cross-Encoder sur CPU.")
+        device = "cpu"
+        _CE_MODEL = CrossEncoder(model_path, device=device)
     _CE_PATH = model_path
     _CE_DEVICE = device
     return _CE_MODEL
@@ -58,11 +72,22 @@ def rerank_cross_encoder(query, items, model_path, device=None):
     """
     if not items:
         return items
+    global _CE_MODEL
     ce = _load_cross_encoder_local(model_path, device=device)
     # Prépare les paires (requête, chunk) pour le modèle
     pairs = [(query, it.get("doc", "") or "") for it in items]
     # Prédit les scores bruts de similarité pour chaque paire
-    raw_scores = ce.predict(pairs)
+    try:
+        raw_scores = ce.predict(pairs)
+    except RuntimeError as e:
+        # OOM à l'inférence (la VRAM s'est remplie APRÈS le chargement) :
+        # rechargement sur CPU et nouvelle prédiction, plutôt qu'un échec.
+        if not _is_oom(e):
+            raise
+        logger.warning("[rerank] OOM à l'inférence -> rechargement du Cross-Encoder sur CPU.")
+        _CE_MODEL = None
+        ce = _load_cross_encoder_local(model_path, device="cpu")
+        raw_scores = ce.predict(pairs)
     # bge-reranker-v2-m3 retourne des logits bruts -> normalisation sigmoïde en [0, 1]
     scores = _sigmoid(raw_scores)
     for it, sc in zip(items, scores):
