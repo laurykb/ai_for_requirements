@@ -15,12 +15,14 @@ export type Mode = "auto" | "rag" | "agent";
 export type AttachState = { name: string; pct: number; step: string };
 
 export function Composer({
-  input, setInput, busy, attaching, attach, attachError, onDismissError,
+  input, setInput, disabled, busy, attaching, attach, attachError, onDismissError,
   onAsk, onStop, fileRef, onAttachFiles, selected, setSelected, docs,
   models, genModel, onLoadModel, modelStatus, mode, setMode, expert,
 }: {
   input: string;
   setInput: (v: string) => void;
+  /** Moteur indisponible (Ollama/API arrêté) : envoi suspendu. */
+  disabled?: boolean;
   busy: boolean;
   attaching: boolean;
   attach: AttachState | null;
@@ -81,10 +83,10 @@ export function Composer({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (!attaching) onAsk(input);
+                if (!attaching && !disabled) onAsk(input);
               }
             }}
-            disabled={busy}
+            disabled={busy || disabled}
             rows={1}
             placeholder="Posez une question sur vos documents…"
             aria-label="Question"
@@ -169,7 +171,7 @@ export function Composer({
             ) : (
               <button
                 type="submit"
-                disabled={attaching || !input.trim()}
+                disabled={attaching || disabled || !input.trim()}
                 className="ml-auto cursor-pointer rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-background transition-all duration-200 hover:bg-accent-bright active:scale-[0.97] disabled:cursor-default disabled:opacity-40"
                 aria-label="Envoyer"
               >

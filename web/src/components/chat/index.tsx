@@ -16,6 +16,7 @@ import ReactMarkdown from "react-markdown";
 import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
+import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
 import type { ChatMessage, ChunkView, SessionInfo } from "@/lib/types";
 import { useExpert } from "@/components/expert-toggle";
 import { Dot, Spinner } from "@/components/ui";
@@ -59,6 +60,11 @@ export function Chat() {
   const expert = useExpert();
   const busy = phase !== "idle";
   const attaching = attach !== null;
+  /** Moteur local sondé en continu : Ollama arrêté (ex. redémarrage du
+   * service) => envoi suspendu, bannière avec le délai, reprise auto. */
+  const engine = useEngineHealth();
+  const engineDown = engine.kind === "down";
+  const downFor = useElapsedLabel(engineDown ? engine.since : null);
 
   // Nettoyage du poll d'ingestion au démontage.
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
@@ -427,8 +433,18 @@ export function Chat() {
           <div ref={endRef} />
         </div>
 
+        {engineDown && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-warn/40 bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+            <Dot tone="warn" pulse />
+            <span>
+              {engine.reason} — l&apos;envoi est suspendu depuis {downFor}.
+              Il sera réactivé automatiquement au retour du service.
+            </span>
+          </div>
+        )}
         <Composer
           input={input} setInput={setInput}
+          disabled={engineDown}
           busy={busy} attaching={attaching}
           attach={attach} attachError={attachError}
           onDismissError={() => setAttachError(null)}
