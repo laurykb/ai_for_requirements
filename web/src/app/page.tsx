@@ -1,7 +1,9 @@
 import Link from "next/link";
 
-/** Accueil : hero typographique + deux cartes d'entrée, une par outil.
- * Épuré — pas d'illustration, la typographie et les deux cartes suffisent. */
+import { Intro } from "@/components/intro";
+
+/** Accueil : intro Thales (une fois par session) puis hero typographique +
+ * deux cartes d'entrée, une par outil. */
 
 const TOOLS = [
   {
@@ -25,6 +27,7 @@ const TOOLS = [
 export default function HomePage() {
   return (
     <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-center gap-12 py-8 text-center">
+      <Intro />
       <div className="rise-in">
         <p className="text-[11px] font-medium uppercase tracking-[0.3em] text-fg-faint">
           AI for SSH
