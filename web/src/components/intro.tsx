@@ -5,7 +5,7 @@
  * loger sous le A de THALES (elle DEVIENT le point aqua du logo), les lettres
  * apparaissent, l'accueil se révèle.
  *
- * Jouée une fois par session (sessionStorage), passée d'un clic,
+ * Jouée à CHAQUE retour à l'accueil, passée d'un clic,
  * `prefers-reduced-motion` : pas d'animation du tout. */
 
 import { useEffect, useRef, useState } from "react";
@@ -65,11 +65,10 @@ export function Intro() {
     // les setState synchrones, même pour un choix ne dépendant pas du rendu).
     timers.push(setTimeout(() => {
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (reduced || sessionStorage.getItem("thales_intro_seen")) {
+      if (reduced) {
         setShow(false);
         return;
       }
-      sessionStorage.setItem("thales_intro_seen", "1");
       setShow(true);
       // Docking : le logo file se loger sur son perchoir statique (#home-thales),
       // mesuré au vol (FLIP) — pendant que le voile s'efface.

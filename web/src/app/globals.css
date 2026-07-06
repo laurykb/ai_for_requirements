@@ -160,6 +160,30 @@ body {
   }
 }
 
+/* ===== LynX (la matrice est la scène) ========================================== */
+
+/* Contrôles React Flow accordés au thème. */
+.req-graph .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.req-graph .react-flow__controls-button {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  fill: var(--foreground-muted);
+}
+.req-graph .react-flow__controls-button:hover {
+  background: var(--muted);
+}
+
+/* Bannière de verdict : liseré coloré à gauche, respiration. */
+.verdict-banner {
+  border-left: 3px solid var(--fg, var(--accent));
+  padding-left: 0.9rem;
+}
+
 /* ===== Chat ==================================================================== */
 
 /* Blocs repliés (sources, passages) : progressive disclosure sobre. */
