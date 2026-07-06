@@ -16,16 +16,21 @@ Lancer : `python serve.py --web` (ou `uvicorn api.main:app --port 8000`).
 """
 from __future__ import annotations
 
+import os
 import socket
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AI for SSH — API")
-# Front Next.js local (`web/`) : REST cross-origin depuis :3000.
+# Front Next.js local (`web/`) : REST cross-origin depuis :3000 (défaut).
+# WEB_ORIGINS (env, séparées par des virgules) autorise d'autres origines —
+# ex. un front de worktree sur :3001 quand deux lanes tournent en parallèle.
+_ORIGINS = os.environ.get(
+    "WEB_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[o.strip() for o in _ORIGINS.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
