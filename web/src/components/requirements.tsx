@@ -37,6 +37,7 @@ type Suggestion = { texte?: string; justification?: string; changements?: string
 
 const SEV_TONE: Record<string, Tone> = { INFO: "good", WARNING: "warn",
                                          BLOCKING: "bad", BLOQUANT: "bad" };
+const EMPTY_IDS = new Set<string>();
 const VERDICT_COLOR: Record<string, string> = {
   VALIDE: "var(--good)", ATTENTION: "var(--warn)", BLOQUANT: "var(--bad)" };
 const ROLE_STYLE: Record<string, { bg: string; label: string }> = {
@@ -181,20 +182,40 @@ export function Requirements() {
 
   const sel = corpus?.find((r) => r.id === selected) ?? null;
 
+  // Référence vivante du corpus : `select` garde une identité stable (le
+  // graphe memoïsé ne se reconstruit pas à chaque rendu).
+  const corpusRef = useRef<Req[] | null>(null);
+  useEffect(() => {
+    corpusRef.current = corpus;
+  }, [corpus]);
   const select = useCallback((id: string) => {
     setSelected(id);
-    setCorpus((c) => {
-      const r = c?.find((x) => x.id === id);
-      setEditText(r?.texte ?? "");
-      return c;
-    });
+    const r = corpusRef.current?.find((x) => x.id === id);
+    setEditText(r?.texte ?? "");
     setSuggestion(null);
   }, []);
 
   // Identités STABLES pendant le streaming (sinon le graphe se reconstruit à
   // chaque token et React Flow devient instable).
   const impacted = useMemo(() => new Set(verdict?.impacted ?? []), [verdict?.impacted]);
-  const flagged = useMemo(() => new Set(audit?.flagged_ids ?? []), [audit?.flagged_ids]);
+  /** Signalées par l'audit, avec leur pire sévérité (rouge/ambre). */
+  const flaggedSev = useMemo(() => {
+    const m = new Map<string, "bad" | "warn">();
+    for (const f of audit?.findings ?? []) {
+      if (f.severity === "BLOQUANT") m.set(f.req_id, "bad");
+      else if (m.get(f.req_id) !== "bad") m.set(f.req_id, "warn");
+    }
+    return m;
+  }, [audit?.findings]);
+  /** Exigences CITÉES par la synthèse LLM — calculées seulement une fois le
+   * flux terminé (identité stable pendant le streaming). */
+  const synthesis = running ? "" : (verdict?.message ?? "");
+  const mentioned = useMemo(() => {
+    if (!synthesis || !corpus) return EMPTY_IDS;
+    const s = new Set<string>();
+    for (const r of corpus) if (synthesis.includes(r.id)) s.add(r.id);
+    return s;
+  }, [synthesis, corpus]);
 
   const analyze = useCallback(async (action: Record<string, unknown>) => {
     if (running) return;
@@ -389,7 +410,7 @@ export function Requirements() {
       {/* La scène : graphe + inspecteur. */}
       <div className="grid gap-4 xl:grid-cols-[5fr_2fr]">
         <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
-                  flagged={flagged} onSelect={select} />
+                  flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
 
         <aside className="rounded-xl border border-edge bg-surface p-4 xl:max-h-[520px] xl:overflow-y-auto">
           {!sel ? (
@@ -570,10 +591,31 @@ export function Requirements() {
                     <span className="ml-auto text-[11px] text-fg-faint">merci — noté.</span>
                   )}
                 </p>
+                {/* La synthèse de l'ingénieur IA : LE texte à lire — mis en
+                    valeur (carte élevée, texte plus grand et plus clair). */}
                 {verdict.message && (
-                  <div className={`chat-md text-xs leading-relaxed text-fg-muted ${
-                    running ? "stream-caret" : ""}`}>
-                    <ReactMarkdown>{verdict.message}</ReactMarkdown>
+                  <div className="rounded-lg border border-edge bg-surface-2 px-4 py-3">
+                    <p className="mb-1.5 flex items-center gap-2">
+                      <RoleChip role="synthèse" />
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-fg-faint">
+                        Synthèse de l&apos;ingénieur IA
+                      </span>
+                    </p>
+                    <div className={`chat-md text-sm leading-relaxed text-foreground ${
+                      running ? "stream-caret" : ""}`}>
+                      <ReactMarkdown>{verdict.message}</ReactMarkdown>
+                    </div>
+                    {!running && mentioned.size > 0 && (
+                      <p className="mt-2 border-t border-edge pt-2 text-[11px] text-fg-faint">
+                        Exigences citées — surlignées en blanc dans le graphe :{" "}
+                        {[...mentioned].map((id) => (
+                          <button key={id} onClick={() => select(id)}
+                                  className="mr-1.5 cursor-pointer font-mono text-foreground transition-colors hover:text-accent-bright">
+                            {id}
+                          </button>
+                        ))}
+                      </p>
+                    )}
                   </div>
                 )}
                 {verdict.findings.length > 0 && (

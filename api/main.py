@@ -71,14 +71,17 @@ def health() -> dict:
 
 class AskBody(BaseModel):
     """Requête du chat : question + périmètre (un document, ou null = tous)
-    + historique de conversation (géré côté client) + options de recherche
-    par requête (None = défaut .env)."""
+    + historique + options par requête (None = défaut .env) + mode de
+    traitement (auto : le routeur décide ; rag/agent : forcé) + session
+    persistée (None = en créer une)."""
     question: str
     source: str | None = None
     history: list[dict] = []
     parent_child: bool | None = None
     self_rag: bool | None = None
     system_prompt: str | None = None
+    mode: str = "auto"                # auto | rag | agent
+    session_id: str | None = None
 
 
 def _trim_chunk(c: dict) -> dict:
@@ -96,19 +99,112 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _persist_exchange(session_id: str | None, source: str | None, question: str,
+                      answer: str, citations: list, reasoning: str | None,
+                      chunks: list) -> None:
+    """Enregistre l'échange dans la session Mongo (comme le Streamlit)."""
+    if not session_id:
+        return
+    try:
+        from core.chat_sessions import add_message, update_session_source
+        update_session_source(session_id, source)
+        add_message(session_id, "user", question)
+        add_message(session_id, "assistant", answer, citations=citations or [],
+                    reasoning=reasoning, chunks=[_trim_chunk(c) for c in (chunks or [])])
+    except Exception:
+        pass  # la persistance est un bonus : ne jamais casser la réponse
+
+
+def _agent_events(question: str, source: str | None):
+    """Mode Agent (ReAct) : traduit les événements de l'agent en trames SSE
+    (pensées/actions/observations = boîte de verre, puis réponse streamée)."""
+    from core.agent import ReActAgent
+    from tools.rag_tool import run_tool as _rt
+
+    def _scoped_runner(name, arguments):
+        # L'agent respecte le périmètre documentaire choisi dans le chat.
+        if source and isinstance(arguments, dict) and not arguments.get("document"):
+            arguments = {**arguments, "document": source}
+        return _rt(name, arguments)
+
+    trace: list[str] = []
+    result: dict = {}
+    for ev in ReActAgent(tool_runner=_scoped_runner).run_stream(question):
+        kind = ev.get("type")
+        if kind == "thought":
+            trace.append(f"**Pensée** — {ev['text']}")
+            yield {"type": "thought", "text": ev["text"]}, trace, result
+        elif kind == "action":
+            q = ev["input"].get("query", "")
+            trace.append(f"→ **Recherche** `{q}`")
+            yield {"type": "action", "text": q}, trace, result
+        elif kind == "observation":
+            trace.append(f"_{ev['text']}_")
+            yield {"type": "observation", "text": ev["text"]}, trace, result
+        elif kind == "answer_token":
+            yield {"type": "token", "text": ev["text"]}, trace, result
+        elif kind == "done":
+            result.update(ev.get("result", {}))
+            yield {"type": "_done", "text": ""}, trace, result
+
+
 @app.post("/api/ask")
 def ask(body: AskBody) -> StreamingResponse:
-    """Q&A RAG en SSE — boîte de verre : chaque étape du pipeline est un
-    événement (`stage`, `retrieved`, `token`…, `done`), les erreurs une trame
-    `error` (le front ne pend jamais).
-
-    Import paresseux de core.ask : le premier appel charge les modèles
-    (Chroma, reranker) ; l'API démarre vite.
-    """
+    """Q&A en SSE — boîte de verre : routage (`route`), étapes du pipeline
+    (`stage`, `retrieved`), pensées de l'agent (`thought`/`action`/
+    `observation`), `token`, `sources`, vérification automatique (`eval`),
+    `done` ; les erreurs une trame `error` (le front ne pend jamais).
+    Persiste l'échange dans la session (`session` renvoie l'id créé)."""
     def gen():
         try:
-            from core.ask import process_query_stream
+            # Session persistée : créée au premier message si besoin.
+            session_id = body.session_id
+            if session_id is None:
+                try:
+                    from core.chat_sessions import create_session
+                    session_id = create_session(source_filter=body.source)
+                    yield _sse({"type": "session", "id": session_id})
+                except Exception:
+                    session_id = None  # Mongo down : conversation éphémère
 
+            # Routage : Auto -> le routeur (sans LLM) décide ; sinon forcé.
+            if body.mode in ("rag", "agent"):
+                effective, reason = body.mode, f"mode {body.mode.upper()} forcé"
+            else:
+                from core.router import route_query
+                d = route_query(body.question)
+                effective, reason = d["mode"], d["reason"]
+            yield _sse({"type": "route", "mode": effective, "reason": reason})
+
+            if effective == "agent":
+                reasoning_parts: list[str] = []
+                result: dict = {}
+                answer_txt = ""
+                for frame, trace, res in _agent_events(body.question, body.source):
+                    reasoning_parts = trace
+                    result = res
+                    if frame["type"] == "_done":
+                        break
+                    if frame["type"] == "token":
+                        answer_txt += frame["text"]
+                    yield _sse(frame)
+                if not result.get("ok", False):
+                    yield _sse({"type": "error",
+                                "message": result.get("error", "Échec de l'agent.")})
+                    return
+                answer_txt = result.get("answer", answer_txt)
+                citations = result.get("sources", [])
+                chunks = result.get("chunks", [])
+                yield _sse({"type": "retrieved",
+                            "chunks": [_trim_chunk(c) for c in chunks]})
+                yield _sse({"type": "sources", "citations": citations})
+                yield _sse({"type": "done", "found": True})
+                _persist_exchange(session_id, body.source, body.question, answer_txt,
+                                  citations, "\n\n".join(reasoning_parts), chunks)
+                return
+
+            # ─ RAG direct ─
+            from core.ask import process_query_stream
             yield _sse({"type": "stage", "stage": "retrieve"})
             token_gen, chunks, citations = process_query_stream(
                 body.question,
@@ -126,10 +222,27 @@ def ask(body: AskBody) -> StreamingResponse:
                 return
 
             yield _sse({"type": "stage", "stage": "generate"})
+            answer_txt = ""
             for token in token_gen:
+                answer_txt += token
                 yield _sse({"type": "token", "text": token})
             yield _sse({"type": "sources", "citations": citations or []})
             yield _sse({"type": "done", "found": bool(chunks)})
+            _persist_exchange(session_id, body.source, body.question, answer_txt,
+                              citations or [], None, chunks or [])
+
+            # Vérification ciblée (Auto + question à enjeu, pas de double éval
+            # si le Self-RAG a déjà vérifié) — émise après la réponse.
+            try:
+                from core.router import should_verify
+                if (body.mode == "auto" and citations and not body.self_rag
+                        and should_verify(body.question)["verify"]):
+                    from core.evaluation import verify_answer
+                    yield _sse({"type": "eval",
+                                **(verify_answer(body.question, answer_txt,
+                                                 chunks or []) or {})})
+            except Exception:
+                pass  # la vérif est un bonus : ne jamais bloquer la réponse
         except Exception as e:  # Ollama/Mongo coupé, timeout… -> trame lisible
             yield _sse({"type": "error",
                         "message": f"{type(e).__name__}: {str(e)[:200]}"})
@@ -159,7 +272,89 @@ def sources() -> dict:
     }
 
 
+# ─────────────── Sessions de conversation (persistées en Mongo) ───────────────
+
+@app.get("/api/sessions")
+def sessions() -> dict:
+    try:
+        from core.chat_sessions import list_sessions
+        return {"available": True,
+                "sessions": [{"id": s["session_id"], "title": s.get("title", ""),
+                              "updated_at": s.get("updated_at", ""),
+                              "source_filter": s.get("source_filter")}
+                             for s in list_sessions()]}
+    except Exception:
+        return {"available": False, "sessions": []}
+
+
+@app.get("/api/sessions/{sid}/messages")
+def session_messages(sid: str) -> dict:
+    from core.chat_sessions import get_messages, get_session
+    sess = get_session(sid)
+    if not sess:
+        raise HTTPException(404, "Session introuvable.")
+    return {"title": sess.get("title", ""), "source_filter": sess.get("source_filter"),
+            "messages": get_messages(sid)}
+
+
+class RenameBody(BaseModel):
+    title: str
+
+
+@app.patch("/api/sessions/{sid}")
+def rename(sid: str, body: RenameBody) -> dict:
+    from core.chat_sessions import rename_session
+    rename_session(sid, body.title.strip() or "Conversation")
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{sid}")
+def delete_sess(sid: str) -> dict:
+    from core.chat_sessions import delete_session
+    delete_session(sid)
+    return {"ok": True}
+
+
+class RegenerateBody(BaseModel):
+    """Régénération avec une SÉLECTION de passages (cochés par l'utilisateur)."""
+    question: str
+    chunks: list[dict]
+    system_prompt: str | None = None
+    session_id: str | None = None
+
+
+@app.post("/api/regenerate")
+def regenerate(body: RegenerateBody) -> dict:
+    from core.ask import process_query
+    rep, _ch, citations = process_query(body.question, selected_chunks=body.chunks,
+                                        system_prompt=body.system_prompt or None)
+    if body.session_id:
+        try:
+            from core.chat_sessions import replace_last_assistant_message
+            replace_last_assistant_message(body.session_id, rep or "",
+                                           citations or [], chunks=body.chunks)
+        except Exception:
+            pass
+    return {"answer": rep or "", "citations": citations or []}
+
+
 # ─────────────── Documents & ingestion ───────────────
+
+@app.post("/api/documents/{name}/summary")
+def document_summary(name: str) -> dict:
+    """Résumé global d'un document (réutilise les résumés de section RAPTOR)."""
+    from core.summarize import summarize_document
+    return summarize_document(name)
+
+
+@app.get("/api/documents/{name}/markdown")
+def document_markdown(name: str) -> dict:
+    """Texte markdown source du document (visionneuse page blanche)."""
+    safe = name.replace("/", "_").replace("\\", "_")
+    path = ingest_queue.DOCS_OUT / safe
+    if not path.exists():
+        raise HTTPException(404, "Markdown source introuvable.")
+    return {"name": safe, "markdown": path.read_text(encoding="utf-8")}
 
 @app.get("/api/ingest/defaults")
 def ingest_defaults() -> dict:

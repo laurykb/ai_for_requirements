@@ -15,6 +15,8 @@ export async function streamAsk(
     parent_child?: boolean | null;
     self_rag?: boolean | null;
     system_prompt?: string | null;
+    mode?: string;
+    session_id?: string | null;
   },
   onEvent: (ev: AskEvent) => void,
   signal?: AbortSignal,

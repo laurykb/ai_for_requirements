@@ -5,6 +5,7 @@
  * (exploration des passages = boîte de verre de l'indexation, suppression). */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { Banner, Dot, Hint, Spinner, type Tone } from "@/components/ui";
@@ -84,7 +85,7 @@ function JobBar({ j }: { j: Job }) {
 }
 
 /** Exploration des passages d'un document (repliée par défaut). */
-function DocExplorer({ name }: { name: string }) {
+function DocExplorer({ name, onView }: { name: string; onView: (content: string) => void }) {
   const [search, setSearch] = useState("");
   const [type, setType] = useState("tous");
   const [rows, setRows] = useState<ChunkRow[] | null>(null);
@@ -159,6 +160,13 @@ function DocExplorer({ name }: { name: string }) {
                   <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
                     {c.content}
                   </div>
+                  <button
+                    onClick={() => onView(c.content)}
+                    title="Voir ce passage surligné dans le document entier."
+                    className="mt-2 cursor-pointer rounded-md border border-edge px-2 py-0.5 text-[11px] text-fg-faint transition-colors hover:border-accent/60 hover:text-foreground"
+                  >
+                    Voir dans le document
+                  </button>
                   {(c.keywords_str || c.questions_str || c.entities_str) && (
                     <p className="mt-2 border-t border-edge pt-2 text-[11px] text-fg-faint">
                       {c.keywords_str && <>Mots-clés — {c.keywords_str}<br /></>}
@@ -176,15 +184,127 @@ function DocExplorer({ name }: { name: string }) {
   );
 }
 
+/** Résumé global du document (réutilise les résumés de section RAPTOR). */
+function DocSummary({ name }: { name: string }) {
+  const [state, setState] = useState<null | "loading" | { summary?: string; status?: string;
+                                                          n?: number; basis?: string }>(null);
+  return (
+    <div className="mt-2">
+      {!state && (
+        <button
+          onClick={async () => {
+            setState("loading");
+            const res = await fetch(`${API_BASE}/api/documents/${encodeURIComponent(name)}/summary`,
+                                    { method: "POST" }).catch(() => null);
+            setState(res?.ok ? await res.json() : { status: "error" });
+          }}
+          title="Résumé global généré à partir des résumés de section."
+          className="cursor-pointer rounded-md border border-edge px-2 py-1 text-xs text-fg-faint transition-colors hover:border-accent/60 hover:text-foreground"
+        >
+          Résumer ce document
+        </button>
+      )}
+      {state === "loading" && (
+        <p className="flex items-center gap-2 text-xs text-fg-muted"><Spinner /> Résumé…</p>
+      )}
+      {state && state !== "loading" && (
+        state.status === "success" ? (
+          <div className="rounded-lg border border-edge bg-surface-2 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-fg-faint">
+              Résumé — basé sur {state.n} {state.basis}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
+              {state.summary}
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-fg-faint">
+            {state.status === "empty" ? "Matériau insuffisant pour résumer ce document."
+              : "Échec du résumé."}
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
+/** Visionneuse « page blanche » : le document entier, avec surlignage d'un
+ * passage. Rendue dans une surcouche pour rester lisible (fond clair). */
+function DocViewer({ name, highlight, onClose }: {
+  name: string; highlight: string | null; onClose: () => void;
+}) {
+  const [md, setMd] = useState<string | null>(null);
+  useEffect(() => {
+    getJSON<{ markdown: string }>(`/api/documents/${encodeURIComponent(name)}/markdown`)
+      .then((d) => setMd(d.markdown))
+      .catch(() => setMd("_Markdown source introuvable._"));
+  }, [name]);
+  useEffect(() => {
+    if (md && highlight) {
+      const t = setTimeout(() =>
+        document.getElementById("doc-hl")?.scrollIntoView({ block: "center" }), 120);
+      return () => clearTimeout(t);
+    }
+  }, [md, highlight]);
+
+  // Découpe autour du passage surligné (correspondance exacte des 120 premiers chars).
+  const probe = (highlight ?? "").replace(/^\[[^\]]*\]\s*/, "").slice(0, 120);
+  const idx = md && probe.length > 20 ? md.indexOf(probe) : -1;
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4 backdrop-blur-sm sm:p-8"
+         onClick={onClose} role="presentation">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-[#f4f4f7] shadow-2xl"
+           onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-black/10 px-5 py-2.5">
+          <p className="text-sm font-medium text-neutral-800">{name}</p>
+          <button onClick={onClose} aria-label="Fermer"
+                  className="cursor-pointer rounded-md px-2 py-1 text-sm text-neutral-500 hover:bg-black/5 hover:text-neutral-900">
+            ✕
+          </button>
+        </div>
+        <div className="doc-page min-h-0 flex-1 overflow-y-auto bg-white px-8 py-6 sm:px-12">
+          {md === null ? (
+            <p className="text-sm text-neutral-500">Chargement…</p>
+          ) : idx >= 0 ? (
+            <>
+              <ReactMarkdown>{md.slice(0, idx)}</ReactMarkdown>
+              <div id="doc-hl" className="doc-highlight">
+                <ReactMarkdown>{md.slice(idx, idx + probe.length)}</ReactMarkdown>
+              </div>
+              <ReactMarkdown>{md.slice(idx + probe.length)}</ReactMarkdown>
+            </>
+          ) : (
+            <ReactMarkdown>{md}</ReactMarkdown>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DocRow({ d, onDeleted }: { d: { name: string; chunks: number }; onDeleted: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [viewer, setViewer] = useState<null | { highlight: string | null }>(null);
   return (
     <div className="rounded-xl border border-edge bg-surface px-4 py-3">
+      {viewer && (
+        <DocViewer name={d.name} highlight={viewer.highlight} onClose={() => setViewer(null)} />
+      )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-foreground">
           {d.name} <span className="text-xs text-fg-faint">· {d.chunks} passages</span>
         </p>
+        {!confirm && (
+          <button
+            onClick={() => setViewer({ highlight: null })}
+            title="Ouvrir le document entier (page blanche)."
+            className="cursor-pointer rounded-md border border-edge px-2 py-1 text-xs text-fg-faint transition-colors hover:border-accent/60 hover:text-foreground"
+          >
+            Ouvrir
+          </button>
+        )}
         {confirm ? (
           <span className="flex items-center gap-2 text-xs">
             <span className="text-fg-muted">Supprimer de l&apos;index ?</span>
@@ -218,7 +338,8 @@ function DocRow({ d, onDeleted }: { d: { name: string; chunks: number }; onDelet
           </button>
         )}
       </div>
-      <DocExplorer name={d.name} />
+      <DocSummary name={d.name} />
+      <DocExplorer name={d.name} onView={(content) => setViewer({ highlight: content })} />
     </div>
   );
 }
