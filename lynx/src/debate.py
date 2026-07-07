@@ -54,6 +54,8 @@ def contest_blocking(finding_msg: str, req_context: Dict[str, Any]) -> Dict[str,
         # déranger le juge, le verdict est maintenu (trace conservée).
         return {"statut": "MAINTENU", "plaidoyer": plaidoyer,
                 "jugement": "L'avocat ne conteste pas l'accusation."}
+    # NB : donner le contexte complet au juge a été essayé et MESURÉ moins bon
+    # (il redevient clément) — le juge ne voit que l'accusation et le plaidoyer.
     jugement = llm.call_skill("juge_verdict", {
         "accusation": finding_msg,
         "plaidoyer": plaidoyer,
