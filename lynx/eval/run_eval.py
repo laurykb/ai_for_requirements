@@ -125,20 +125,32 @@ def load_cases():
     return valid, len(cases) - len(valid)
 
 
-def main():
-    semantic = "--fast" not in sys.argv
+def run_golden_eval(semantic: bool = True, on_progress=None, on_log=None) -> dict:
+    """Fait tourner le golden set et renvoie les scores (comptes bruts inclus).
+
+    Réutilisable par le CLI (`main`) comme par l'API (`POST /eval`) :
+    - ``on_progress(done, total)`` après chaque cas (annulation : l'appelant
+      peut y lever une exception, elle remonte telle quelle) ;
+    - ``on_log(ligne)`` reproduit les messages console historiques (en-tête,
+      cas en erreur) — le CLI y branche ``print``.
+    Écrit toujours ``last_eval.json`` (même format qu'avant, lu par l'UI).
+    """
     cases, dropped = load_cases()
     tp = {a: 0 for a in AXES}; fp = {a: 0 for a in AXES}; fn = {a: 0 for a in AXES}
 
-    print(f"Éval sur {len(cases)} cas valides ({dropped} écartés) · "
-          f"mode {'complet (LLM)' if semantic else 'rapide'}\n")
-    for case in cases:
+    if on_log:
+        on_log(f"Éval sur {len(cases)} cas valides ({dropped} écartés) · "
+               f"mode {'complet (LLM)' if semantic else 'rapide'}\n")
+    for i, case in enumerate(cases):
         corpus = [dict(r) for r in (case.get("corpus") or DEFAULT_CORPUS)]
         action = Action(**case["action"])
         try:
             report = run_impact_analysis(corpus, action, semantic=semantic)
         except Exception as exc:
-            print(f"  ! {case['name']}: erreur {exc}")
+            if on_log:
+                on_log(f"  ! {case['name']}: erreur {exc}")
+            if on_progress:
+                on_progress(i + 1, len(cases))
             continue
         got, exp = _flagged_axes(report), set(case["expected"]) & set(AXES)
         for a in AXES:
@@ -148,28 +160,50 @@ def main():
                 fn[a] += 1
             elif a in got:
                 fp[a] += 1
+        if on_progress:
+            on_progress(i + 1, len(cases))
 
-    print("{:12} {:>5} {:>5} {:>5} {:>7} {:>7} {:>6}".format("AXE", "TP", "FP", "FN", "Préc.", "Rappel", "F1"))
-    print("-" * 52)
-    mtp = mfp = mfn = 0
-    for a in AXES:
-        p = tp[a] / (tp[a] + fp[a]) if (tp[a] + fp[a]) else 1.0
-        r = tp[a] / (tp[a] + fn[a]) if (tp[a] + fn[a]) else 1.0
-        f1 = 2 * p * r / (p + r) if (p + r) else 0.0
-        mtp += tp[a]; mfp += fp[a]; mfn += fn[a]
-        print(f"{a:12} {tp[a]:>5} {fp[a]:>5} {fn[a]:>5} {p:>7.2f} {r:>7.2f} {f1:>6.2f}")
+    mtp, mfp, mfn = sum(tp.values()), sum(fp.values()), sum(fn.values())
     P = mtp / (mtp + mfp) if (mtp + mfp) else 1.0
     R = mtp / (mtp + mfn) if (mtp + mfn) else 1.0
     F1 = 2 * P * R / (P + R) if (P + R) else 0.0
-    print("-" * 52)
-    print(f"{'micro':12} {mtp:>5} {mfp:>5} {mfn:>5} {P:>7.2f} {R:>7.2f} {F1:>6.2f}")
-    print(f"\nPrécision micro = {P:.2f} · Rappel micro = {R:.2f} · F1 = {F1:.2f}")
     # Écrit un résumé exploitable par l'UI (taux de justesse affiché).
     (_DIR / "last_eval.json").write_text(json.dumps({
         "cases": len(cases), "precision": round(P, 3), "recall": round(R, 3), "f1": round(F1, 3),
         "per_axis": {a: {"precision": round(tp[a] / (tp[a] + fp[a]), 3) if (tp[a] + fp[a]) else 1.0,
                          "recall": round(tp[a] / (tp[a] + fn[a]), 3) if (tp[a] + fn[a]) else 1.0}
                      for a in AXES}}, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {
+        "cases": len(cases), "dropped": dropped, "semantic": semantic,
+        "precision": round(P, 3), "recall": round(R, 3), "f1": round(F1, 3),
+        "micro": {"tp": mtp, "fp": mfp, "fn": mfn},
+        "per_axis": {a: {"tp": tp[a], "fp": fp[a], "fn": fn[a],
+                         "precision": round(tp[a] / (tp[a] + fp[a]), 3) if (tp[a] + fp[a]) else 1.0,
+                         "recall": round(tp[a] / (tp[a] + fn[a]), 3) if (tp[a] + fn[a]) else 1.0}
+                     for a in AXES},
+    }
+
+
+def main():
+    semantic = "--fast" not in sys.argv
+    res = run_golden_eval(semantic=semantic, on_log=print)
+
+    print("{:12} {:>5} {:>5} {:>5} {:>7} {:>7} {:>6}".format("AXE", "TP", "FP", "FN", "Préc.", "Rappel", "F1"))
+    print("-" * 52)
+    for a in AXES:
+        ax = res["per_axis"][a]
+        tp, fp, fn = ax["tp"], ax["fp"], ax["fn"]
+        p = tp / (tp + fp) if (tp + fp) else 1.0
+        r = tp / (tp + fn) if (tp + fn) else 1.0
+        f1 = 2 * p * r / (p + r) if (p + r) else 0.0
+        print(f"{a:12} {tp:>5} {fp:>5} {fn:>5} {p:>7.2f} {r:>7.2f} {f1:>6.2f}")
+    mtp, mfp, mfn = (res["micro"][k] for k in ("tp", "fp", "fn"))
+    P = mtp / (mtp + mfp) if (mtp + mfp) else 1.0
+    R = mtp / (mtp + mfn) if (mtp + mfn) else 1.0
+    F1 = 2 * P * R / (P + R) if (P + R) else 0.0
+    print("-" * 52)
+    print(f"{'micro':12} {mtp:>5} {mfp:>5} {mfn:>5} {P:>7.2f} {R:>7.2f} {F1:>6.2f}")
+    print(f"\nPrécision micro = {P:.2f} · Rappel micro = {R:.2f} · F1 = {F1:.2f}")
     if semantic and P < 0.85:
         print("ATTENTION : précision sous 0.85 (priorité : réduire les faux positifs).")
         sys.exit(1)
