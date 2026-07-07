@@ -99,3 +99,17 @@ def test_no_role_forces_keep_alive_forever():
 def test_model_override_forces_specific_model():
     # Le juge peut être forcé sur un modèle dédié (routage prod).
     assert llm_kwargs("judge", model="qwen2.5:14b")["model"] == "qwen2.5:14b"
+
+
+def test_ollama_num_gpu_injecte_dans_tous_les_roles(monkeypatch):
+    # OLLAMA_NUM_GPU (env) force l'offload GPU (0 = tout CPU quand le GPU est
+    # occupé) : injecté dans les options de TOUS les rôles, sans écraser un
+    # override explicite de l'appelant.
+    import core.model_router as mr
+    monkeypatch.setattr(mr, "OLLAMA_NUM_GPU", 0)
+    for role in ("rewrite", "agent", "planner", "generate", "judge", "enhance"):
+        assert llm_kwargs(role)["num_gpu"] == 0
+    assert llm_kwargs("generate", num_gpu=20)["num_gpu"] == 20
+    # Non défini (défaut) : on laisse Ollama décider.
+    monkeypatch.setattr(mr, "OLLAMA_NUM_GPU", None)
+    assert "num_gpu" not in llm_kwargs("generate")

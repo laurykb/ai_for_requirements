@@ -199,9 +199,18 @@ def get_config() -> Dict[str, Any]:
         logger.warning("GEN_MODEL manquant en .env - fallback interne utilisé")
         gen_model = "llama3.1:latest"
     
+    # Nombre de couches offloadées sur GPU, injecté dans TOUTES les requêtes
+    # Ollama (LLM + embeddings) quand il est défini. 0 = tout sur CPU : levier
+    # mono-poste quand le GPU est occupé par un autre travail (sans ça, un
+    # rechargement de modèle retente le GPU saturé et échoue en 500).
+    # Vide (défaut) = laisser Ollama décider.
+    ollama_num_gpu_raw = os.environ.get("OLLAMA_NUM_GPU", "").strip()
+    ollama_num_gpu = int(ollama_num_gpu_raw) if ollama_num_gpu_raw else None
+
     llm_config = {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_AVAILABLE": ollama_available,
+        "OLLAMA_NUM_GPU": ollama_num_gpu,
         "EMBED_MODEL": embed_model,
         "EMBED_TIMEOUT_S": embed_timeout_s,
         "REWRITER_MODEL": rewriter_model,
@@ -384,6 +393,7 @@ MONGO_AVAILABLE = CONFIG["MONGO_AVAILABLE"]
 
 OLLAMA_HOST = CONFIG["OLLAMA_HOST"]
 OLLAMA_AVAILABLE = CONFIG["OLLAMA_AVAILABLE"]
+OLLAMA_NUM_GPU = CONFIG["OLLAMA_NUM_GPU"]
 EMBED_MODEL = CONFIG["EMBED_MODEL"]
 EMBED_TIMEOUT_S = CONFIG["EMBED_TIMEOUT_S"]
 REWRITER_MODEL = CONFIG["REWRITER_MODEL"]
