@@ -97,3 +97,45 @@ def build_architecture(target: int = 350, max_depth: int = 7,
 
     expand(root)
     return elems
+
+
+def _phase(niveau: int) -> str:
+    if niveau <= 1:
+        return "analyse_operationnelle"
+    if niveau <= 3:
+        return "analyse_fonctionnelle"
+    return "conception"
+
+
+def _modes_pour(niveau: int, seq: int) -> List[str]:
+    """Sous-ensemble déterministe de modes (2 à 3), tiré du catalogue."""
+    n = 2 + (seq % 2)
+    start = (niveau + seq) % len(MODE_IDS)
+    return [MODE_IDS[(start + j) % len(MODE_IDS)] for j in range(n)]
+
+
+def derive_requirements(elems: List[dict]) -> List[dict]:
+    """Une exigence de déclinaison par élément d'architecture (mapping 1:1)."""
+    ae_to_req: Dict[str, str] = {}
+    counters: Dict[tuple, int] = {}
+    reqs: List[dict] = []
+    for e in elems:
+        code, niveau = e["code"], e["niveau"]
+        seq = counters.get((niveau, code), 0) + 1
+        counters[(niveau, code)] = seq
+        rid = f"REQ-L{niveau}-{code}-{seq:03d}"
+        ae_to_req[e["id"]] = rid
+        parent_req = ae_to_req.get(e["parent"]) if e["parent"] else None
+        reqs.append({
+            "id": rid, "niveau": niveau, "type": NIVEAU_TYPE[niveau],
+            "domaine": e["domaine"], "texte": "", "parent_id": parent_req,
+            "test_status": "PENDING",
+            "alloue_a": [e["id"]],
+            "contexte_operationnel": _modes_pour(niveau, seq),
+            "base_derivation": {
+                "phase": _phase(niveau),
+                "justification": f"Déclinaison de {e['label']} issue de la {_phase(niveau).replace('_', ' ')}.",
+                "ref": f"AF-{len(reqs) + 1:04d}"},
+            "_element": e,
+        })
+    return reqs

@@ -22,3 +22,20 @@ def test_catalogues_coherents():
     assert all("test" not in n["label"].lower() for n in corpus_gen.NIVEAUX)
     assert all("id" in m and "label" in m for m in corpus_gen.MODES)
     assert len(corpus_gen.SOUS_SYSTEMES) >= 5
+
+
+def test_derive_requirements_structure_coherente():
+    elems = corpus_gen.build_architecture()
+    reqs = corpus_gen.derive_requirements(elems)
+    assert len(reqs) == len(elems)
+    ids = {r["id"] for r in reqs}
+    by_id = {r["id"]: r for r in reqs}
+    for r in reqs:
+        if r["parent_id"] is not None:
+            assert r["parent_id"] in ids
+            assert r["niveau"] == by_id[r["parent_id"]]["niveau"] + 1
+        assert r["alloue_a"] and isinstance(r["alloue_a"], list)
+        assert set(r["contexte_operationnel"]) <= set(corpus_gen.MODE_IDS)
+        assert r["base_derivation"]["phase"]
+    assert all(r["id"].startswith("REQ-L") for r in reqs)
+    assert sum(1 for r in reqs if r["parent_id"] is None) == 1
