@@ -29,7 +29,7 @@ from __future__ import annotations
 from utils.logging_config import get_logger
 from env_config import (
     REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
-    NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX,
+    NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX, OLLAMA_NUM_GPU,
 )
 
 logger = get_logger("rag.router")
@@ -121,6 +121,10 @@ def llm_kwargs(role: str, **overrides) -> dict:
     params = dict(_ROLE_PARAMS.get(role, {}))
     model_override = overrides.pop("model", None)
     params.update({k: v for k, v in overrides.items() if v is not None})
+    # Offload GPU forcé par l'environnement (OLLAMA_NUM_GPU, ex. 0 = tout CPU
+    # quand le GPU est occupé par un autre travail) - pour TOUS les rôles.
+    if OLLAMA_NUM_GPU is not None:
+        params.setdefault("num_gpu", OLLAMA_NUM_GPU)
     params["model"] = model_override or model_for(role)
     return params
 
