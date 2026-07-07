@@ -205,10 +205,19 @@ def _coreference_findings(corpus: List[dict],
     seen_pairs: set = set()
     for tok, g in groups[:2 * LATENT_TOPK]:  # cap dur du nombre d'appels LLM
         cible = g[0]
+        # Chaîne verticale exclue : déjà couverte par PERTINENCE/PERTINENCE_AVAL
+        # (sinon le même défaut est signalé deux fois, sous deux axes).
+        vertical = set()
+        if tree is not None and cible["id"] in tree:
+            vertical = ({a.id for a in tree.ancestors(cible["id"])}
+                        | {d.id for d in tree.descendants(cible["id"])})
+        autres = [r for r in g[1:] if r["id"] not in vertical]
+        if not autres:
+            continue
         payload = {
             "exigence_cible": {"id": cible["id"], "niveau": cible.get("niveau"), "texte": cible["texte"]},
             "co_references": [{"id": r["id"], "niveau": r.get("niveau"), "texte": r["texte"],
-                               "referents_partages": [tok]} for r in g[1:1 + LATENT_TOPK]],  # cap taille de groupe
+                               "referents_partages": [tok]} for r in autres[:LATENT_TOPK]],  # cap taille de groupe
         }
         resp = llm.call_skill("coherence_coreference", payload)
         if resp.get("error") or resp.get("coherent", True):

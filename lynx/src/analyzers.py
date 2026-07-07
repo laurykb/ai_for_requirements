@@ -386,6 +386,27 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
     base = resp.get("synthese") or ("Déclinaison aval cohérente." if coherent
                                     else "Rupture de pertinence en aval.")
 
+    # Delta-aware (même principe que analyze_couverture) : si la rupture aval
+    # existait déjà AVANT l'action (jugée sur l'ancien texte de la cible), on ne
+    # l'impute pas à cette édition — sinon chaque UPDATE re-signale un état
+    # ancien (faux positifs mesurés). Ne s'applique que si le texte a changé.
+    if not coherent:
+        before = ctx.current.get(action.target_id)
+        if before and before.texte.strip() and before.texte != target.texte:
+            children_before = ctx.current.children(action.target_id)
+            if children_before:
+                resp_b = llm.call_skill("coherence_pertinence_aval", {
+                    "exigence_cible": before.short(),
+                    "exigences_filles": [c.short() for c in children_before]})
+                if not resp_b.get("error") and resp_b.get("est_coherent") is False:
+                    return [Finding(
+                        analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL,
+                        severity=Severity.INFO,
+                        message=f"Rupture aval préexistante sur {target.id} "
+                                f"(non aggravée par cette action).",
+                        impacted_ids=[target.id],
+                        details={"preexistante": True, "raw": resp})]
+
     # Vote self-consistency sur un BLOQUANT à fort enjeu (comme le T1 amont).
     if sev == Severity.BLOCKING and LLM_VOTE > 1:
         votes = llm.sample_skill("coherence_pertinence_aval", payload, n=LLM_VOTE)
@@ -500,9 +521,15 @@ def analyze_coreference(ctx: Ctx) -> List[Finding]:
         llm.trace_event("routeur_coreference", {"cible": target.id},
                         {"referents": [], "co_references": [], "note": "aucun référent concret dans l'énoncé"})
         return []
+    # La chaîne VERTICALE (ancêtres/descendants) est déjà jugée par les agents
+    # amont/aval : la re-signaler ici dupliquerait le même défaut sous un autre
+    # axe (faux positifs mesurés). La co-référence cherche les conflits
+    # trans-branche — les sœurs et les exigences non reliées restent scannées.
+    vertical = ({a.id for a in tree.ancestors(target.id)}
+                | {d.id for d in tree.descendants(target.id)})
     shared = []
     for r in tree.all():
-        if r.id == target.id or not r.texte.strip():
+        if r.id == target.id or r.id in vertical or not r.texte.strip():
             continue
         r_toks, r_units = _referents(r.texte)
         common = (t_toks & r_toks) | (t_units & r_units)
