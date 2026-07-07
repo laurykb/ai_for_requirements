@@ -206,3 +206,59 @@ def attach_budgets(reqs: List[dict], budget_racine_kg: float = 25.0) -> None:
             "grandeur": "masse", "operateur": "<=",
             "valeur": budgets[r["id"]], "unite": "kg",
             "mode": None, "tolerance": round(budgets[r["id"]] * 0.05, 4)}]
+
+
+_PROSE_SYSTEM = (
+    "Tu es ingénieur système. À partir de la fiche structurée d'une exigence, "
+    "rédige son ÉNONCÉ en français : 3 à 5 phrases, précis et vérifiable, "
+    "intégrant les contraintes et conditions fournies. N'invente pas de valeurs "
+    'hors fiche. Réponds STRICTEMENT en JSON : {"texte": "<énoncé>"}'
+)
+
+
+def fiche_prose(req: dict) -> dict:
+    if req.get("type") == "Vérification":
+        cible = req.get("_verifie") or {}
+        return {"id": req["id"], "type": "Vérification", "domaine": req["domaine"],
+                "verifie": req["links"][0]["target"],
+                "cible_texte": (cible.get("texte") or "")[:200],
+                "methode": {"I": "inspection", "A": "analyse",
+                            "D": "démonstration", "T": "essai"}.get(req.get("verification"), "essai"),
+                "modes": ", ".join(req.get("contexte_operationnel") or [])}
+    g = (req.get("grandeurs") or [{}])[0]
+    return {"id": req["id"], "type": req["type"], "domaine": req["domaine"],
+            "element_alloue": (req.get("alloue_a") or ["?"])[0],
+            "contrainte": f"{g.get('grandeur')} {g.get('operateur')} "
+                          f"{g.get('valeur')} {g.get('unite')} (± {g.get('tolerance')})",
+            "modes": ", ".join(req.get("contexte_operationnel") or []),
+            "phase": (req.get("base_derivation") or {}).get("phase", "conception")}
+
+
+def texte_gabarit(req: dict) -> str:
+    f = fiche_prose(req)
+    if req.get("type") == "Vérification":
+        return (
+            f"Il sera vérifié par {f['methode']} que l'exigence {f['verifie']} est "
+            f"satisfaite dans les conditions opérationnelles concernées ({f['modes']}). "
+            f"La vérification porte sur le {f['domaine'].lower()} et couvre l'énoncé "
+            f"suivant : « {f['cible_texte']} ». Le résultat est tracé et conditionne "
+            f"l'acceptation de l'exigence vérifiée ; tout écart ouvre une non-conformité."
+        )
+    return (
+        f"Dans le cadre du {f['domaine'].lower()}, l'exigence porte sur l'élément "
+        f"{f['element_alloue']} du système de drone de surveillance. L'élément doit "
+        f"respecter la contrainte {f['contrainte']} sur l'ensemble des conditions "
+        f"opérationnelles concernées ({f['modes']}). Issue de la "
+        f"{f['phase'].replace('_', ' ')}, cette exigence décline l'exigence de niveau "
+        f"supérieur et doit être vérifiable par analyse ou essai. Toute dérogation à la "
+        f"valeur allouée doit être justifiée et re-tracée."
+    )
+
+
+def rediger(req: dict, use_llm: bool = True) -> str:
+    if use_llm:
+        resp = llm.call_agent(_PROSE_SYSTEM, fiche_prose(req), label="gen_prose")
+        txt = (resp or {}).get("texte") if isinstance(resp, dict) else None
+        if txt and len((txt or "").strip()) > 60:
+            return txt.strip()
+    return texte_gabarit(req)

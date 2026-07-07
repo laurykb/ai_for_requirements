@@ -78,3 +78,18 @@ def test_budgets_bouclent():
     for pid, kids in enfants.items():
         assert abs(masse(by_id[pid]) - sum(masse(k) for k in kids)) < 1e-6
     assert all(masse(r) > 0 for r in reqs)
+
+
+def test_redaction_gabarit_verbeux_sans_llm():
+    elems = corpus_gen.build_architecture()
+    reqs = corpus_gen.derive_requirements(elems)
+    corpus_gen.attach_budgets(reqs)
+    r = reqs[10]
+    txt = corpus_gen.rediger(r, use_llm=False)
+    assert isinstance(txt, str) and len(txt) > 120 and "kg" in txt
+    # une exigence de vérification se rédige aussi (sans grandeurs)
+    verifs = corpus_gen.derive_verifications(reqs, stride=2)
+    vtxt = corpus_gen.rediger(verifs[0], use_llm=False)
+    assert len(vtxt) > 120 and "vérif" in vtxt.lower()
+    fiche = corpus_gen.fiche_prose(r)
+    assert fiche["id"] == r["id"] and "domaine" in fiche
