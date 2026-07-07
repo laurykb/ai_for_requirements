@@ -59,6 +59,9 @@ export function Chat() {
   const [genModel, setGenModel] = useState("");
   const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  // Édition du dernier prompt : le texte revient dans le champ, l'envoi
+  // remplace l'échange précédent (fil + session persistée).
+  const [editing, setEditing] = useState(false);
   /** Indexation d'une pièce jointe : { name, pct, step } — bloque l'envoi. */
   const [attach, setAttach] = useState<{ name: string; pct: number; step: string } | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -131,15 +134,18 @@ export function Chat() {
     } catch { /* session disparue */ }
   };
 
-  const ask = useCallback(async (question: string) => {
+  const ask = useCallback(async (question: string, base?: ChatMessage[]) => {
     const q = question.trim();
     if (!q || busy) return;
     setInput("");
     const prefs = loadPrefs();
+    // `base` : fil de départ imposé (édition du dernier prompt — l'échange
+    // remplacé ne doit pas réapparaître dans l'historique envoyé au moteur).
+    const ms0 = base ?? messages;
     const history = prefs.useMemory
-      ? messages.map((m) => ({ role: m.role, content: m.content }))
+      ? ms0.map((m) => ({ role: m.role, content: m.content }))
       : [];
-    setMessages((ms) => [...ms, { role: "user", content: q }]);
+    setMessages([...ms0, { role: "user", content: q }]);
     setPhase("retrieve");
     setNChunks(null);
     setPartial("");
@@ -276,6 +282,24 @@ export function Chat() {
     setPlan(null);
     setPhase("idle");
   }, [busy, messages, selected, mode, sessionId, refreshSessions]);
+
+  // Index du dernier message utilisateur (siège du bouton « modifier »).
+  const lastUserIndex = messages.reduce(
+    (acc, m, i) => (m.role === "user" ? i : acc), -1);
+
+  /** Envoi : en mode édition, l'échange précédent (question + réponse) est
+   * retiré du fil ET de la session persistée avant de re-poser la question. */
+  const send = useCallback(async (q: string) => {
+    if (!editing) return ask(q);
+    setEditing(false);
+    const base = lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
+    if (sessionId) {
+      // Attendre la troncature : /api/ask ré-appendra la question éditée.
+      await fetch(`${API_BASE}/api/sessions/${sessionId}/last-exchange`,
+                  { method: "DELETE" }).catch(() => null);
+    }
+    return ask(q, base);
+  }, [editing, ask, lastUserIndex, messages, sessionId]);
 
   const regenerate = async (selectedChunks: ChunkView[]) => {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
@@ -425,10 +449,20 @@ export function Chat() {
 
           {messages.map((m, i) =>
             m.role === "user" ? (
-              <p key={i}
-                 className="ml-auto max-w-[85%] rounded-2xl bg-accent/15 px-4 py-2.5 text-sm text-foreground">
-                {m.content}
-              </p>
+              <div key={i} className="group ml-auto flex max-w-[85%] items-center gap-2">
+                {i === lastUserIndex && !busy && (
+                  <button
+                    onClick={() => { setInput(m.content); setEditing(true); }}
+                    title="Modifier ce message et régénérer la réponse (l'échange actuel sera remplacé)"
+                    className="cursor-pointer text-[11px] text-fg-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground"
+                  >
+                    modifier
+                  </button>
+                )}
+                <p className="rounded-2xl bg-accent/15 px-4 py-2.5 text-sm text-foreground">
+                  {m.content}
+                </p>
+              </div>
             ) : (
               <div key={i} className="rounded-2xl border border-edge bg-surface px-4 py-3">
                 <AssistantMessage
@@ -465,13 +499,8 @@ export function Chat() {
                     )}
                   </p>
                 </div>
-                <button
-                  onClick={() => abortRef.current?.abort()}
-                  title="Arrête la génération immédiatement (la réponse partielle est conservée)."
-                  className="cursor-pointer rounded-md border border-bad/40 px-2 py-0.5 text-xs text-bad transition-colors hover:bg-bad/15"
-                >
-                  ■ Stop
-                </button>
+                {/* Un seul Stop : celui du composer (le bouton d'envoi devient
+                    un carré pendant la génération) — doublon retiré ici. */}
               </div>
               {/* Plan de recherche de l'agent : étapes cochées en direct. */}
               {plan && (
@@ -542,13 +571,27 @@ export function Chat() {
             </span>
           </div>
         )}
+        {editing && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-accent/40 bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+            <span>
+              Modification du dernier message — à l&apos;envoi, la question et sa réponse
+              actuelles seront remplacées.
+            </span>
+            <button
+              onClick={() => { setEditing(false); setInput(""); }}
+              className="ml-auto cursor-pointer text-fg-faint transition-colors hover:text-foreground"
+            >
+              Annuler
+            </button>
+          </div>
+        )}
         <Composer
           input={input} setInput={setInput}
           disabled={engineDown}
           busy={busy} attaching={attaching}
           attach={attach} attachError={attachError}
           onDismissError={() => setAttachError(null)}
-          onAsk={ask}
+          onAsk={send}
           onStop={() => abortRef.current?.abort()}
           fileRef={fileRef} onAttachFiles={attachFiles}
           selected={selected} setSelected={setSelected} docs={docs}
