@@ -10,7 +10,7 @@ import { Dot, Hint, Meter, Pill, Spinner, type Tone } from "@/components/ui";
 import { type Req } from "@/components/req-graph";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
-  type AuditReport, type FixItem, type FixProgress, type FixRecap,
+  type AuditFinding, type AuditReport, type FixItem, type FixProgress, type FixRecap,
 } from "@/components/requirements/blocks";
 
 /** Statuts finaux de la correction en lot (miroir de lynx/src/autofix.py). */
@@ -122,6 +122,137 @@ export function CreateChildForm({ sel, disabled, onCreate }: {
         </div>
       </div>
     </details>
+  );
+}
+
+// ─── Génération descendante de filles (L n+1) ──────────────────────────────
+
+export type GenFille = { id_propose: string; texte: string; justification: string;
+                         aspect_couvert: string; findings_restants: AuditFinding[];
+                         statut: string };
+export type GenRecap = { filles: GenFille[]; aspects_non_couverts: string[];
+                         niveau_filles: number };
+export type GenProgress = { phase: string; passe?: number; done?: number;
+                            total?: number; req_id?: string | null };
+
+const GEN_STATUT_STYLE: Record<string, { label: string; tone: Tone }> = {
+  conforme: { label: "conforme", tone: "good" },
+  ...STATUT_STYLE,
+};
+
+function genPhaseLabel(p: GenProgress): string {
+  if (p.phase === "generation") return "l'agent propose des exigences filles…";
+  if (p.phase === "reecriture")
+    return `réécriture des filles signalées (passe ${p.passe ?? 1}) — ${p.done ?? 0}/${p.total ?? 0}`;
+  return `auto-audit de la matrice candidate — ${p.done ?? 0}/${p.total ?? 0} exigences`;
+}
+
+/** Bouton + progression + récap sélectif de la génération de filles :
+ * même gestuelle que la correction en lot (rien n'est créé sans validation). */
+export function GenerateChildrenBlock({ sel, llmOk, disabled, genRunning, genProgress,
+                                        genRecap, genError, onRun, onCancel, onApply,
+                                        onClose }: {
+  sel: Req; llmOk: boolean; disabled: boolean;
+  genRunning: boolean; genProgress: GenProgress | null;
+  genRecap: GenRecap | null; genError: string | null;
+  onRun: () => void; onCancel: () => void;
+  onApply: (items: { id: string; texte: string; niveau: number }[]) => void;
+  onClose: () => void;
+}) {
+  const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
+  const plafond = sel.niveau >= 5;
+  const selection = (genRecap?.filles ?? []).filter((f) => !unchecked.has(f.id_propose));
+  return (
+    <div className="space-y-2">
+      {!genRunning && !genRecap && (
+        <p className="flex items-center gap-1.5">
+          <button onClick={onRun} disabled={disabled || plafond || !llmOk}
+                  title={plafond ? "Niveau plancher L5 : une L5 ne se décline pas." : undefined}
+                  className="cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10 disabled:opacity-40">
+            Générer des exigences filles (L{Math.min(sel.niveau + 1, 5)})
+          </button>
+          <Hint text="Un agent propose 2 à 7 exigences filles qui déclinent la sélection (en évitant la redondance avec les filles existantes). Elles sont auto-auditées sur une copie de la matrice — débat contradictoire inclus — et réécrites si signalées, avant validation sélective. Rien n'est créé sans votre accord." />
+        </p>
+      )}
+      {genRunning && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+          <Spinner /> {genProgress ? genPhaseLabel(genProgress) : "démarrage…"}
+          <button onClick={onCancel} className={btnGhost}>Annuler</button>
+        </p>
+      )}
+      {genError && <p className="text-xs text-bad">{genError}</p>}
+      {genRecap && !genRunning && (
+        <div className="rise-in space-y-2">
+          <p className="text-xs font-semibold text-foreground">
+            {genRecap.filles.length} fille(s) proposée(s) — niveau L{genRecap.niveau_filles}
+          </p>
+          {genRecap.filles.map((f) => {
+            const s = GEN_STATUT_STYLE[f.statut] ?? { label: f.statut, tone: "neutral" as Tone };
+            return (
+              <div key={f.id_propose}
+                   className="rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-xs">
+                <p className="flex flex-wrap items-center gap-2">
+                  <input type="checkbox" checked={!unchecked.has(f.id_propose)}
+                         onChange={(e) => setUnchecked((prev) => {
+                           const next = new Set(prev);
+                           if (e.target.checked) next.delete(f.id_propose);
+                           else next.add(f.id_propose);
+                           return next;
+                         })}
+                         className="accent-(--accent)" />
+                  <span className="font-mono text-foreground">{f.id_propose}</span>
+                  <Pill tone={s.tone}>{s.label}</Pill>
+                  {f.aspect_couvert && (
+                    <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-fg-faint">
+                      {f.aspect_couvert}
+                    </span>
+                  )}
+                </p>
+                <p className="mt-1.5 leading-relaxed text-foreground">{f.texte}</p>
+                {f.findings_restants.length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-[11px] text-fg-muted">
+                    {f.findings_restants.map((fd, i) => (
+                      <li key={i}>
+                        <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-fg-faint">
+                          {fd.axis}
+                        </span>{" "}
+                        {fd.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {f.justification && (
+                  <details className="chat-details mt-1.5">
+                    <summary>Justification de l&apos;agent</summary>
+                    <p className="mt-1 flex items-start gap-2 text-[11px] leading-relaxed text-fg-muted">
+                      <RoleChip role="IA" />
+                      <span>{f.justification}</span>
+                    </p>
+                  </details>
+                )}
+              </div>
+            );
+          })}
+          {genRecap.aspects_non_couverts.length > 0 && (
+            <p className="text-[11px] text-warn">
+              Aspects de la mère non couverts (transparence de couverture) :{" "}
+              {genRecap.aspects_non_couverts.join(" · ")}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              onClick={() => onApply(selection.map((f) => ({
+                id: f.id_propose, texte: f.texte, niveau: genRecap.niveau_filles })))}
+              disabled={selection.length === 0}
+              className={btnPrimary}
+            >
+              Valider la sélection ({selection.length})
+            </button>
+            <button onClick={onClose} className={btnGhost}>Annuler</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

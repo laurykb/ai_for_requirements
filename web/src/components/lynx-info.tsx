@@ -362,6 +362,19 @@ export function LynxInfo() {
           </p>
         </div>
 
+        <div className="mt-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+            Génération descendante d&apos;exigences filles
+            <Hint text="Un niveau à la fois (pas de cascade), refusé au plancher L5. Les filles proposées sont auto-auditées sur une copie de la matrice (débat contradictoire inclus) et réécrites si signalées ; rien n'est créé sans validation sélective." />
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+            Depuis une exigence sélectionnée, <span className="font-mono">generation_filles</span>{" "}
+            propose 2 à 7 exigences filles L(n+1) qui la déclinent — en évitant la redondance
+            avec les filles existantes et en suivant le référentiel de règles de rédaction. Il
+            liste honnêtement les aspects de la mère qui restent non couverts.
+          </p>
+        </div>
+
         <div className="mt-3 space-y-2">
           {skills.map((s) => (
             <SkillEditor key={s.name} s={s} onTest={runEval} evalRunning={evalRunning} />
