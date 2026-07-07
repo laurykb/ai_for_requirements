@@ -302,6 +302,22 @@ class SyntheseImpact(_SkillModel):
 
 
 # --------------------------------------------------------------------------
+# generation_filles (déclinaison descendante L(n) -> L(n+1))
+# --------------------------------------------------------------------------
+class FilleProposee(_SkillModel):
+    texte: TexteVide
+    justification: TexteVide = ""
+    aspect_couvert: TexteVide = ""
+
+
+class GenerationFilles(_SkillModel):
+    """Exigences filles proposées pour décliner une mère (2 à 7, borné côté code)."""
+
+    filles: List[FilleProposee] = Field(default_factory=list)
+    aspects_non_couverts: List[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
 # defense_exigence / juge_verdict (débat contradictoire sur BLOQUANT)
 # --------------------------------------------------------------------------
 class DefenseExigence(_SkillModel):
@@ -343,6 +359,7 @@ SKILL_SCHEMAS: Dict[str, Type[BaseModel]] = {
     "coherence_pertinence_aval": CoherencePertinence,
     "couverture_amont": CouvertureAmont,
     "defense_exigence": DefenseExigence,
+    "generation_filles": GenerationFilles,
     "juge_verdict": JugeVerdict,
     "impact_latent": ImpactLatent,
     "redaction_exigence": RedactionExigence,
