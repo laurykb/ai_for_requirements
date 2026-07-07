@@ -11,7 +11,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import SpriteText from "three-spritetext";
 
-import { LEVEL_LABELS, NIVEAU_COLORS, STATE_HEX, type Req } from "@/components/req-graph";
+import { STATE_HEX, type Req } from "@/components/req-graph";
+import { couleurNiveau, libelleNiveau, maxNiveau } from "@/components/req-levels";
 
 type GNode = {
   id: string; niveau: number; state: string; texte: string;
@@ -42,9 +43,10 @@ export const ReqGraph3D = memo(function ReqGraph3D({
     return () => ro.disconnect();
   }, []);
 
+  const nMax = useMemo(() => maxNiveau(corpus), [corpus]);
   const data = useMemo(() => {
     const nodes: GNode[] = corpus.map((r) => {
-      const lvl = Math.max(0, Math.min(5, r.niveau ?? 0));
+      const lvl = Math.max(0, Math.min(nMax, r.niveau ?? 0));
       return {
         id: r.id, niveau: lvl, texte: r.texte ?? "",
         state: selected === r.id ? "selected"
@@ -52,7 +54,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
           : flaggedSev.get(r.id) === "bad" ? "flagged-bad"
           : flaggedSev.get(r.id) === "warn" ? "flagged-warn"
           : impacted.has(r.id) ? "impacted" : "none",
-        fy: 220 - lvl * 88, // couche par niveau (L0 en haut)
+        fy: 220 - lvl * (nMax > 0 ? 440 / nMax : 88), // couche par niveau (L0 en haut)
       };
     });
     const ids = new Set(nodes.map((n) => n.id));
@@ -65,7 +67,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
           links.push({ source: lk.target, target: r.id, dashed: true });
     }
     return { nodes, links };
-  }, [corpus, selected, impacted, flaggedSev, mentioned]);
+  }, [corpus, nMax, selected, impacted, flaggedSev, mentioned]);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -81,7 +83,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
             nodeLabel={(n: object) => {
               const g = n as GNode;
               return `<div style="max-width:280px;font-size:11px"><b>${g.id}</b> · ${
-                LEVEL_LABELS[g.niveau]}<br/>${g.texte}</div>`;
+                libelleNiveau(g.niveau)}<br/>${g.texte}</div>`;
             }}
             nodeThreeObject={(n: object) => {
               const g = n as GNode;
@@ -97,7 +99,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
               return label;
             }}
             nodeThreeObjectExtend={false}
-            nodeColor={(n: object) => STATE_HEX[(n as GNode).state] ?? NIVEAU_COLORS[(n as GNode).niveau]}
+            nodeColor={(n: object) => STATE_HEX[(n as GNode).state] ?? couleurNiveau((n as GNode).niveau, nMax)}
             onNodeClick={(n: object) => onSelect(String((n as GNode).id))}
             linkColor={(l: object) => ((l as GLink).dashed ? "rgba(93,191,213,0.55)" : "rgba(148,163,214,0.45)")}
             linkOpacity={0.55}
