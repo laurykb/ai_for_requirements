@@ -54,9 +54,15 @@ def client(monkeypatch):
     from fastapi.testclient import TestClient
     from api.main import app
     import api.rag as rag
+    import core.attribution
 
-    # Pas d'écriture Mongo pendant le test.
+    # Pas d'écriture Mongo ni d'appel LLM d'attribution pendant le test.
     monkeypatch.setattr(rag, "_persist_exchange", lambda *a, **k: None)
+    monkeypatch.setattr(
+        core.attribution, "attribute_answer",
+        lambda *a, **k: {"ok": False, "affirmations": [], "n_affirmations": 0,
+                         "n_sourcees": 0, "n_completees": 0, "n_non_sourcees": 0,
+                         "error": "hors-ligne (test)"})
     return TestClient(app)
 
 
@@ -126,4 +132,4 @@ def test_flux_sain_sans_coupure(client, monkeypatch):
     kinds = [e["type"] for e in events]
     assert "error" not in kinds
     assert kinds.count("token") == 3
-    assert kinds[-1] in ("done", "eval")
+    assert kinds[-1] in ("done", "eval", "attribution")

@@ -166,6 +166,26 @@ def get_messages(session_id: str) -> list[dict]:
     return doc.get("messages", []) if doc else []
 
 
+def set_last_assistant_attribution(session_id: str, attribution: dict):
+    """Attache l'attribution par affirmation au DERNIER message assistant.
+
+    La passe d'attribution est post-hoc (elle tourne APRÈS la persistance du
+    message, en fin de flux SSE) : on met à jour le message en place pour que
+    le rechargement d'une conversation retrouve marqueurs + attribution."""
+    doc = _col().find_one({"session_id": session_id}, {"messages": 1})
+    if not doc:
+        return
+    msgs = doc.get("messages", [])
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "assistant":
+            _col().update_one(
+                {"session_id": session_id},
+                {"$set": {f"messages.{i}.attribution": attribution,
+                          "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S")}},
+            )
+            break
+
+
 def replace_last_assistant_message(session_id: str, content: str, citations: list = None,
                                    chunks: list = None):
     """Remplace le contenu/citations (et passages) du dernier message assistant (régénération)."""
