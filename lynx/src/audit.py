@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
-from . import embeddings, llm
+from . import debate, embeddings, llm
 from .config import ALLOCATION_TOLERANCE, EMBED_DUP_THRESHOLD, LATENT_TOPK, LLM_MAX_CONCURRENCY
 from .extract import allocation_rollup, from_base
 from .tree import RequirementTree
@@ -28,6 +28,8 @@ class MatrixFinding:
     axis: str        # LIEN | DOUBLON | CYCLE | ALLOCATION | REDACTION | PERTINENCE | COUVERTURE | REDONDANCE | PERTINENCE_AVAL | COHERENCE_REF
     severity: str    # INFO | WARNING | BLOQUANT
     message: str
+    # Débat contradictoire (BLOQUANT sémantiques uniquement) : {statut, plaidoyer, jugement}.
+    debate: Optional[dict] = None
 
 
 @dataclass
@@ -131,8 +133,10 @@ def _audit_one(tree: RequirementTree, req) -> List[MatrixFinding]:
                                  f"Rédaction : {red.get('probleme') or 'non conforme'}"))
     per = resp.get("pertinence") or {}
     if per.get("coherent") is False:
-        out.append(MatrixFinding(req.id, "PERTINENCE", "BLOQUANT",
-                                 f"Pertinence : {per.get('probleme') or 'incohérence avec le parent'}"))
+        out.append(debate.contest(
+            MatrixFinding(req.id, "PERTINENCE", "BLOQUANT",
+                          f"Pertinence : {per.get('probleme') or 'incohérence avec le parent'}"),
+            tree, req.id))
     cov = resp.get("couverture") or {}
     if cov.get("complet") is False:
         manques = ", ".join(map(str, cov.get("manques") or [])) or "concepts manquants"
@@ -141,13 +145,16 @@ def _audit_one(tree: RequirementTree, req) -> List[MatrixFinding]:
     rdd = resp.get("redondance") or {}
     if rdd.get("redondant") is True:
         avec = ", ".join(map(str, rdd.get("avec") or [])) or "une sœur"
-        out.append(MatrixFinding(req.id, "REDONDANCE", "BLOQUANT",
-                                 f"Redondante avec {avec}."))
+        out.append(debate.contest(
+            MatrixFinding(req.id, "REDONDANCE", "BLOQUANT", f"Redondante avec {avec}."),
+            tree, req.id))
     pav = resp.get("pertinence_aval") or {}
     if pav.get("coherent") is False:
         avec = ", ".join(map(str, pav.get("avec") or [])) or "une fille"
-        out.append(MatrixFinding(req.id, "PERTINENCE_AVAL", "BLOQUANT",
-                                 f"Pertinence aval : {pav.get('probleme') or f'incohérence avec {avec}'}"))
+        out.append(debate.contest(
+            MatrixFinding(req.id, "PERTINENCE_AVAL", "BLOQUANT",
+                          f"Pertinence aval : {pav.get('probleme') or f'incohérence avec {avec}'}"),
+            tree, req.id))
     return out
 
 
@@ -178,7 +185,8 @@ def _embedding_duplicates(corpus: List[dict]) -> List[MatrixFinding]:
     return findings
 
 
-def _coreference_findings(corpus: List[dict]) -> List[MatrixFinding]:
+def _coreference_findings(corpus: List[dict],
+                          tree: Optional[RequirementTree] = None) -> List[MatrixFinding]:
     """Cohérence trans-matrice : exigences partageant un référent concret (acronyme,
     code, interface) qui se contredisent. Borné : groupes les plus partagés d'abord.
     """
@@ -212,8 +220,10 @@ def _coreference_findings(corpus: List[dict]) -> List[MatrixFinding]:
             if key in seen_pairs:
                 continue
             seen_pairs.add(key)
-            out.append(MatrixFinding(cible["id"], "COHERENCE_REF", "BLOQUANT",
-                                     f"Co-référence « {tok} » : {probleme} (avec {cid})."))
+            out.append(debate.contest(
+                MatrixFinding(cible["id"], "COHERENCE_REF", "BLOQUANT",
+                              f"Co-référence « {tok} » : {probleme} (avec {cid})."),
+                tree, cible["id"]))
     return out
 
 
@@ -229,7 +239,7 @@ def audit_matrix(corpus: List[dict], deep: bool = True,
         tree = None  # doublons : on s'arrête au structurel
 
     if deep and tree is not None and llm.llm_available():
-        findings += _coreference_findings(corpus)  # cohérence trans-matrice (borné)
+        findings += _coreference_findings(corpus, tree)  # cohérence trans-matrice (borné)
         reqs = tree.all()
         total = len(reqs)
         done = 0

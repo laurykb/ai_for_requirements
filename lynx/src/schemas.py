@@ -302,6 +302,38 @@ class SyntheseImpact(_SkillModel):
 
 
 # --------------------------------------------------------------------------
+# defense_exigence / juge_verdict (débat contradictoire sur BLOQUANT)
+# --------------------------------------------------------------------------
+class DefenseExigence(_SkillModel):
+    """Plaidoyer de l'avocat de la défense contre une accusation BLOQUANT.
+
+    Ordre voulu : le raisonnement (plaidoyer, arguments, éléments) AVANT le
+    verdict ``refutation_possible`` — l'avocat argumente puis conclut.
+    """
+
+    plaidoyer: TexteVide = ""
+    arguments: List[str] = Field(default_factory=list)
+    elements_contexte: List[str] = Field(default_factory=list)
+    refutation_possible: bool
+
+
+def _norm_verdict_debat(v: Any) -> Any:
+    """MAINTENU / RETROGRADE : tolère accents et casse (« Rétrogradé »)."""
+    if not isinstance(v, str):
+        return v
+    up = v.strip().upper().replace("É", "E").replace("È", "E")
+    return up
+
+
+class JugeVerdict(_SkillModel):
+    """Arbitrage du juge : l'accusation tient-elle face au plaidoyer ?"""
+
+    verdict: Annotated[Literal["MAINTENU", "RETROGRADE"],
+                       BeforeValidator(_norm_verdict_debat)]
+    motivation: TexteVide = ""
+
+
+# --------------------------------------------------------------------------
 # Registre skill -> schéma
 # --------------------------------------------------------------------------
 SKILL_SCHEMAS: Dict[str, Type[BaseModel]] = {
@@ -310,6 +342,8 @@ SKILL_SCHEMAS: Dict[str, Type[BaseModel]] = {
     "coherence_pertinence": CoherencePertinence,
     "coherence_pertinence_aval": CoherencePertinence,
     "couverture_amont": CouvertureAmont,
+    "defense_exigence": DefenseExigence,
+    "juge_verdict": JugeVerdict,
     "impact_latent": ImpactLatent,
     "redaction_exigence": RedactionExigence,
     "redondance_surspec": RedondanceSurspec,

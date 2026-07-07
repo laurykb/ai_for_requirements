@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from . import embeddings, llm
+from . import debate, embeddings, llm
 from .config import (ALLOCATION_TOLERANCE, EMBED_DISTINCT_THRESHOLD, EMBED_DUP_THRESHOLD,
                      EMBED_LATENT_THRESHOLD, LATENT_TOPK, LLM_VOTE)
 from .extract import allocation_rollup, extract_quantities, from_base
@@ -220,10 +220,12 @@ def analyze_pertinence(ctx: Ctx) -> List[Finding]:
         if votes and incoh <= len(votes) // 2:
             sev = Severity.WARNING
             base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
-    return [Finding(
+    # Débat contradictoire APRÈS le vote, sur le verdict consolidé.
+    return [debate.contest(Finding(
         analyzer="pertinence", scope=Scope.AMONT, severity=sev,
         message=_with_preuve(base, resp),
-        impacted_ids=[target.id, *rupture], details={"preuve": resp.get("preuve", ""), "raw": resp})]
+        impacted_ids=[target.id, *rupture], details={"preuve": resp.get("preuve", ""), "raw": resp}),
+        tree, target.id)]
 
 
 # --------------------------------------------------------------------------
@@ -279,11 +281,12 @@ def analyze_couverture(ctx: Ctx) -> List[Finding]:
     sev = Severity.BLOCKING if ctx.action.action_type == ActionType.DELETE else Severity.WARNING
     base = (resp.get("synthese") or f"{parent.id} n'est plus entièrement couvert.") \
         + (f" Concepts non couverts : {', '.join(map(str, gaps))}." if gaps else "")
-    return [Finding(
+    return [debate.contest(Finding(
         analyzer="couverture", scope=Scope.COUVERTURE, severity=sev,
         message=_with_preuve(base, resp),
         impacted_ids=[parent.id], details={"concepts_non_couverts": gaps,
-                                            "preuve": resp.get("preuve", ""), "raw": resp})]
+                                            "preuve": resp.get("preuve", ""), "raw": resp}),
+        tree, parent.id)]
 
 
 # --------------------------------------------------------------------------
@@ -347,12 +350,15 @@ def analyze_redondance(ctx: Ctx) -> List[Finding]:
     base = resp.get("synthese") or ("Redondante avec une sœur." if redundant
             else "Sur-spécification (aucun aspect nouveau)." if overspec
             else "Apporte une couverture nouvelle, pas de redondance.")
-    return [Finding(
+    # Débat sur le verdict LLM uniquement (le routeur embeddings, factuel,
+    # rend ses BLOQUANT plus haut sans passer ici).
+    return [debate.contest(Finding(
         analyzer="redondance", scope=Scope.HORIZONTAL, severity=sev,
         message=_with_preuve(base, resp),
         impacted_ids=[target.id, *conflicts],
         details={"est_redondante": redundant, "est_sur_specifiee": overspec,
-                 "preuve": resp.get("preuve", ""), "raw": resp})]
+                 "preuve": resp.get("preuve", ""), "raw": resp}),
+        tree, target.id)]
 
 
 # --------------------------------------------------------------------------
@@ -387,10 +393,12 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
         if votes and incoh <= len(votes) // 2:
             sev = Severity.WARNING
             base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
-    return [Finding(
+    # Débat contradictoire APRÈS le vote, sur le verdict consolidé.
+    return [debate.contest(Finding(
         analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL, severity=sev,
         message=_with_preuve(base, resp),
-        impacted_ids=[target.id, *rupture], details={"preuve": resp.get("preuve", ""), "raw": resp})]
+        impacted_ids=[target.id, *rupture], details={"preuve": resp.get("preuve", ""), "raw": resp}),
+        tree, target.id)]
 
 
 # --------------------------------------------------------------------------
@@ -458,9 +466,11 @@ def analyze_impact_latent(ctx: Ctx) -> List[Finding]:
                         impacted_ids=[target.id], details={"examinees": [c.id for c, _ in top], "raw": resp})]
     sev = _sev_from(resp, Severity.WARNING)
     base = resp.get("synthese") or f"Impact latent possible sur des exigences non reliées : {', '.join(hit_ids)}."
-    return [Finding(analyzer="impact_latent", scope=Scope.IMPACT_LATENT, severity=sev,
-                    message=_with_preuve(base, resp),
-                    impacted_ids=[target.id, *hit_ids], details={"impactees": resp.get("impactees"), "raw": resp})]
+    return [debate.contest(Finding(
+        analyzer="impact_latent", scope=Scope.IMPACT_LATENT, severity=sev,
+        message=_with_preuve(base, resp),
+        impacted_ids=[target.id, *hit_ids], details={"impactees": resp.get("impactees"), "raw": resp}),
+        tree, target.id)]
 
 
 # --------------------------------------------------------------------------
@@ -521,9 +531,11 @@ def analyze_coreference(ctx: Ctx) -> List[Finding]:
     conflicts = _norm_ids(resp.get("conflits"))
     sev = _sev_from(resp, Severity.BLOCKING)
     base = resp.get("synthese") or f"Incohérence de co-référence avec {', '.join(conflicts)}."
-    return [Finding(analyzer="coreference", scope=Scope.COHERENCE_REF, severity=sev,
-                    message=_with_preuve(base, resp),
-                    impacted_ids=[target.id, *conflicts], details={"conflits": resp.get("conflits"), "raw": resp})]
+    return [debate.contest(Finding(
+        analyzer="coreference", scope=Scope.COHERENCE_REF, severity=sev,
+        message=_with_preuve(base, resp),
+        impacted_ids=[target.id, *conflicts], details={"conflits": resp.get("conflits"), "raw": resp}),
+        tree, target.id)]
 
 
 SEMANTIC_ANALYZERS = [analyze_pertinence, analyze_couverture, analyze_redondance,

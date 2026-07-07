@@ -125,6 +125,8 @@ class Finding(BaseModel):
     message: str
     impacted_ids: List[str] = Field(default_factory=list)
     details: Dict[str, Any] = Field(default_factory=dict)
+    # Débat contradictoire sur un BLOQUANT sémantique : {statut, plaidoyer, jugement}.
+    debate: Optional[Dict[str, Any]] = None
 
 
 class ImpactReport(BaseModel):

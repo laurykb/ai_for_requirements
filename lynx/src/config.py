@@ -25,6 +25,9 @@ LLM_MAX_CONCURRENCY = int(os.environ.get("LLM_MAX_CONCURRENCY", "16"))
 LLM_CACHE = os.environ.get("LLM_CACHE", "1") != "0"
 # Vote self-consistency sur les verdicts BLOQUANT (1 = désactivé ; 3 = recommandé).
 LLM_VOTE = int(os.environ.get("LLM_VOTE", "1"))
+# Débat contradictoire (avocat + juge) sur les BLOQUANT sémantiques : un verdict
+# réfuté est rétrogradé WARNING (jamais supprimé). LYNX_DEBATE=0 pour couper.
+DEBATE_ENABLED = os.environ.get("LYNX_DEBATE", "1") != "0"
 # Estimation du temps (minutes) de relecture/test évité par défaut capté tôt
 # (à la conception) plutôt que tard (à la remontée du V). Pour le calcul de ROI.
 ROI_MINUTES_PER_CATCH = int(os.environ.get("ROI_MINUTES_PER_CATCH", "45"))
