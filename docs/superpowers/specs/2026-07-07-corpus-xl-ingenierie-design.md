@@ -48,10 +48,30 @@ première de la prochaine itération (câblage des dimensions d'ingénierie).
 |---|---|
 | Forme de l'arbre | Plus profond ET plus large (~500 exigences, plusieurs branches complètes) |
 | Ambition | Corpus seul ; on teste le système existant. Pas de câblage de dimension. |
-| Profondeur | Autorisée au-delà de L5 ; le nombre de niveaux devient une donnée du JSON |
+| **Cycle en V** | La déclinaison suit le V : branche descendante (décomposition, `parent_id`/DERIVE) + branche montante (vérification, liens `VERIFIES`). Le « test » n'est pas un niveau plus profond mais la branche de droite, tracée horizontalement. |
+| Profondeur | Déclinaison profonde autorisée (L0→L7, systèmes fortement imbriqués) ; le nombre de niveaux devient une donnée du JSON |
 | Hiérarchie UI | **Dynamique** : détectée depuis le corpus, pas de niveau codé en dur |
 | Production | Générateur : structure déterministe + prose LLM local (repli gabarit) |
 | Domaine | Univers du drone de surveillance actuel, étendu à l'échelle programme |
+
+## Structure en cycle en V
+
+La déclinaison d'exigences suit le cycle en V, encodé **dans la donnée** (le modèle
+LynX a déjà `LinkType.VERIFIES` et le graphe dessine les liens typés) :
+
+- **Branche descendante — déclinaison / conception** (`parent_id`, DERIVE) :
+  L0 Mission/Besoin → L1 Système → L2 Sous-système → L3 Ensemble → L4 Sous-ensemble
+  → L5 Équipement → L6 Module → L7 Composant. Chaque fille précise/alloue sa mère.
+- **Branche montante — vérification / intégration** (liens `VERIFIES`) : des exigences
+  de vérification **vérifient** une exigence de spécification. Elles portent
+  `type: "Vérification"`, une méthode `verification` (IADT : Inspection/Analyse/
+  Démonstration/Test), un `test_status`, un lien `links:[{type:"VERIFIES", target:<spec>}]`,
+  et un `niveau` **égal au niveau de l'exigence vérifiée** (symétrie du V). Elles ne
+  sont pas dans l'arbre de décomposition (`parent_id: null`) : le graphe les relie par
+  l'arête du lien `VERIFIES`.
+
+Taille : la branche descendante fournit la profondeur + la largeur (~350 exigences), la
+branche montante ajoute la vérification (~150) → ~500 au total.
 
 ## Le modèle de données enrichi (dans le fichier corpus)
 
@@ -85,6 +105,22 @@ Chaque exigence porte les champs actuels **plus** les champs enrichis :
   "grandeurs": [ { "grandeur": "masse", "operateur": "<=", "valeur": 2.0, "unite": "kg", "mode": null, "tolerance": 0.1 } ],
   "alloue_a": ["AE-PROP"],
   "base_derivation": { "phase": "analyse_fonctionnelle", "justification": "...", "ref": "AF-012" }
+}
+```
+
+Une exigence de **vérification** (branche montante du V) :
+
+```json
+{
+  "id": "VER-L3-PROP-004",
+  "niveau": 3,
+  "type": "Vérification",
+  "domaine": "Propulsion",
+  "texte": "<énoncé : il sera vérifié par ... que l'exigence REQ-L3-PROP-004 est satisfaite ...>",
+  "parent_id": null,
+  "test_status": "PENDING",
+  "verification": "T",
+  "links": [ { "type": "VERIFIES", "target": "REQ-L3-PROP-004" } ]
 }
 ```
 
