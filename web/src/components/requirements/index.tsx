@@ -30,6 +30,11 @@ const ReqGraph = dynamic(() => import("@/components/req-graph").then((m) => m.Re
   ssr: false,
   loading: () => <div className="h-[520px] rounded-xl border border-edge bg-surface" />,
 });
+// Vue 3D en bascule : three.js n'est chargé que si l'utilisateur l'active.
+const ReqGraph3D = dynamic(() => import("@/components/req-graph-3d").then((m) => m.ReqGraph3D), {
+  ssr: false,
+  loading: () => <div className="h-[520px] rounded-xl border border-edge bg-surface" />,
+});
 
 const EMPTY_IDS = new Set<string>();
 const VERDICT_COLOR: Record<string, string> = {
@@ -64,6 +69,9 @@ export function Requirements() {
 
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+
+  // Vue du graphe : 2D par niveaux (défaut, scannable) ou 3D en couches.
+  const [graphView, setGraphView] = useState<"2d" | "3d">("2d");
 
   const [genRunning, setGenRunning] = useState(false);
   const [genProgress, setGenProgress] = useState<GenProgress | null>(null);
@@ -409,10 +417,27 @@ export function Requirements() {
         </span>
       </div>
 
-      {/* La scène : graphe + inspecteur. */}
+      {/* La scène : graphe (2D par niveaux, ou 3D en couches) + inspecteur. */}
       <div className="grid gap-4 xl:grid-cols-[5fr_2fr]">
-        <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
-                  flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
+        <div className="relative">
+          <div className="absolute right-2 top-2 z-10 flex overflow-hidden rounded-lg border border-edge bg-surface-2 text-[11px]"
+               role="group" aria-label="Vue du graphe">
+            {(["2d", "3d"] as const).map((v) => (
+              <button key={v} onClick={() => setGraphView(v)}
+                      className={`cursor-pointer px-2.5 py-1 transition-colors ${
+                        graphView === v ? "bg-accent/20 text-foreground" : "text-fg-faint hover:text-foreground"}`}>
+                {v.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          {graphView === "3d" ? (
+            <ReqGraph3D corpus={corpus} selected={selected} impacted={impacted}
+                        flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
+          ) : (
+            <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
+                      flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
+          )}
+        </div>
 
         <aside className="rounded-xl border border-edge bg-surface p-4 xl:max-h-[calc(100vh-22rem)] xl:min-h-[560px] xl:overflow-y-auto">
           {!sel ? (
