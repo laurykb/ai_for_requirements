@@ -47,3 +47,14 @@ def delete_sess(sid: str) -> dict:
     from core.chat_sessions import delete_session
     delete_session(sid)
     return {"ok": True}
+
+
+@router.delete("/api/sessions/{sid}/last-exchange")
+def delete_last_exchange(sid: str) -> dict:
+    """Retire le dernier échange (question + réponse) — support de
+    « modifier le dernier prompt » : la session reste cohérente avec le fil
+    affiché quand la question éditée est re-posée."""
+    from core.chat_sessions import get_session, truncate_last_exchange
+    if not get_session(sid):
+        raise HTTPException(404, "Session introuvable.")
+    return {"ok": True, "messages": truncate_last_exchange(sid)}

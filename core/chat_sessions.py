@@ -166,6 +166,29 @@ def get_messages(session_id: str) -> list[dict]:
     return doc.get("messages", []) if doc else []
 
 
+def truncate_last_exchange(session_id: str) -> list[dict]:
+    """Retire le DERNIER message utilisateur et tout ce qui le suit.
+
+    Support de « modifier le dernier prompt » : l'échange (question + réponse)
+    est retiré de la session avant de re-poser la question éditée — le
+    rechargement de la conversation reste ainsi cohérent avec l'affichage.
+    Renvoie les messages restants (inchangés si aucun message utilisateur)."""
+    doc = _col().find_one({"session_id": session_id}, {"messages": 1})
+    if not doc:
+        return []
+    msgs = doc.get("messages", [])
+    idx = max((i for i, m in enumerate(msgs) if m.get("role") == "user"), default=None)
+    if idx is None:
+        return msgs
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    msgs = msgs[:idx]
+    _col().update_one(
+        {"session_id": session_id},
+        {"$set": {"messages": msgs, "updated_at": now}},
+    )
+    return msgs
+
+
 def set_last_assistant_attribution(session_id: str, attribution: dict):
     """Attache l'attribution par affirmation au DERNIER message assistant.
 
