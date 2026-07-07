@@ -25,6 +25,7 @@ _LYNX_DIR = str(Path(__file__).resolve().parent.parent / "lynx")
 if _LYNX_DIR not in sys.path:
     sys.path.insert(0, _LYNX_DIR)
 
+from eval.run_eval import run_golden_eval    # noqa: E402
 from src import audit as lynx_audit          # noqa: E402
 from src import autofix as lynx_autofix      # noqa: E402
 from src import correction as lynx_correction  # noqa: E402
@@ -413,6 +414,69 @@ def audit_fix_apply(body: FixApplyBody) -> dict:
                              "Correction en lot (audit)")
     store.save_working(corpus)
     return {"n": len(corpus), "exigences": corpus}
+
+
+# ─────────────── Éval du golden set (SSE) ───────────────
+
+class EvalBody(BaseModel):
+    fast: bool = True                 # True = agents déterministes seuls (immédiat)
+
+
+@router.post("/eval")
+def run_eval(body: EvalBody) -> StreamingResponse:
+    """Harnais d'évaluation (lynx/eval) sur le golden set : `progress`
+    (cas évalués / total), puis `result` (P/R/F1 micro + par axe). Les
+    prompts étant rechargés du disque à chaque appel LLM, un prompt
+    sauvegardé depuis l'onglet Informations est évalué tel quel."""
+    q: queue.Queue = queue.Queue()
+    cancelled = threading.Event()
+
+    def emit(item: dict) -> None:
+        if cancelled.is_set():
+            raise _Cancelled()
+        q.put(item)
+
+    def worker():
+        try:
+            with _LLM_LOCK:
+                out = run_golden_eval(
+                    semantic=not body.fast,
+                    on_progress=lambda done, total: emit(
+                        {"type": "progress", "done": done, "total": total}))
+            q.put({"type": "result", **out})
+            q.put({"type": "done"})
+        except _Cancelled:
+            pass  # client parti : rien à nettoyer (last_eval.json non écrit)
+        except Exception as e:
+            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
+        q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        try:
+            while True:
+                item = q.get()
+                if item is None:
+                    return
+                yield _sse(item)
+        finally:
+            cancelled.set()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store"})
+
+
+@router.get("/eval/last")
+def get_last_eval() -> dict:
+    """Dernier résumé écrit par le harnais (baseline affichée par l'UI)."""
+    path = Path(_LYNX_DIR) / "eval" / "last_eval.json"
+    if not path.exists():
+        return {"exists": False}
+    try:
+        return {"exists": True, **json.loads(path.read_text(encoding="utf-8"))}
+    except Exception:
+        return {"exists": False}
 
 
 # ─────────────── Correction ───────────────
