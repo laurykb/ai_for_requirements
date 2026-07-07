@@ -86,6 +86,23 @@ def _persist_exchange(session_id: str | None, source: str | None, question: str,
         pass  # la persistance est un bonus : ne jamais casser la réponse
 
 
+def _run_attribution(question: str, answer_txt: str, chunks: list,
+                     session_id: str | None) -> dict:
+    """Passe post-hoc d'attribution (APRÈS `done`, réponse déjà affichée) :
+    calcule l'attribution par affirmation sur les passages numérotés, la
+    persiste avec le message (rechargement de conversation) et retourne le
+    résultat. Échec/timeout -> {ok: False, error} : jamais bloquant."""
+    from core.attribution import attribute_answer
+    attribution = attribute_answer(question, answer_txt, chunks or [])
+    if session_id and attribution.get("ok"):
+        try:
+            from core.chat_sessions import set_last_assistant_attribution
+            set_last_assistant_attribution(session_id, attribution)
+        except Exception:
+            pass  # la persistance est un bonus
+    return attribution
+
+
 def _agent_events(question: str, source: str | None, history: list[dict]):
     """Mode Agent : traduit les événements du planificateur-exécuteur multi-hop en
     trames SSE (plan/étapes en direct = boîte de verre, puis réponse streamée).
@@ -145,9 +162,11 @@ def ask(body: AskBody) -> StreamingResponse:
     """Q&A en SSE — boîte de verre : routage (`route`), étapes du pipeline
     (`stage`, `retrieved`), plan de l'agent en direct (`plan`/`step_start`/
     `step_done`/`replan`), pensées du repli ReAct (`thought`/`action`/
-    `observation`), `token`, `sources`, vérification automatique (`eval`),
-    `done` ; les erreurs une trame `error` (le front ne pend jamais).
-    Persiste l'échange dans la session (`session` renvoie l'id créé)."""
+    `observation`), `token`, `sources`, `done`, puis attribution par
+    affirmation (`attribution`, post-hoc) et vérification automatique
+    (`eval`, enrichie des compteurs d'attribution) ; les erreurs une trame
+    `error` (le front ne pend jamais). Persiste l'échange dans la session
+    (`session` renvoie l'id créé), attribution comprise."""
     def gen():
         try:
             # Session persistée : créée au premier message si besoin.
@@ -195,6 +214,16 @@ def ask(body: AskBody) -> StreamingResponse:
                 _persist_exchange(session_id, body.source, body.question, answer_txt,
                                   citations, "\n\n".join(reasoning_parts), chunks)
                 yield _sse({"type": "done", "found": True})
+                # Attribution par affirmation sur la SYNTHÈSE de l'agent (les
+                # chunks sont la liste numérotée de la synthèse — même contrat
+                # que le RAG direct). Après `done` : la réponse est déjà là.
+                try:
+                    if answer_txt and chunks:
+                        yield _sse({"type": "attribution",
+                                    **_run_attribution(body.question, answer_txt,
+                                                       chunks, session_id)})
+                except Exception:
+                    pass  # l'attribution est un bonus : ne jamais bloquer
                 return
 
             # ─ RAG direct ─
@@ -235,6 +264,17 @@ def ask(body: AskBody) -> StreamingResponse:
                               citations or [], None, chunks or [])
             yield _sse({"type": "done", "found": bool(chunks)})
 
+            # Attribution par affirmation (post-hoc, APRÈS `done` : la réponse
+            # est déjà affichée, la passe n'ajoute que de la transparence).
+            attribution = None
+            try:
+                if answer_txt and chunks:
+                    attribution = _run_attribution(body.question, answer_txt,
+                                                   chunks, session_id)
+                    yield _sse({"type": "attribution", **attribution})
+            except Exception:
+                pass  # l'attribution est un bonus : ne jamais bloquer
+
             # Vérification ciblée (Auto + question à enjeu). Pas de double
             # éval si le Self-RAG a DÉJÀ vérifié — flag EFFECTIF (.env par
             # défaut quand le front envoie null).
@@ -246,9 +286,14 @@ def ask(body: AskBody) -> StreamingResponse:
                 if (body.mode == "auto" and citations and not self_rag_on
                         and should_verify(body.question)["verify"]):
                     from core.evaluation import verify_answer
-                    yield _sse({"type": "eval",
-                                **(verify_answer(body.question, answer_txt,
-                                                 chunks or []) or {})})
+                    frame = {"type": "eval",
+                             **(verify_answer(body.question, answer_txt,
+                                              chunks or []) or {})}
+                    if attribution and attribution.get("ok"):
+                        # Compteurs d'attribution dans le bloc de vérification.
+                        for k in ("n_affirmations", "n_sourcees", "n_non_sourcees"):
+                            frame[k] = attribution.get(k)
+                    yield _sse(frame)
             except Exception:
                 pass  # la vérif est un bonus : ne jamais bloquer la réponse
         except Exception as e:  # Ollama/Mongo coupé, timeout… -> trame lisible
@@ -270,16 +315,20 @@ class RegenerateBody(BaseModel):
 @router.post("/api/regenerate")
 def regenerate(body: RegenerateBody) -> dict:
     from core.ask import process_query
-    rep, _ch, citations = process_query(body.question, selected_chunks=body.chunks,
-                                        system_prompt=body.system_prompt or None)
+    # `used` = la sélection APRÈS affinage pré-génération : c'est la liste
+    # numérotée [1..n] du contexte (contrat marqueur↔passage) — c'est ELLE
+    # qu'on persiste et qu'on renvoie au front, pas la sélection brute.
+    rep, used, citations = process_query(body.question, selected_chunks=body.chunks,
+                                         system_prompt=body.system_prompt or None)
     if body.session_id:
         try:
             from core.chat_sessions import replace_last_assistant_message
             replace_last_assistant_message(body.session_id, rep or "",
-                                           citations or [], chunks=body.chunks)
+                                           citations or [], chunks=used or body.chunks)
         except Exception:
             pass
-    return {"answer": rep or "", "citations": citations or []}
+    return {"answer": rep or "", "citations": citations or [],
+            "chunks": [_trim_chunk(c) for c in (used or body.chunks or [])]}
 
 
 class VerifyBody(BaseModel):

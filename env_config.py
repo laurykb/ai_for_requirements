@@ -276,6 +276,11 @@ def get_config() -> Dict[str, Any]:
         # agent (sous-questions) et le révise en cours de route. Par défaut le même
         # modèle que l'agent, surchargeable indépendamment via .env.
         "PLANNER_MODEL": os.environ.get("PLANNER_MODEL", "").strip() or agent_model,
+        # Attribution par affirmation (passe post-hoc, core/attribution.py) :
+        # budget TOTAL de la passe (appel LLM + validation + retry compris).
+        # Dépassé -> la réponse garde ses marqueurs inline et l'event
+        # `attribution` porte un statut d'échec — jamais bloquant.
+        "ATTRIBUTION_TIMEOUT_S": float(os.environ.get("ATTRIBUTION_TIMEOUT_S", "60")),
     }
 
     # --------------------- MODE RAPIDE (latence) -------------------
@@ -389,6 +394,7 @@ ENHANCE_NUM_CTX = CONFIG["ENHANCE_NUM_CTX"]
 AGENT_MODEL = CONFIG["AGENT_MODEL"]
 AGENT_MAX_ITERATIONS = CONFIG["AGENT_MAX_ITERATIONS"]
 PLANNER_MODEL = CONFIG["PLANNER_MODEL"]
+ATTRIBUTION_TIMEOUT_S = CONFIG["ATTRIBUTION_TIMEOUT_S"]
 RAG_FAST_MODE = CONFIG["RAG_FAST_MODE"]
 GEN_NUM_CHUNKS = CONFIG["GEN_NUM_CHUNKS"]
 CONTEXT_DEDUP = CONFIG["CONTEXT_DEDUP"]
