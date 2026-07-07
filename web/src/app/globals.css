@@ -5,21 +5,41 @@
    Pantone 3125C — le point du A du logo), statuts vert/ambre/rouge,
    motion discrète. Structure héritée d'AI_for_geopolitics. */
 :root {
+  /* ── Couche 1 · Primitives (identité Thales) ─────────────────────────── */
+  --thales-blue: #242b75; /* Pantone 2765C */
+  --thales-aqua: #5dbfd5; /* Pantone 3125C — le point du A */
+
+  /* ── Couche 2 · Sémantiques (surfaces, textes, statuts) ──────────────── */
   --background: #060819;
   --surface: #0c102b;
   --surface-2: #121737;
   --muted: #1b2147;
   --foreground: #e9ecf5;
+  --foreground-bright: #eef1f8; /* accents lumineux : lettres du logo, état « citée » */
   --foreground-muted: #99a1b8;
   --foreground-faint: #636b85;
   --border: rgba(148, 163, 214, 0.14);
   --border-strong: rgba(148, 163, 214, 0.3);
-  --thales-blue: #242b75;
-  --accent: #5dbfd5;
+  --accent: var(--thales-aqua);
   --accent-bright: #7fd4e6;
   --good: #34d399;
   --warn: #fbbf24;
   --bad: #f87171;
+
+  /* ── Couche 3 · Composants ────────────────────────────────────────────── */
+  /* Intro : nuit de la planète aqua. */
+  --globe-night: #0b2531;
+  /* Chips de rôle des agents LynX (boîte de verre). */
+  --role-rule: #0891b2;
+  --role-vector: #0d9488;
+  --role-agent: #7c3aed;
+  --role-synthesis: #b45309;
+  --role-default: #4b5563;
+  /* Visionneuse « page blanche » (Documents) : le seul îlot clair du thème. */
+  --doc-bg: #f4f4f7;
+  --doc-ink: #1f1f23;
+  --doc-highlight-bg: #fff3bf;
+  --doc-highlight-edge: #f59f00;
 }
 
 @theme inline {
@@ -175,7 +195,7 @@ body {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 14.5px;
   line-height: 1.75;
-  color: #1f1f23;
+  color: var(--doc-ink);
 }
 .doc-page h1, .doc-page h2, .doc-page h3, .doc-page h4 {
   font-family: var(--font-inter), system-ui, sans-serif;
@@ -193,8 +213,8 @@ body {
 .doc-page th { background: #f5f5f5; }
 .doc-page code { background: #f2f2f4; padding: 1px 5px; border-radius: 4px; }
 .doc-highlight {
-  background: #fff3bf;
-  border-left: 3px solid #f59f00;
+  background: var(--doc-highlight-bg);
+  border-left: 3px solid var(--doc-highlight-edge);
   border-radius: 4px;
   padding: 6px 10px;
   margin: 8px 0;

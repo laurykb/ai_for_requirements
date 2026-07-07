@@ -11,15 +11,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D from "react-force-graph-3d";
 import SpriteText from "three-spritetext";
 
-import { LEVEL_LABELS, NIVEAU_COLORS, type Req } from "@/components/req-graph";
-
-const STATE_COLORS: Record<string, string> = {
-  selected: "#7fd4e6",
-  mentioned: "#eef1f8",
-  "flagged-bad": "#f87171",
-  "flagged-warn": "#fbbf24",
-  impacted: "#fbbf24",
-};
+import { LEVEL_LABELS, NIVEAU_COLORS, STATE_HEX, type Req } from "@/components/req-graph";
 
 type GNode = {
   id: string; niveau: number; state: string; texte: string;
@@ -94,18 +86,18 @@ export const ReqGraph3D = memo(function ReqGraph3D({
             nodeThreeObject={(n: object) => {
               const g = n as GNode;
               const label = new SpriteText(g.id);
-              label.color = STATE_COLORS[g.state] ?? "#eef1f8";
+              label.color = STATE_HEX[g.state] ?? STATE_HEX.mentioned;
               label.backgroundColor = "rgba(20,26,58,0.85)";
               label.padding = 1.5;
               label.borderRadius = 2;
               label.borderWidth = g.state === "none" ? 0 : 0.4;
-              label.borderColor = STATE_COLORS[g.state] ?? "transparent";
+              label.borderColor = STATE_HEX[g.state] ?? "transparent";
               label.textHeight = g.state === "selected" ? 4.5 : 3.4;
               label.fontFace = "monospace";
               return label;
             }}
             nodeThreeObjectExtend={false}
-            nodeColor={(n: object) => STATE_COLORS[(n as GNode).state] ?? NIVEAU_COLORS[(n as GNode).niveau]}
+            nodeColor={(n: object) => STATE_HEX[(n as GNode).state] ?? NIVEAU_COLORS[(n as GNode).niveau]}
             onNodeClick={(n: object) => onSelect(String((n as GNode).id))}
             linkColor={(l: object) => ((l as GLink).dashed ? "rgba(93,191,213,0.55)" : "rgba(148,163,214,0.45)")}
             linkOpacity={0.55}
@@ -118,10 +110,10 @@ export const ReqGraph3D = memo(function ReqGraph3D({
       </div>
       <p className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] text-fg-faint">
         <span>glisser : pivoter · molette : zoom · clic droit : déplacer · clic : sélectionner</span>
-        <span><span style={{ color: "#7fd4e6" }}>●</span> sélection</span>
-        <span><span style={{ color: "#eef1f8" }}>●</span> citée par la synthèse</span>
-        <span><span style={{ color: "#fbbf24" }}>●</span> impactée / attention</span>
-        <span><span style={{ color: "#f87171" }}>●</span> bloquante</span>
+        <span><span style={{ color: "var(--accent-bright)" }}>●</span> sélection</span>
+        <span><span style={{ color: "var(--foreground-bright)" }}>●</span> citée par la synthèse</span>
+        <span><span style={{ color: "var(--warn)" }}>●</span> impactée / attention</span>
+        <span><span style={{ color: "var(--bad)" }}>●</span> bloquante</span>
       </p>
     </div>
   );

@@ -31,19 +31,35 @@ export type Req = {
 };
 
 // Couleurs par niveau L0..L5 (héritées de LynX, éclaircies pour le fond nuit).
+// Hex bruts requis : consommées aussi par three.js (vue 3D), qui ne résout
+// pas les var() CSS. Source unique pour les deux vues.
 export const NIVEAU_COLORS = ["#818cf8", "#60a5fa", "#22d3ee", "#34d399", "#fbbf24", "#fb7185"];
 export const LEVEL_LABELS = ["L0 · Besoin", "L1 · Système", "L2 · Sous-système",
                              "L3 · Composant", "L4 · Configuration", "L5 · Test"];
 
+// Couleurs d'état des nœuds — MIROIR des tokens de globals.css
+// (--accent-bright, --foreground-bright, --warn, --bad) : three.js exige des
+// hex bruts. Toute retouche du thème se répercute ici À LA MAIN.
+export const STATE_HEX: Record<string, string> = {
+  selected: "#7fd4e6",
+  mentioned: "#eef1f8",
+  impacted: "#fbbf24",
+  "flagged-warn": "#fbbf24",
+  "flagged-bad": "#f87171",
+};
+
 type NodeState = "none" | "selected" | "mentioned" | "flagged-bad" | "flagged-warn" | "impacted";
 type ReqNodeData = { rid: string; niveau: number; state: NodeState };
 
+const ring = (color: string, blur: number, glow: number) =>
+  `0 0 0 2px ${color}, 0 0 ${blur}px color-mix(in srgb, ${color} ${glow}%, transparent)`;
 const STATE_RING: Record<string, string> = {
-  selected: "0 0 0 2px #7fd4e6, 0 0 18px rgba(93,191,213,0.45)",
-  mentioned: "0 0 0 2px #eef1f8, 0 0 16px rgba(238,241,248,0.35)",
-  impacted: "0 0 0 2px #fbbf24, 0 0 14px rgba(251,191,36,0.35)",
-  "flagged-warn": "0 0 0 2px #fbbf24, 0 0 14px rgba(251,191,36,0.35)",
-  "flagged-bad": "0 0 0 2px #f87171, 0 0 16px rgba(248,113,113,0.45)",
+  selected:
+    "0 0 0 2px var(--accent-bright), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent)",
+  mentioned: ring("var(--foreground-bright)", 16, 35),
+  impacted: ring("var(--warn)", 14, 35),
+  "flagged-warn": ring("var(--warn)", 14, 35),
+  "flagged-bad": ring("var(--bad)", 16, 45),
 };
 
 /** Nœud exigence : pastille couleur de niveau + id mono sur surface sombre. */
@@ -180,10 +196,10 @@ export const ReqGraph = memo(function ReqGraph({
       </div>
       {/* Légende des halos, sous le cadre (le niveau est étiqueté dans le graphe). */}
       <p className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] text-fg-faint">
-        <span><span style={{ color: "#7fd4e6" }}>●</span> sélection</span>
-        <span><span style={{ color: "#eef1f8" }}>●</span> citée par la synthèse</span>
-        <span><span style={{ color: "#fbbf24" }}>●</span> impactée / attention</span>
-        <span><span style={{ color: "#f87171" }}>●</span> bloquante</span>
+        <span><span style={{ color: "var(--accent-bright)" }}>●</span> sélection</span>
+        <span><span style={{ color: "var(--foreground-bright)" }}>●</span> citée par la synthèse</span>
+        <span><span style={{ color: "var(--warn)" }}>●</span> impactée / attention</span>
+        <span><span style={{ color: "var(--bad)" }}>●</span> bloquante</span>
       </p>
     </div>
   );

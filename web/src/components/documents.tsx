@@ -254,7 +254,7 @@ function DocViewer({ name, highlight, onClose }: {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/60 p-4 backdrop-blur-sm sm:p-8"
          onClick={onClose} role="presentation">
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-[#f4f4f7] shadow-2xl"
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-(--doc-bg) shadow-2xl"
            onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-black/10 px-5 py-2.5">
           <p className="text-sm font-medium text-neutral-800">{name}</p>

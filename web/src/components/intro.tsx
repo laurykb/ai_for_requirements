@@ -30,10 +30,10 @@ function Globe({ size }: { size: number }) {
           <circle cx="50" cy="50" r="47" />
         </clipPath>
       </defs>
-      <circle cx="50" cy="50" r="47" fill="#0b2531" stroke="#5EBFD4" strokeWidth="2.5" />
+      <circle cx="50" cy="50" r="47" fill="var(--globe-night)" stroke="var(--accent)" strokeWidth="2.5" />
       <g clipPath="url(#globe-clip)">
         {/* Deux exemplaires du motif pour un défilement sans couture. */}
-        <g className="intro-spin" fill="#5EBFD4" opacity="0.55">
+        <g className="intro-spin" fill="var(--accent)" opacity="0.55">
           {[0, 100].map((dx) => (
             <g key={dx} transform={`translate(${dx} 0)`}>
               <ellipse cx="22" cy="34" rx="14" ry="9" />
@@ -44,7 +44,7 @@ function Globe({ size }: { size: number }) {
           ))}
         </g>
         {/* Graticule : 2 parallèles + 1 méridien, très discrets. */}
-        <g fill="none" stroke="#5EBFD4" strokeWidth="0.8" opacity="0.35">
+        <g fill="none" stroke="var(--accent)" strokeWidth="0.8" opacity="0.35">
           <ellipse cx="50" cy="50" rx="47" ry="16" />
           <ellipse cx="50" cy="50" rx="47" ry="34" />
           <ellipse cx="50" cy="50" rx="18" ry="47" />
@@ -114,7 +114,7 @@ export function Intro() {
           className="intro-letters absolute inset-0"
           aria-label="Thales"
         >
-          <g fill="#eef1f8">
+          <g fill="var(--foreground-bright)">
             <path d="m484 42.1c0 7.8-2.3 10.1-8.5 12-6.7 2-18.6 3.3-25.7 3.3-8.4 0-18.9-0.5-27.8-2.6v-9h49.3v-12.3h-34.9c-10.5 0-14.4-2.9-14.4-13.1v-5.4c0-8.1 2.4-10.5 8.9-12.2 6.6-1.7 17.4-2.8 24.5-2.8 8.6 0 18.9 0.7 27.8 2.7v9h-48.5v10.3h34.9c10.5 0 14.4 2.8 14.4 13.1z" />
             <path d="m400 54.7c-10.2 2-20.5 2.6-30.5 2.6s-20.4-0.6-30.7-2.6v-52c10.2-2 20.6-2.7 30.5-2.7 10 0 20.1 0.6 30.3 2.7v9.3h-46.2v10.4h30.1v10.8h-30.1v12.3h46.4v9.2z" />
             <path d="m321 54.7c-9.2 2-18.4 2.6-27.3 2.6s-18.3-0.5-27.5-2.6v-53.4h14.7v43.5h40.1z" />

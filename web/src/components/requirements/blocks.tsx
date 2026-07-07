@@ -68,10 +68,10 @@ export function DebateBadge({ debate }: { debate?: Debate | null }) {
   );
 }
 export const ROLE_STYLE: Record<string, { bg: string; label: string }> = {
-  "déterministe": { bg: "#0891B2", label: "Règle" },
-  embeddings: { bg: "#0D9488", label: "Vectoriel" },
-  IA: { bg: "#7C3AED", label: "Agent IA" },
-  "synthèse": { bg: "#B45309", label: "Synthèse" },
+  "déterministe": { bg: "var(--role-rule)", label: "Règle" },
+  embeddings: { bg: "var(--role-vector)", label: "Vectoriel" },
+  IA: { bg: "var(--role-agent)", label: "Agent IA" },
+  "synthèse": { bg: "var(--role-synthesis)", label: "Synthèse" },
 };
 
 export const btnPrimary =
@@ -90,7 +90,7 @@ export const inputCls =
   "placeholder:text-fg-faint focus:border-accent focus:outline-none";
 
 export function RoleChip({ role }: { role: string }) {
-  const s = ROLE_STYLE[role] ?? { bg: "#4B5563", label: role };
+  const s = ROLE_STYLE[role] ?? { bg: "var(--role-default)", label: role };
   return (
     <span className="rounded-md px-1.5 py-0.5 text-[10px] font-medium text-white"
           style={{ background: s.bg }}>
