@@ -435,7 +435,8 @@ export function Requirements() {
           </div>
           {graphView === "3d" ? (
             <ReqGraph3D corpus={corpus} selected={selected} impacted={impacted}
-                        flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
+                        flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select}
+                        niveaux={niveaux} />
           ) : (
             <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
                       flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select}

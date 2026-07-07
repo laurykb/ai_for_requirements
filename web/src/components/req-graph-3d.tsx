@@ -12,7 +12,7 @@ import ForceGraph3D from "react-force-graph-3d";
 import SpriteText from "three-spritetext";
 
 import { STATE_HEX, type Req } from "@/components/req-graph";
-import { couleurNiveau, libelleNiveau, maxNiveau } from "@/components/req-levels";
+import { couleurNiveau, libelleNiveau, maxNiveau, type NiveauCat } from "@/components/req-levels";
 
 type GNode = {
   id: string; niveau: number; state: string; texte: string;
@@ -21,7 +21,7 @@ type GNode = {
 type GLink = { source: string; target: string; dashed: boolean };
 
 export const ReqGraph3D = memo(function ReqGraph3D({
-  corpus, selected, impacted, flaggedSev, mentioned, onSelect,
+  corpus, selected, impacted, flaggedSev, mentioned, onSelect, niveaux,
 }: {
   corpus: Req[];
   selected: string | null;
@@ -29,6 +29,8 @@ export const ReqGraph3D = memo(function ReqGraph3D({
   flaggedSev: Map<string, "bad" | "warn">;
   mentioned: Set<string>;
   onSelect: (id: string) => void;
+  /** Catalogue de libellés de niveaux porté par le corpus (repli L0–L5 si absent). */
+  niveaux?: NiveauCat[];
 }) {
   // Largeur mesurée du cadre (la lib se dimensionne en pixels).
   const boxRef = useRef<HTMLDivElement>(null);
@@ -83,7 +85,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
             nodeLabel={(n: object) => {
               const g = n as GNode;
               return `<div style="max-width:280px;font-size:11px"><b>${g.id}</b> · ${
-                libelleNiveau(g.niveau)}<br/>${g.texte}</div>`;
+                libelleNiveau(g.niveau, niveaux)}<br/>${g.texte}</div>`;
             }}
             nodeThreeObject={(n: object) => {
               const g = n as GNode;
