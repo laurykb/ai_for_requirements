@@ -19,7 +19,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { couleurNiveau, libelleNiveau, maxNiveau } from "@/components/req-levels";
+import { couleurNiveau, libelleNiveau, maxNiveau, type NiveauCat } from "@/components/req-levels";
 
 export type Req = {
   id: string;
@@ -106,6 +106,7 @@ export const ReqGraph = memo(function ReqGraph({
   flaggedSev,
   mentioned,
   onSelect,
+  niveaux,
 }: {
   corpus: Req[];
   selected: string | null;
@@ -115,6 +116,8 @@ export const ReqGraph = memo(function ReqGraph({
   /** Citées par la synthèse LLM du verdict. */
   mentioned: Set<string>;
   onSelect: (id: string) => void;
+  /** Catalogue de libellés de niveaux porté par le corpus (repli L0–L5 si absent). */
+  niveaux?: NiveauCat[];
 }) {
   const { nodes, edges } = useMemo(() => {
     const nMax = maxNiveau(corpus);
@@ -130,7 +133,7 @@ export const ReqGraph = memo(function ReqGraph({
       nodes.push({
         id: `lvl-${lvl}`, type: "level",
         position: { x: -215, y: lvl * 140 + 4 },
-        data: { label: libelleNiveau(lvl), color: couleurNiveau(lvl, nMax) },
+        data: { label: libelleNiveau(lvl, niveaux), color: couleurNiveau(lvl, nMax) },
         draggable: false, selectable: false, focusable: false,
       });
       const reqs = byLevel.get(lvl)!;
@@ -161,7 +164,7 @@ export const ReqGraph = memo(function ReqGraph({
                      style: { stroke: "rgba(93,191,213,0.35)", strokeDasharray: "4 4" } });
     }
     return { nodes, edges };
-  }, [corpus, selected, impacted, flaggedSev, mentioned]);
+  }, [corpus, selected, impacted, flaggedSev, mentioned, niveaux]);
 
   const onNodeClick: NodeMouseHandler = (_e, node) => {
     if (node.type === "req") onSelect(node.id);

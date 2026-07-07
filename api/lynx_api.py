@@ -63,7 +63,18 @@ def _ui_findings(report) -> list[dict]:
 @router.get("/corpus")
 def get_corpus() -> dict:
     corpus = _get_corpus()
-    return {"n": len(corpus), "exigences": corpus,
+    # Catalogue de niveaux porté par le corpus XL s'il existe (libellés sémantiques
+    # côté UI) ; sinon [] et le front retombe sur les libellés L0–L5 d'origine.
+    import json as _json
+    from src.config import DATA_DIR as _DD
+    niveaux: list = []
+    xl = _DD / "corpus_xl.json"
+    if xl.exists():
+        try:
+            niveaux = _json.loads(xl.read_text(encoding="utf-8")).get("niveaux", [])
+        except Exception:
+            niveaux = []
+    return {"n": len(corpus), "exigences": corpus, "niveaux": niveaux,
             "llm": {"available": llm.llm_available(), "model": llm.current_model()}}
 
 

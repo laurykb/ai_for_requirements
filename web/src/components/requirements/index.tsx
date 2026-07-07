@@ -16,7 +16,7 @@ import ReactMarkdown from "react-markdown";
 import { API_BASE, getJSON } from "@/lib/api";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 import { type Req } from "@/components/req-graph";
-import { couleurNiveau, maxNiveau } from "@/components/req-levels";
+import { couleurNiveau, maxNiveau, type NiveauCat } from "@/components/req-levels";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
   type AuditReport, type Exchange, type Finding, type FixProgress, type FixRecap,
@@ -43,6 +43,7 @@ const VERDICT_COLOR: Record<string, string> = {
 
 export function Requirements() {
   const [corpus, setCorpus] = useState<Req[] | null>(null);
+  const [niveaux, setNiveaux] = useState<NiveauCat[]>([]);
   const [llmOk, setLlmOk] = useState(false);
   const [model, setModel] = useState("");
   const [models, setModels] = useState<string[]>([]);
@@ -85,9 +86,10 @@ export function Requirements() {
 
   const refresh = useCallback(async () => {
     try {
-      const c = await getJSON<{ n: number; exigences: Req[];
+      const c = await getJSON<{ n: number; exigences: Req[]; niveaux?: NiveauCat[];
                                 llm: { available: boolean; model: string } }>("/api/lynx/corpus");
       setCorpus(c.exigences);
+      setNiveaux(c.niveaux ?? []);
       setLlmOk(c.llm.available);
       setModel(c.llm.model);
       setError(null);
@@ -436,7 +438,8 @@ export function Requirements() {
                         flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
           ) : (
             <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
-                      flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select} />
+                      flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select}
+                      niveaux={niveaux} />
           )}
         </div>
 
