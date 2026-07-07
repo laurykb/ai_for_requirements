@@ -30,7 +30,8 @@ logger = get_logger("rag.eval")
 _METRIC_KEYS = [
     "keyword_hit_rate", "context_recall", "context_precision",
     "exact_match", "f1_token", "faithfulness", "answer_relevance",
-    "context_relevance", "latency_s", "num_chunks_retrieved",
+    "context_relevance", "taux_affirmations_sourcees", "precision_attribution",
+    "latency_s", "num_chunks_retrieved",
 ]
 
 _DEFAULT_DATASET = Path(__file__).resolve().parent / "golden_qa_anssi_v2.json"
@@ -51,6 +52,30 @@ def _aggregate(results: list) -> dict:
         vals = [r[k] for r in ok if isinstance(r.get(k), (int, float))]
         agg[k] = round(sum(vals) / len(vals), 4) if vals else None
     return agg
+
+
+def _attribution_metrics(metrics: dict, question: str, generated: str,
+                         chunks: list, use_judge: bool, judge) -> None:
+    """Ajoute les métriques d'attribution par affirmation (mode full) :
+
+    - taux_affirmations_sourcees : fraction des affirmations de la réponse
+      soutenues par un passage (statuts sourcee + completee) ;
+    - precision_attribution (si juge actif) : sur un échantillon de couples
+      (affirmation, passage cité), le juge confirme-t-il le soutien ?
+    """
+    from core.attribution import attribute_answer, judge_attribution_support
+
+    att = attribute_answer(question, generated, chunks)
+    if not att.get("ok"):
+        logger.warning("Attribution en échec : %s", att.get("error"))
+        return
+    metrics["n_affirmations"] = att["n_affirmations"]
+    if att["n_affirmations"]:
+        metrics["taux_affirmations_sourcees"] = round(
+            (att["n_sourcees"] + att["n_completees"]) / att["n_affirmations"], 4)
+        if use_judge and judge is not None:
+            metrics["precision_attribution"] = judge_attribution_support(
+                att["affirmations"], chunks, judge)
 
 
 def _evaluate_item(item: dict, mode: str, source_filter: str, use_judge: bool, judge) -> dict:
@@ -87,6 +112,14 @@ def _evaluate_item(item: dict, mode: str, source_filter: str, use_judge: bool, j
                 llm_judge=judge,
             )
             metrics["keyword_hit_rate"] = keyword_hit_rate(chunks, expected_kw)
+            # Attribution par affirmation : taux d'affirmations sourcées, et
+            # précision d'attribution (juge LLM : le passage cité soutient-il
+            # l'affirmation ?). Best-effort : un échec n'invalide pas le run.
+            try:
+                _attribution_metrics(metrics, question, generated or "", chunks,
+                                     use_judge, judge)
+            except Exception as e:
+                logger.warning("Attribution impossible pour « %s » : %s", question, e)
 
         metrics["latency_s"] = round(time.time() - t0, 2)
         metrics["status"] = "ok"
