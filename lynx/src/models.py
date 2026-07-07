@@ -76,7 +76,7 @@ class Requirement(BaseModel):
     """
 
     id: str = Field(..., description="Identifiant unique")
-    niveau: int = Field(..., ge=0, le=5, description="Profondeur L0..L5")
+    niveau: int = Field(..., ge=0, description="Profondeur L0..Ln (dérivée du corpus)")
     type: str = Field(default="Exigence", description="Nature de l'exigence")
     domaine: str = Field(default="Général", description="Spécialité métier")
     texte: str = Field(default="", description="Énoncé de l'exigence")

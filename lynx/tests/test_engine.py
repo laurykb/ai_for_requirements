@@ -667,3 +667,14 @@ def test_link_forbids_level_jump():
     out = build_candidate_tree(tree, Action(action_type=ActionType.LINK, target_id="L2",
                                             link_target="L1", link_type=LinkType.DERIVE))
     assert any(lk.target == "L1" for lk in out.get("L2").links)
+
+
+def test_requirement_accepte_niveau_profond():
+    """Le modèle accepte une profondeur > 5 (hiérarchie dynamique)."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+    from src.models import Requirement
+    r = Requirement(id="REQ-L7-PROP-001", niveau=7, texte="x")
+    assert r.niveau == 7
+    with _pytest.raises(ValidationError):
+        Requirement(id="X", niveau=-1)
