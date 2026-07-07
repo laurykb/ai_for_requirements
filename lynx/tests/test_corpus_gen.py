@@ -60,3 +60,21 @@ def test_verifications_cycle_en_v():
         assert cible in spec_ids                 # cible une vraie exigence
         assert v["niveau"] == spec_by_id[cible]["niveau"]  # symétrie du V
         assert v["id"].startswith("VER-L")
+
+
+def test_budgets_bouclent():
+    elems = corpus_gen.build_architecture()
+    reqs = corpus_gen.derive_requirements(elems)
+    corpus_gen.attach_budgets(reqs)
+    by_id = {r["id"]: r for r in reqs}
+    enfants = {}
+    for r in reqs:
+        if r["parent_id"]:
+            enfants.setdefault(r["parent_id"], []).append(r)
+
+    def masse(r):
+        return next(g["valeur"] for g in r["grandeurs"] if g["grandeur"] == "masse")
+
+    for pid, kids in enfants.items():
+        assert abs(masse(by_id[pid]) - sum(masse(k) for k in kids)) < 1e-6
+    assert all(masse(r) > 0 for r in reqs)

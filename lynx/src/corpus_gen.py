@@ -172,3 +172,37 @@ def derive_verifications(spec_reqs: List[dict], stride: int = 2) -> List[dict]:
             "_verifie": r,  # travail interne (retiré à l'assemblage)
         })
     return verifs
+
+
+def attach_budgets(reqs: List[dict], budget_racine_kg: float = 25.0) -> None:
+    """Alloue une masse à chaque exigence de déclinaison : parent = somme des
+    enfants (réparti à parts égales en descendant depuis la racine).
+
+    Roll-up exact : la masse d'une feuille est le budget top-down arrondi à
+    4 décimales ; celle d'un nœud interne est la somme (déjà arrondie) de ses
+    enfants — donc ``masse(parent) == Σ masse(enfants)`` sans dérive de flottant.
+    """
+    enfants: Dict[str, List[dict]] = {}
+    for r in reqs:
+        if r["parent_id"]:
+            enfants.setdefault(r["parent_id"], []).append(r)
+
+    budgets: Dict[str, float] = {}
+
+    def _set(rid: str, valeur: float) -> float:
+        kids = enfants.get(rid, [])
+        if not kids:
+            budgets[rid] = round(valeur, 4)
+        else:
+            part = valeur / len(kids)
+            budgets[rid] = round(sum(_set(k["id"], part) for k in kids), 4)
+        return budgets[rid]
+
+    racine = next(r for r in reqs if r["parent_id"] is None)
+    _set(racine["id"], budget_racine_kg)
+
+    for r in reqs:
+        r["grandeurs"] = [{
+            "grandeur": "masse", "operateur": "<=",
+            "valeur": budgets[r["id"]], "unite": "kg",
+            "mode": None, "tolerance": round(budgets[r["id"]] * 0.05, 4)}]
