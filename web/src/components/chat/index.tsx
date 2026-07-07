@@ -21,6 +21,7 @@ import type { ChatMessage, ChunkView, PlanStep, SessionInfo } from "@/lib/types"
 import { useExpert } from "@/components/expert-toggle";
 import { Dot, Spinner } from "@/components/ui";
 import { AssistantMessage, NOT_FOUND_MESSAGE } from "@/components/chat/blocks";
+import { AnswerMarkdown } from "@/components/chat/markdown";
 import { SessionsSidebar } from "@/components/chat/sessions-sidebar";
 import { Composer, type Mode } from "@/components/chat/composer";
 
@@ -216,7 +217,20 @@ export function Chat() {
           draft.content += ev.text;
           setPartial(draft.content);
         } else if (ev.type === "sources") draft.citations = ev.citations;
-        else if (ev.type === "eval") {
+        else if (ev.type === "attribution") {
+          // Attribution par affirmation : arrive APRÈS done (passe post-hoc)
+          // -> mise à jour du dernier message (marqueurs déjà affichés).
+          const { type: _t, ...attribution } = ev;
+          void _t;
+          draft.attribution = attribution;
+          setMessages((ms) => {
+            const last = ms[ms.length - 1];
+            if (last?.role === "assistant") {
+              return [...ms.slice(0, -1), { ...last, attribution }];
+            }
+            return ms;
+          });
+        } else if (ev.type === "eval") {
           draft.eval = ev;
           setMessages((ms) => {
             // l'éval arrive APRÈS done : mise à jour du dernier message
@@ -281,8 +295,11 @@ export function Chat() {
         const i = ms.map((m) => m.role).lastIndexOf("assistant");
         if (i < 0) return ms;
         const next = [...ms];
+        // d.chunks = la sélection APRÈS affinage pré-génération : c'est la
+        // liste numérotée [1..n] du contexte (contrat marqueur↔passage).
         next[i] = { ...next[i], content: d.answer, citations: d.citations,
-                    chunks: selectedChunks, eval: undefined };
+                    chunks: d.chunks ?? selectedChunks, eval: undefined,
+                    attribution: undefined };
         return next;
       });
     } catch { /* silencieux : le message existant reste */ }
@@ -500,7 +517,9 @@ export function Chat() {
               )}
               {partial ? (
                 <div className="chat-md stream-caret text-sm leading-relaxed">
-                  <ReactMarkdown>{partial}</ReactMarkdown>
+                  {/* Marqueurs [n] stylés dès le streaming (cliquables une
+                      fois la réponse finalisée, avec ses passages). */}
+                  <AnswerMarkdown content={partial} maxCite={nChunks ?? 0} />
                 </div>
               ) : (
                 <p className="flex items-center gap-2 text-xs text-fg-muted">

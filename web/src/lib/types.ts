@@ -31,6 +31,26 @@ export type ChunkView = {
 /** Étape du plan de l'agent (planificateur-exécuteur multi-hop). */
 export type PlanStep = { sous_question: string; but?: string };
 
+/** Affirmation factuelle de la réponse, rattachée à ses passages sources
+ * par la passe post-hoc d'attribution (core/attribution.py). */
+export type Affirmation = {
+  texte: string;
+  passages: number[];
+  statut: "sourcee" | "completee" | "non_sourcee";
+};
+
+/** Résultat de la passe d'attribution (ok=false : échec/timeout — la réponse
+ * garde ses marqueurs inline, rien n'est bloqué). */
+export type Attribution = {
+  ok: boolean;
+  affirmations?: Affirmation[];
+  n_affirmations?: number;
+  n_sourcees?: number;
+  n_completees?: number;
+  n_non_sourcees?: number;
+  error?: string | null;
+};
+
 /** Trames SSE de POST /api/ask. */
 export type AskEvent =
   | { type: "session"; id: string }
@@ -46,13 +66,17 @@ export type AskEvent =
   | { type: "observation"; text: string }
   | { type: "token"; text: string }
   | { type: "sources"; citations: Citation[] }
+  | ({ type: "attribution" } & Attribution)
   | { type: "eval"; faithfulness?: number; answer_relevance?: number;
-      context_relevance?: number; issues?: string[] }
+      context_relevance?: number; issues?: string[];
+      n_affirmations?: number; n_sourcees?: number; n_non_sourcees?: number }
   | { type: "done"; found: boolean }
   | { type: "error"; message: string };
 
 export type EvalResult = { faithfulness?: number | null; answer_relevance?: number | null;
-                           context_relevance?: number | null; issues?: string[] };
+                           context_relevance?: number | null; issues?: string[];
+                           n_affirmations?: number | null; n_sourcees?: number | null;
+                           n_non_sourcees?: number | null };
 
 export type SessionInfo = { id: string; title: string; updated_at: string;
                             source_filter: string | null };
@@ -74,4 +98,6 @@ export type ChatMessage = {
   route?: string;
   /** Vérification automatique (question à enjeu). */
   eval?: EvalResult;
+  /** Attribution par affirmation (passe post-hoc, persistée en session). */
+  attribution?: Attribution;
 };
