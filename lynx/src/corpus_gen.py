@@ -262,3 +262,49 @@ def rediger(req: dict, use_llm: bool = True) -> str:
         if txt and len((txt or "").strip()) > 60:
             return txt.strip()
     return texte_gabarit(req)
+
+
+def build_corpus(target: int = 350, stride: int = 2, use_llm: bool = True) -> dict:
+    elems = build_architecture(target=target)
+    spec = derive_requirements(elems)
+    attach_budgets(spec)
+    verifs = derive_verifications(spec, stride=stride)
+    reqs = spec + verifs
+    for r in reqs:
+        r["texte"] = rediger(r, use_llm=use_llm)
+        r.pop("_element", None)
+        r.pop("_verifie", None)
+    return {
+        "meta": {"systeme": SYS_LABEL, "n": len(reqs),
+                 "n_declinaison": len(spec), "n_verification": len(verifs),
+                 "genere_par": "corpus_gen", "profondeur": max(r["niveau"] for r in reqs)},
+        "niveaux": NIVEAUX,
+        "modes_operationnels": MODES,
+        "architecture": elems,
+        "exigences": reqs,
+    }
+
+
+def write_corpus(corpus: dict, path: Optional[Any] = None):
+    from pathlib import Path
+    dest = Path(path) if path else (DATA_DIR / "corpus_xl.json")
+    dest.write_text(json.dumps(corpus, ensure_ascii=False, indent=1), encoding="utf-8")
+    return dest
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Génère un corpus XL d'exigences (cycle en V).")
+    ap.add_argument("--target", type=int, default=350, help="taille de la branche descendante")
+    ap.add_argument("--stride", type=int, default=2, help="1 vérification pour N exigences")
+    ap.add_argument("--no-llm", action="store_true", help="repli gabarit (pas d'appel LLM)")
+    ap.add_argument("-o", "--out", default=None)
+    args = ap.parse_args()
+    corpus = build_corpus(target=args.target, stride=args.stride, use_llm=not args.no_llm)
+    dest = write_corpus(corpus, args.out)
+    m = corpus["meta"]
+    print(f"{m['n']} exigences ({m['n_declinaison']} déclinaison + "
+          f"{m['n_verification']} vérification) → {dest}")
+
+
+if __name__ == "__main__":
+    main()

@@ -93,3 +93,18 @@ def test_redaction_gabarit_verbeux_sans_llm():
     assert len(vtxt) > 120 and "vérif" in vtxt.lower()
     fiche = corpus_gen.fiche_prose(r)
     assert fiche["id"] == r["id"] and "domaine" in fiche
+
+
+def test_build_corpus_valide_par_corpus_io():
+    from src import corpus_io
+    corpus = corpus_gen.build_corpus(target=120, use_llm=False)
+    assert set(corpus) >= {"meta", "niveaux", "modes_operationnels", "architecture", "exigences"}
+    exs = corpus["exigences"]
+    assert all("_element" not in r and "_verifie" not in r for r in exs)
+    assert all(len(r["texte"]) > 120 for r in exs)
+    # les deux branches sont présentes
+    assert any(r["type"] == "Vérification" for r in exs)
+    assert any(r["type"] != "Vérification" for r in exs)
+    # validation par le pipeline réel : zéro erreur structurelle
+    valides, erreurs = corpus_io.validate_corpus(exs)
+    assert erreurs == [] and len(valides) == len(exs)
