@@ -18,7 +18,7 @@ from env_config import (
     LOG_LEVEL,
 )
 from retrieval.retrieve import hybrid_retrieve
-from core.llm_answer import answer, answer_stream
+from core.llm_answer import answer, answer_stream, refine_for_generation
 from nlp.query_rewriter import trim_only_rewrite
 from indexing.keyword_index import load_bm25_from_mongo
 
@@ -105,11 +105,15 @@ def process_query(user_q: str, selected_chunks=None, system_prompt=None, source_
 
     with start_trace("rag.query", query=user_q, source=source_filter,
                      mode=("generate_only" if selected_chunks is not None else "full")) as _tr:
-        # Si des chunks sont fournis, ne faire que la generation de la reponse
+        # Si des chunks sont fournis, ne faire que la generation de la reponse.
+        # Affinage AVANT génération, et retour de la liste affinée : les chunks
+        # retournés = la liste numérotée [1..n] du contexte (contrat marqueur↔passage).
         if selected_chunks is not None:
+            selected_chunks = refine_for_generation(selected_chunks)
             with span("generation"):
                 rep, citations = answer(user_q, selected_chunks, system_prompt=system_prompt,
-                                        conversation_history=conversation_history)
+                                        conversation_history=conversation_history,
+                                        already_refined=True)
             return rep, selected_chunks, citations
 
         q_main = query = _clean_query(user_q)
@@ -149,10 +153,13 @@ def process_query(user_q: str, selected_chunks=None, system_prompt=None, source_
             logger.debug("[resultat] Aucun chunk pertinent trouvé.")
             return "Je n'ai pas trouvé d'information sur ce sujet dans vos documents.", [], []
 
-        # Reponse finale (LLM de generation)
+        # Reponse finale (LLM de generation). Les chunks retournés = la liste
+        # affinée réellement numérotée dans le contexte (contrat marqueur↔passage).
+        final_chunks = refine_for_generation(final_chunks)
         with span("generation"):
             rep, citations = answer(q_main, final_chunks, system_prompt=system_prompt,
-                                    conversation_history=conversation_history)
+                                    conversation_history=conversation_history,
+                                    already_refined=True)
         _tr.set("num_chunks", len(final_chunks))
         return rep, final_chunks, citations  # (reponse, chunks, citations)
 
@@ -264,9 +271,13 @@ def process_query_stream(user_q: str, system_prompt=None, source_filter: str = N
         logger.debug("[resultat] Aucun chunk pertinent trouvé.")
         return None, [], []
 
+    # Affinage AVANT génération : les chunks retournés (affichés/persistés par
+    # l'appelant, trame `retrieved`) sont EXACTEMENT la liste numérotée [1..n]
+    # du contexte — le clic sur un marqueur [n] ouvre le bon passage.
+    final_chunks = refine_for_generation(final_chunks)
     token_gen, citations = answer_stream(
         q_main, final_chunks, system_prompt=system_prompt,
-        conversation_history=conversation_history
+        conversation_history=conversation_history, already_refined=True
     )
     return token_gen, final_chunks, citations
 

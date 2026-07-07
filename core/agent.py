@@ -229,12 +229,10 @@ class ReActAgent:
                     if result.get("mode") == "passages":
                         # Numérote les passages dans le registre GLOBAL -> l'agent cite [1], [2]...
                         observation = _passages_observation(result, sources)
-                        for p in (result.get("passages") or []):
-                            gathered.append({
-                                "doc": p.get("text", ""),
-                                "meta": {"source": p.get("source"),
-                                         "page_number": p.get("page"), "heading": p.get("section")},
-                            })
+                        res_chunks = result.get("chunks") or []
+                        for j, p in enumerate(result.get("passages") or []):
+                            _gather_passage(gathered, p,
+                                            res_chunks[j] if j < len(res_chunks) else None)
                         _accumulate_chunks(gathered_chunks, seen_chunk_keys, result.get("chunks"))
                     else:
                         _merge_sources(sources, result.get("sources"))
@@ -254,11 +252,16 @@ class ReActAgent:
                 # Retrieval agentique -> UNE génération ancrée sur tous les passages
                 # récupérés (fiable + citée), plutôt que le texte libre du raisonnement.
                 with span("synthesis", passages=len(gathered)):
-                    syn_answer, syn_citations = self.synthesizer(question, gathered)
+                    syn_answer, syn_citations, used_chunks = _unpack_synthesis(
+                        self.synthesizer(question, gathered))
                 if syn_answer:
                     answer = syn_answer
                     if syn_citations:
                         sources = syn_citations
+                    if used_chunks is not None:
+                        # Contrat marqueur↔passage : les chunks exposés à l'UI sont
+                        # EXACTEMENT la liste numérotée [1..n] de la synthèse.
+                        gathered_chunks = used_chunks
                     if stopped_reason != "final_answer":
                         stopped_reason = "synthesized"
             if answer is None:
@@ -358,10 +361,10 @@ class ReActAgent:
 
                 if result.get("mode") == "passages":
                     observation = _passages_observation(result, sources)
-                    for p in (result.get("passages") or []):
-                        gathered.append({"doc": p.get("text", ""),
-                                         "meta": {"source": p.get("source"),
-                                                  "page_number": p.get("page"), "heading": p.get("section")}})
+                    res_chunks = result.get("chunks") or []
+                    for j, p in enumerate(result.get("passages") or []):
+                        _gather_passage(gathered, p,
+                                        res_chunks[j] if j < len(res_chunks) else None)
                     _accumulate_chunks(gathered_chunks, seen_chunk_keys, result.get("chunks"))
                     obs_summary = f"{len(result.get('passages') or [])} passage(s) trouvé(s)"
                 else:
@@ -378,13 +381,16 @@ class ReActAgent:
             if self.retrieve_only and gathered:
                 parts = []
                 with span("synthesis", passages=len(gathered)):
-                    token_gen, syn_citations = self.stream_synthesizer(question, gathered)
+                    token_gen, syn_citations, used_chunks = _unpack_synthesis(
+                        self.stream_synthesizer(question, gathered))
                     for tok in token_gen:
                         parts.append(tok)
                         yield {"type": "answer_token", "text": tok}
                 answer = "".join(parts).strip()
                 if syn_citations:
                     sources = syn_citations
+                if used_chunks is not None:
+                    gathered_chunks = used_chunks  # contrat marqueur↔passage
                 if stopped_reason != "final_answer":
                     stopped_reason = "synthesized"
             elif answer:
@@ -498,27 +504,65 @@ def _merge_sources(acc: list[dict], new: list[dict] | None) -> None:
 def _synthesize(question: str, gathered: list[dict]):
     """Génère LA réponse finale ancrée sur les passages récupérés par l'agent
     (une seule génération, citée). Réutilise la génération du pipeline (prompt épuré
-    en mode rapide). Retourne (texte, citations) ; ('', []) si la génération échoue."""
-    from core.llm_answer import answer as _answer, LEAN_SYSTEM_PROMPT
+    en mode rapide). Retourne (texte, citations, used_chunks) où `used_chunks` est
+    la liste AFFINÉE réellement numérotée [1..n] dans le contexte (contrat
+    marqueur↔passage) ; ('', [], None) si la génération échoue."""
+    from core.llm_answer import answer as _answer, refine_for_generation, LEAN_SYSTEM_PROMPT
     try:
         # Prompt épuré : une réponse DIRECTE et sourcée, sans le canevas
         # [Réponse]/[Justification] (le raisonnement est déjà montré séparément).
-        text, citations = _answer(question, gathered, system_prompt=LEAN_SYSTEM_PROMPT)
-        return (text or ""), (citations or [])
+        used = refine_for_generation(gathered)
+        text, citations = _answer(question, used, system_prompt=LEAN_SYSTEM_PROMPT,
+                                  already_refined=True)
+        return (text or ""), (citations or []), used
     except Exception as e:
         logger.warning("[agent] Synthèse finale impossible : %s", e)
-        return "", []
+        return "", [], None
 
 
 def _synthesize_stream(question: str, gathered: list[dict]):
-    """Synthèse finale STREAMÉE : (générateur de tokens, citations). Réutilise
-    answer_stream du pipeline (prompt épuré en mode rapide)."""
-    from core.llm_answer import answer_stream, LEAN_SYSTEM_PROMPT
+    """Synthèse finale STREAMÉE : (générateur de tokens, citations, used_chunks) —
+    même contrat marqueur↔passage que _synthesize. Réutilise answer_stream du
+    pipeline (prompt épuré en mode rapide)."""
+    from core.llm_answer import answer_stream, refine_for_generation, LEAN_SYSTEM_PROMPT
     try:
-        return answer_stream(question, gathered, system_prompt=LEAN_SYSTEM_PROMPT)
+        used = refine_for_generation(gathered)
+        gen, citations = answer_stream(question, used, system_prompt=LEAN_SYSTEM_PROMPT,
+                                       already_refined=True)
+        return gen, citations, used
     except Exception as e:
         logger.warning("[agent] Synthèse streamée impossible : %s", e)
-        return iter([f"(synthèse impossible : {e})"]), []
+        return iter([f"(synthèse impossible : {e})"]), [], None
+
+
+def _unpack_synthesis(out):
+    """Dépaquette un résultat de synthétiseur en (payload, citations, used_chunks).
+
+    Les synthétiseurs INJECTÉS (tests, intégrations historiques) peuvent encore
+    renvoyer un 2-tuple (payload, citations) : used_chunks vaut alors None et
+    l'appelant conserve son propre registre de chunks."""
+    if isinstance(out, tuple) and len(out) == 3:
+        return out
+    payload, citations = out
+    return payload, citations, None
+
+
+def _gather_passage(gathered: list[dict], passage: dict, full_chunk: dict | None) -> None:
+    """Verse un passage retenu dans le contexte de synthèse.
+
+    Privilégie le chunk INTÉGRAL correspondant (texte complet + métadonnées
+    enrichies — aligné index à index avec `passages` par tools.rag_tool) : la
+    synthèse est ancrée sur le même contenu que celui montré à l'utilisateur.
+    Repli sur le passage tronqué si l'outil n'a pas renvoyé les chunks."""
+    if full_chunk and (full_chunk.get("doc") or "").strip():
+        gathered.append({"doc": full_chunk.get("doc", ""),
+                         "ce_score": full_chunk.get("ce_score"),
+                         "meta": dict(full_chunk.get("meta") or {})})
+    else:
+        gathered.append({"doc": passage.get("text", ""),
+                         "meta": {"source": passage.get("source"),
+                                  "page_number": passage.get("page"),
+                                  "heading": passage.get("section")}})
 
 
 def _fallback_answer(steps: list[dict]) -> str:
