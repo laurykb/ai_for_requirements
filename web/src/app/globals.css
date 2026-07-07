@@ -321,3 +321,52 @@ body {
   color: var(--foreground-muted);
   margin: 0.5rem 0;
 }
+
+/* ── Attribution par affirmation (marqueurs [n] + non sourcé) ──────────────── */
+/* Puce discrète d'un marqueur de citation [n] : cliquable quand la réponse est
+   finalisée (bouton), simple exposant pendant le streaming. */
+.cite-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  margin: 0 0.12em;
+  padding: 0 0.25em;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-bright);
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.68em;
+  line-height: 1;
+  vertical-align: 0.18em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+button.cite-marker:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: var(--accent);
+}
+sup.cite-marker {
+  cursor: default;
+}
+
+/* Affirmation non sourcée dans les documents : fond ambre discret + info-bulle. */
+.chat-md mark.unsourced {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: inherit;
+  border-bottom: 1px dotted color-mix(in srgb, var(--warn) 60%, transparent);
+  border-radius: 3px;
+  padding: 0 0.15em;
+  cursor: help;
+}
+
+/* Surlignage temporaire du passage ciblé par un clic sur un marqueur [n]. */
+.chunk-flash {
+  animation: chunk-flash 1.8s ease-out;
+}
+@keyframes chunk-flash {
+  0%, 55% { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { background: transparent; }
+}

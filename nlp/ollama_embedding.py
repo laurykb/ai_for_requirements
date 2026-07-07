@@ -3,7 +3,7 @@ import time
 import requests
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from env_config import EMBED_MODEL, OLLAMA_HOST, EMBED_TIMEOUT_S
+from env_config import EMBED_MODEL, OLLAMA_HOST, EMBED_TIMEOUT_S, OLLAMA_NUM_GPU
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class OllamaEmbedding:
             "model": self.model,
             "prompt": text
         }
+        # Offload GPU forcé par l'environnement (OLLAMA_NUM_GPU, ex. 0 = CPU
+        # quand le GPU est occupé) - aligné sur core.model_router.llm_kwargs.
+        if OLLAMA_NUM_GPU is not None:
+            payload["options"] = {"num_gpu": OLLAMA_NUM_GPU}
         # Retry : un 500 transitoire (pression VRAM, chargement de modèle) ne doit
         # pas invalider tout un chunk et faire échouer l'ingestion entière.
         last_err = None

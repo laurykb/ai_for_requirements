@@ -232,6 +232,52 @@ basée sur `f192bd6`), à merger dans `feat/web-ui-foundations`.
   enhancement_cache,graph_cache,mongodb,vocab_save}`, `models`, `.env` (lecture seule) ;
   API 8001 (`OLLAMA_HOST=http://127.0.0.1:11435` + `WEB_ORIGINS=…:3001`), front 3001.
 
+## Attribution par affirmation — session 2026-07-07 (lane ⑤, worktree isolé)
+
+Point ⑤ du plan (design approuvé) : chaque affirmation factuelle des réponses du chat
+est attribuée à son passage source. Branche `feat/rag-attribution` (basée sur
+`feat/rag-plan-execute`), à merger après le ④.
+
+- **Contrat marqueur↔passage** : l'affinage pré-génération (dédup/plafond/réordonnancement)
+  est exposé (`core/llm_answer.refine_for_generation`) et appliqué AVANT la numérotation
+  [1..n] sur TOUS les chemins (RAG direct, régénération, Self-RAG, synthèse agent ReAct +
+  planificateur) → la liste `retrieved` envoyée au front EST la liste numérotée du contexte.
+  Les passages multi-étapes de l'agent sont versés en version intégrale (alignés par
+  `rag_tool`) et dédupliqués. Prompts renforcés : un [n] après chaque affirmation factuelle.
+- **Passe post-hoc** (`core/attribution.py`) : après la génération, UN appel LLM (JSON
+  contraint Ollama, validation stricte + un retry avec erreurs réinjectées, budget
+  `ATTRIBUTION_TIMEOUT_S`, défaut 60 s) → affirmations `{texte, passages, statut
+  sourcee|completee|non_sourcee}`. Échec/timeout : la réponse garde ses marqueurs, event
+  `attribution` en échec, jamais bloquant.
+- **SSE + persistance** : trame `attribution` après `done` (RAG direct ET agent), trame
+  `eval` enrichie (n_affirmations, n_sourcees, n_non_sourcees) ; attribution persistée sur
+  le dernier message assistant (`core/chat_sessions.set_last_assistant_attribution`) →
+  restaurée au rechargement d'une conversation. `/api/regenerate` renvoie la sélection affinée.
+- **Front** (`web/src/components/chat/markdown.tsx`) : plugin rehype maison (aucune
+  dépendance) — marqueurs [n] en puces discrètes cliquables (clic → ouvre « Passages
+  récupérés », déplie, défile, surligne le passage n), affirmations non sourcées en fond
+  ambre + info-bulle ; compteurs dans le bloc « Vérification automatique ». Rien de plus
+  visible quand tout est sourcé.
+- **Levier `OLLAMA_NUM_GPU`** (env) : offload GPU forcé pour toutes les requêtes Ollama
+  (LLM + embeddings) — indispensable quand l'autre lane sature les 2 GPU (un rechargement
+  de modèle retentait le GPU plein → 500).
+- **Tests** : 151 verts à la racine (dont `tests/test_attribution.py`,
+  `tests/test_citations_contract.py`) ; lint + tsc verts.
+- **Éval avant/après** (6 questions du golden, GEN_MODEL=llama3.1 **CPU** — les 2 GPU
+  étaient occupés par mistral-small3.2 chargé à num_ctx 131072 ≈ 96 Go par l'autre lane ;
+  comparaison appariée sur 5 questions OK/OK) : EM 0=0 · recall contexte 0.643=0.643 ·
+  fidélité 0.74→0.70 (bruit de juge) · pertinence réponse 0.30→0.56 · nouvelles métriques :
+  **taux_affirmations_sourcees 0.40** · **precision_attribution 0.75**. La baisse
+  context_precision (0.16→0.08) est un artefact du nouveau contrat (liste renvoyée =
+  réordonnée « lost-in-the-middle », le top-5 positionnel change). **Non-régression
+  retrieval golden officiel (30 Q) : hit@k 0.6111 · recall 0.5961 — identiques** à la lane ④.
+- **E2E Playwright réel** (chromium, front :3001 / API :8001, Ollama :11435 CPU) : RAG
+  forcé → marqueurs [n] cliquables, clic sur [2] → passage déplié + surligné ; mode Agent →
+  plan affiché puis synthèse avec 4 marqueurs, attribution persistée (1 sourcée +
+  1 complétée) ; rechargement de session → marqueurs + attribution restaurés ; surlignage
+  ambre vérifié via interception réseau (mock `non_sourcee`, rien de persisté).
+  7 screenshots `e2e5_*.png` dans le scratchpad de session.
+
 ## LynX (AI for Requirements) — session 2026-07-01
 
 Travail sur le module embarqué `lynx/`. Axe : **transparence + remédiation**, rendu

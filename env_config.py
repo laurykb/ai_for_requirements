@@ -199,9 +199,18 @@ def get_config() -> Dict[str, Any]:
         logger.warning("GEN_MODEL manquant en .env - fallback interne utilisé")
         gen_model = "llama3.1:latest"
     
+    # Nombre de couches offloadées sur GPU, injecté dans TOUTES les requêtes
+    # Ollama (LLM + embeddings) quand il est défini. 0 = tout sur CPU : levier
+    # mono-poste quand le GPU est occupé par un autre travail (sans ça, un
+    # rechargement de modèle retente le GPU saturé et échoue en 500).
+    # Vide (défaut) = laisser Ollama décider.
+    ollama_num_gpu_raw = os.environ.get("OLLAMA_NUM_GPU", "").strip()
+    ollama_num_gpu = int(ollama_num_gpu_raw) if ollama_num_gpu_raw else None
+
     llm_config = {
         "OLLAMA_HOST": ollama_host,
         "OLLAMA_AVAILABLE": ollama_available,
+        "OLLAMA_NUM_GPU": ollama_num_gpu,
         "EMBED_MODEL": embed_model,
         "EMBED_TIMEOUT_S": embed_timeout_s,
         "REWRITER_MODEL": rewriter_model,
@@ -276,6 +285,11 @@ def get_config() -> Dict[str, Any]:
         # agent (sous-questions) et le révise en cours de route. Par défaut le même
         # modèle que l'agent, surchargeable indépendamment via .env.
         "PLANNER_MODEL": os.environ.get("PLANNER_MODEL", "").strip() or agent_model,
+        # Attribution par affirmation (passe post-hoc, core/attribution.py) :
+        # budget TOTAL de la passe (appel LLM + validation + retry compris).
+        # Dépassé -> la réponse garde ses marqueurs inline et l'event
+        # `attribution` porte un statut d'échec — jamais bloquant.
+        "ATTRIBUTION_TIMEOUT_S": float(os.environ.get("ATTRIBUTION_TIMEOUT_S", "60")),
     }
 
     # --------------------- MODE RAPIDE (latence) -------------------
@@ -379,6 +393,7 @@ MONGO_AVAILABLE = CONFIG["MONGO_AVAILABLE"]
 
 OLLAMA_HOST = CONFIG["OLLAMA_HOST"]
 OLLAMA_AVAILABLE = CONFIG["OLLAMA_AVAILABLE"]
+OLLAMA_NUM_GPU = CONFIG["OLLAMA_NUM_GPU"]
 EMBED_MODEL = CONFIG["EMBED_MODEL"]
 EMBED_TIMEOUT_S = CONFIG["EMBED_TIMEOUT_S"]
 REWRITER_MODEL = CONFIG["REWRITER_MODEL"]
@@ -389,6 +404,7 @@ ENHANCE_NUM_CTX = CONFIG["ENHANCE_NUM_CTX"]
 AGENT_MODEL = CONFIG["AGENT_MODEL"]
 AGENT_MAX_ITERATIONS = CONFIG["AGENT_MAX_ITERATIONS"]
 PLANNER_MODEL = CONFIG["PLANNER_MODEL"]
+ATTRIBUTION_TIMEOUT_S = CONFIG["ATTRIBUTION_TIMEOUT_S"]
 RAG_FAST_MODE = CONFIG["RAG_FAST_MODE"]
 GEN_NUM_CHUNKS = CONFIG["GEN_NUM_CHUNKS"]
 CONTEXT_DEDUP = CONFIG["CONTEXT_DEDUP"]
