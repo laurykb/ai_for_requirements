@@ -48,19 +48,22 @@ class OllamaClient:
         self.keep_alive = keep_alive
         self.base_url = (base_url or "http://localhost:11434").rstrip("/")
 
-    def _payload(self, prompt: str, stream: bool, stop) -> dict:
+    def _payload(self, prompt: str, stream: bool, stop, fmt=None) -> dict:
         options = dict(self.options)
         if stop:
             options["stop"] = stop
         payload = {"model": self.model, "prompt": prompt, "stream": stream, "options": options}
+        if fmt:
+            # Sortie contrainte Ollama (ex: "json") : le serveur garantit un JSON valide.
+            payload["format"] = fmt
         if self.keep_alive is not None:
             payload["keep_alive"] = self.keep_alive
         return payload
 
-    def invoke(self, prompt: str, stop=None) -> str:
+    def invoke(self, prompt: str, stop=None, format=None) -> str:
         t0 = time.perf_counter()
         r = requests.post(f"{self.base_url}/api/generate",
-                          json=self._payload(prompt, False, stop), timeout=_TIMEOUT_S)
+                          json=self._payload(prompt, False, stop, fmt=format), timeout=_TIMEOUT_S)
         r.raise_for_status()
         data = r.json()
         _record_stats(self.model, data, time.perf_counter() - t0, ttft_s=None)

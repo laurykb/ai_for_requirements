@@ -184,6 +184,54 @@ embeddings (dim 1024), `process_query` complet (réponse + 13 citations), boucle
   (`data/ANSSI-CC-cible_2011-1-20.md` est dispo).
 - Optionnel : A/B « précision du contexte » (`CONTEXT_DEDUP`/`CONTEXT_REORDER`).
 
+## Agent multi-hop planifié — session 2026-07-06 (lane RAG, worktree isolé)
+
+Point ④ du plan agentique (design approuvé) : le mode agent du chat passe du **ReAct
+mono-outil** à un **planificateur-exécuteur adaptatif multi-hop**, plan visible en direct.
+Travail réalisé dans un **worktree isolé** (branche `feat/rag-plan-execute`,
+basée sur `f192bd6`), à merger dans `feat/web-ui-foundations`.
+
+- **Planification** (`core/planner.py`) : plan JSON `{etapes:[{sous_question, but}]}`
+  (2–5 étapes), **sortie contrainte** (format JSON Ollama, `core/llm_client.py` étendu),
+  validation + **1 retry** avec erreurs réinjectées. Échec après retry → **repli
+  silencieux** sur le ReAct historique (`core/agent.py`, intact — jamais moins bien qu'avant).
+- **Exécution chaînée** : chaque étape lance `rag_search` (retrieve-only) sur sa
+  sous-question, **affinée** avec les observations accumulées ; étape vide/hors périmètre →
+  **UNE re-planification max** (ne révise que les étapes restantes) ; **5 étapes max au
+  total**, **dédoublonnage** des passages entre étapes ; **synthèse finale unique** ancrée,
+  citations au format habituel (`retrieved`/`sources` inchangés).
+- **Nouveau rôle LLM `planner`** (`PLANNER_MODEL`, défaut = `AGENT_MODEL`) —
+  `env_config.py` + `core/model_router.py`.
+- **SSE + UI** : trames `plan`/`step_start`/`step_done`/`replan` (`api/rag.py`), plan
+  affiché dès réception dans le chat (`web/src/components/chat/index.tsx`) : étapes à
+  venir/en cours/cochées en direct, mention « révisé en cours de route », trace persistée
+  dans « Raisonnement de l'agent ». Stop du composeur inchangé (AbortController).
+- **Tests** : 13 tests hors-ligne `tests/test_planner.py` (plan suivi dans l'ordre,
+  chaînage, replan unique, borne 5, fallback, dédoublonnage, ordre SSE) — **131 tests
+  racine verts**, lint + tsc verts. CLI vérifiée en réel : `python -m core.agent "…"`.
+- **Éval en deux temps** (`evals/run_agent_eval.py`, chemin agent) sur
+  `evals/golden_multihop_candidates.json` — **14 questions multi-hop CANDIDATES**
+  générées depuis le document réellement ingéré (cible Mistral VS9), champ
+  `"statut": "candidate"` : **à faire VALIDER par Laury avant d'entrer au golden**.
+  - AVANT (ReAct, Ollama partagé :11434) : hit@k **0.738** · context_recall **0.381** ·
+    f1 0.345 · **1.14** appel(s) d'outil · 26.1 s/question.
+  - APRÈS (planner, Ollama dédié :11435) : hit@k **0.810** · context_recall **0.520**
+    (**+37 %**) · f1 0.333 · **2.5** appels d'outil (vrai multi-hop) · 20.5 s/question.
+  - **Non-régression golden officiel** (retrieval, 30 Q) : strictement identique
+    avant/après (hit@k 0.6111 · recall 0.5961 · precision 0.28) — le retrieval n'est pas touché.
+- **E2E Playwright réel vérifié** (chromium, front :3001 / API :8001, mode Agent forcé) :
+  plan affiché dès réception, étapes cochées en direct (« 6 passage(s) retenus »),
+  réponse finale avec Sources (10) ; **Stop en cours de plan** → « Génération arrêtée —
+  réponse partielle », composeur ré-armé. 4 screenshots dans le scratchpad de session
+  (`e2e_1_plan_en_cours.png` … `e2e_4_stop_en_cours_de_plan.png`).
+- Au passage : **origines CORS configurables** via env `WEB_ORIGINS` (`api/main.py`,
+  défaut :3000 inchangé) — nécessaire pour un front de worktree sur :3001.
+- **Reste à faire (lane ④)** : validation par Laury des 14 candidates multi-hop
+  (`evals/golden_multihop_candidates.json`), puis merge de `feat/rag-plan-execute`.
+- Env worktree : venv du repo principal en absolu ; symlinks `data/{chroma_db,bm25_index.pkl,
+  enhancement_cache,graph_cache,mongodb,vocab_save}`, `models`, `.env` (lecture seule) ;
+  API 8001 (`OLLAMA_HOST=http://127.0.0.1:11435` + `WEB_ORIGINS=…:3001`), front 3001.
+
 ## LynX (AI for Requirements) — session 2026-07-01
 
 Travail sur le module embarqué `lynx/`. Axe : **transparence + remédiation**, rendu

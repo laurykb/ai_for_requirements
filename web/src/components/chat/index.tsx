@@ -17,7 +17,7 @@ import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
 import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
-import type { ChatMessage, ChunkView, SessionInfo } from "@/lib/types";
+import type { ChatMessage, ChunkView, PlanStep, SessionInfo } from "@/lib/types";
 import { useExpert } from "@/components/expert-toggle";
 import { Dot, Spinner } from "@/components/ui";
 import { AssistantMessage, NOT_FOUND_MESSAGE } from "@/components/chat/blocks";
@@ -32,6 +32,13 @@ const EXAMPLES = [
 
 type Phase = "idle" | "retrieve" | "agent" | "generate";
 
+/** Statut d'une étape du plan de l'agent : à venir, en cours, faite, ou sans
+ * résultat (hors du périmètre documentaire). */
+type StepStatus = "pending" | "active" | "done" | "vide";
+
+/** Plan de recherche de l'agent, suivi en direct (événements plan/step/replan). */
+type PlanView = { steps: PlanStep[]; statuts: StepStatus[]; replanned: boolean };
+
 export function Chat() {
   const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
   const [selected, setSelected] = useState<string>("");
@@ -42,6 +49,7 @@ export function Chat() {
   const [nChunks, setNChunks] = useState<number | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [agentTrace, setAgentTrace] = useState<string[]>([]);
+  const [plan, setPlan] = useState<PlanView | null>(null);
   const [route, setRoute] = useState<string>("");
   const [mode, setMode] = useState<Mode>("auto");
   /** Modèle de génération : changement à chaud + chargement VRAM (parité
@@ -135,6 +143,7 @@ export function Chat() {
     setNChunks(null);
     setPartial("");
     setAgentTrace([]);
+    setPlan(null);
     setRoute("");
 
     const draft: ChatMessage = { role: "assistant", content: "" };
@@ -161,6 +170,38 @@ export function Chat() {
         else if (ev.type === "retrieved") {
           chunks = ev.chunks;
           setNChunks(ev.chunks.length);
+        } else if (ev.type === "plan") {
+          setPlan({ steps: ev.steps, statuts: ev.steps.map(() => "pending"),
+                    replanned: false });
+          trace.push(`**Plan** (${ev.steps.length} étapes)\n\n${ev.steps
+            .map((s, i) => `${i + 1}. ${s.sous_question}`).join("\n")}`);
+          setAgentTrace([...trace]);
+        } else if (ev.type === "step_start") {
+          setPlan((p) => p && {
+            ...p,
+            statuts: p.statuts.map((st, i) => (i === ev.index - 1 ? "active" : st)),
+          });
+          trace.push(`→ **Étape ${ev.index}/${ev.total}** — ${ev.text}`);
+          setAgentTrace([...trace]);
+        } else if (ev.type === "step_done") {
+          setPlan((p) => p && {
+            ...p,
+            statuts: p.statuts.map((st, i) =>
+              i === ev.index - 1 ? (ev.hors_scope ? "vide" : "done") : st),
+          });
+          trace.push(`_${ev.text}_`);
+          setAgentTrace([...trace]);
+        } else if (ev.type === "replan") {
+          // Les étapes restantes ont été révisées : liste complète re-reçue,
+          // les statuts des étapes déjà exécutées sont conservés.
+          setPlan((p) => ({
+            steps: ev.steps,
+            statuts: ev.steps.map((_, i) =>
+              i < ev.index ? (p?.statuts[i] ?? "done") : "pending"),
+            replanned: true,
+          }));
+          trace.push("**Re-planification** — les étapes restantes ont été révisées.");
+          setAgentTrace([...trace]);
         } else if (ev.type === "thought") {
           trace.push(`**Pensée** — ${ev.text}`);
           setAgentTrace([...trace]);
@@ -194,6 +235,7 @@ export function Chat() {
           setMessages((ms) => [...ms, { ...draft }]);
           setPartial("");
           setAgentTrace([]);
+          setPlan(null);
           setPhase("idle");
           refreshSessions(); // le titre/updated_at ont pu changer
         } else if (ev.type === "error") {
@@ -217,6 +259,7 @@ export function Chat() {
     }
     setPartial("");
     setAgentTrace([]);
+    setPlan(null);
     setPhase("idle");
   }, [busy, messages, selected, mode, sessionId, refreshSessions]);
 
@@ -388,7 +431,8 @@ export function Chat() {
                   {route && expert && <p className="mb-1">Routage : {route}</p>}
                   <p className="flex flex-wrap items-center gap-2">
                     {phase === "agent" ? (
-                      <><Dot tone="accent" pulse /> Agent en raisonnement</>
+                      <><Dot tone="accent" pulse />
+                        {plan ? "Exécution du plan" : "Agent en raisonnement"}</>
                     ) : (
                       <>
                         <Dot tone={phase === "retrieve" ? "accent" : "good"}
@@ -412,6 +456,43 @@ export function Chat() {
                   ■ Stop
                 </button>
               </div>
+              {/* Plan de recherche de l'agent : étapes cochées en direct. */}
+              {plan && (
+                <div className="mb-2 rounded-lg border border-edge bg-surface-2 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-fg-faint">
+                    Plan de recherche
+                    {plan.replanned && (
+                      <span className="ml-2 normal-case tracking-normal text-warn">
+                        révisé en cours de route
+                      </span>
+                    )}
+                  </p>
+                  <ul className="mt-1.5 space-y-1 text-xs">
+                    {plan.steps.map((s, i) => {
+                      const st = plan.statuts[i] ?? "pending";
+                      return (
+                        <li key={i} className="flex items-baseline gap-2">
+                          <Dot
+                            tone={st === "done" ? "good" : st === "vide" ? "warn"
+                              : st === "active" ? "accent" : "neutral"}
+                            pulse={st === "active"}
+                          />
+                          <span className={
+                            st === "active" ? "text-foreground"
+                              : st === "pending" ? "text-fg-faint" : "text-fg-muted"
+                          }>
+                            {s.sous_question}
+                            {st === "done" && <span className="ml-1.5 text-good">✓</span>}
+                            {st === "vide" && (
+                              <span className="ml-1.5 text-warn">sans résultat</span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               {agentTrace.length > 0 && (
                 <div className="chat-md mb-2 border-l-2 border-edge pl-3 text-xs text-fg-muted">
                   <ReactMarkdown>{agentTrace.join("\n\n")}</ReactMarkdown>
