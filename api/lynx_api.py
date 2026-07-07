@@ -441,17 +441,21 @@ def generate_children(body: GenerateChildrenBody) -> StreamingResponse:
     def worker():
         try:
             with _LLM_LOCK:
+                llm.start_trace()  # boîte de verre : proposition + audit + débat + réécriture
                 out = lynx_generation.generate_children(
                     corpus, body.req_id,
                     on_progress=lambda info: emit({"type": "progress", **info}),
                     cancelled=cancelled)
+                records = llm.stop_trace()
             if out.get("error"):
                 q.put({"type": "error", "message": str(out["error"])[:300]})
             else:
+                child_ids = [f["id_propose"] for f in out.get("filles", [])]
+                out["exchanges"] = trace.build_generation_timeline(records, child_ids)
                 q.put({"type": "result", **out})
                 q.put({"type": "done"})
         except (_Cancelled, lynx_generation.BatchCancelled):
-            pass  # client parti : la copie de travail est jetée
+            llm.stop_trace()  # client parti : purge le buffer, copie jetée
         except Exception as e:
             q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
         q.put(None)

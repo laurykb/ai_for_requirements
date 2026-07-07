@@ -36,6 +36,24 @@ SKILL_META = {
                          "Agrège tous les avis en un verdict unique"),
     "synthese_impact": ("Agent Synthèse", "synthèse",
                         "Agrège tous les avis en un verdict unique"),
+    # Audit par exigence (relecture 5 axes) — aussi rendu par ``humanize_audit``
+    # sous forme de cartes ; présent ici pour la timeline de génération.
+    "audit_exigence": ("Agent Audit", "IA",
+                       "Relit une exigence sur 5 axes (rédaction, pertinence, "
+                       "couverture, redondance, pertinence aval)"),
+    # Débat contradictoire sur un BLOQUANT sémantique (avocat -> juge).
+    "defense_exigence": ("Avocat de la défense", "IA",
+                         "Cherche à réfuter un verdict BLOQUANT à partir du "
+                         "contexte de traçabilité de l'exigence accusée"),
+    "juge_verdict": ("Juge du débat", "IA",
+                     "Tranche : le BLOQUANT est maintenu, ou rétrogradé en avertissement"),
+    # Génération descendante et réécriture.
+    "generation_filles": ("Agent Génération (déclinaison)", "IA",
+                          "Décline la mère sélectionnée en 2 à 7 exigences filles L(n+1)"),
+    "redaction_exigence": ("Agent Rédaction (EN9100)", "IA",
+                           "Vérifie la conformité rédactionnelle et propose une réécriture conforme"),
+    "suggest_correction": ("Agent Correction", "IA",
+                           "Propose une réécriture pour lever les constats d'une exigence signalée"),
 }
 
 # Agents déterministes (pas d'appel LLM) : reconstruits depuis leurs constats.
@@ -131,6 +149,28 @@ def _fmt_input(skill: str, payload: Any) -> str:
             lignes.append(f"   — [{c.get('axe', '?')}/{c.get('gravite', '?')}] {c.get('message', '')}")
         lignes.append("Rédige une synthèse unique pour l'ingénieur. »")
         return "\n".join(lignes)
+    if skill == "audit_exigence":
+        return _fmt_audit_input(payload)
+    if skill == "defense_exigence":
+        cible = _short_node(payload.get("exigence"))
+        return (f"« L'exigence {cible} est accusée : « {payload.get('accusation', '')} ». "
+                f"Peux-tu réfuter cette accusation à partir du contexte de traçabilité ? »")
+    if skill == "juge_verdict":
+        return (f"« Accusation : « {payload.get('accusation', '')} ». "
+                f"Plaidoyer de la défense : « {payload.get('plaidoyer', '')} ». "
+                f"Le BLOQUANT est-il maintenu ou rétrogradé ? »")
+    if skill == "generation_filles":
+        mere = _short_node(payload.get("exigence_mere"))
+        existantes = _id_list(payload.get("filles_existantes"))
+        return (f"« Décline la mère {mere} en exigences filles "
+                f"L{payload.get('niveau_filles', '?')} (filles déjà existantes : {existantes}). »")
+    if skill == "suggest_correction":
+        cible = _short_node(payload.get("exigence"))
+        probs = payload.get("problemes_detectes") or []
+        quoi = "; ".join(map(str, probs)) if probs else "les constats signalés"
+        return f"« Réécris l'exigence {cible} pour lever : {quoi}. »"
+    # redaction_exigence reçoit le texte brut (str) : traité par le garde en
+    # tête de fonction (``return str(payload)``).
     return str(payload)
 
 
@@ -199,6 +239,45 @@ def _fmt_output(skill: str, out: Any) -> str:
                 f"Décision : {out.get('decision', '')}")
     if skill in ("synthese_message", "synthese_impact"):
         return out.get("message", "")
+    if skill == "audit_exigence":
+        return _fmt_audit_output(out)
+    if skill == "defense_exigence":
+        plaidoyer = (out.get("plaidoyer") or "").strip()
+        if out.get("refutation_possible"):
+            base = f"Réfutation possible. {plaidoyer}"
+        else:
+            base = f"Pas de réfutation solide — accusation à maintenir. {plaidoyer}".strip()
+        elems = out.get("elements_contexte") or []
+        if elems:
+            base += " Éléments cités : " + " ; ".join(f"« {e} »" for e in elems) + "."
+        return base
+    if skill == "juge_verdict":
+        retro = out.get("verdict") == "RETROGRADE"
+        label = "**RÉTROGRADÉ** en avertissement" if retro else "**MAINTENU**"
+        return f"Verdict : {label}. {out.get('motivation', '')}"
+    if skill == "generation_filles":
+        filles = out.get("filles") or []
+        lignes = [f"{len(filles)} fille(s) proposée(s) :"]
+        for f in filles:
+            aspect = f.get("aspect_couvert") or "?"
+            lignes.append(f"   — {f.get('texte', '')} _(décline : {aspect})_")
+        manques = out.get("aspects_non_couverts") or []
+        if manques:
+            lignes.append(f"Aspects encore non couverts : {', '.join(map(str, manques))}.")
+        return "\n".join(lignes)
+    if skill == "redaction_exigence":
+        base = (f"Conforme : **{_oui_non(out.get('conforme'))}** "
+                f"(score {out.get('score', '?')}/100).")
+        reec = (out.get("reecriture") or "").strip()
+        if reec:
+            base += f" Réécriture proposée : « {reec} »"
+        return base
+    if skill == "suggest_correction":
+        base = f"Réécriture proposée : « {(out.get('texte_propose') or '').strip()} »"
+        chg = out.get("changements") or []
+        if chg:
+            base += " Changements : " + "; ".join(map(str, chg)) + "."
+        return base
     return str(out)
 
 
@@ -282,15 +361,24 @@ def _fmt_audit_output(out: Any) -> str:
 
 
 def humanize_audit(records: List[dict]) -> List[dict]:
-    """Rend lisibles les audits par exigence (appels ``audit_exigence``)."""
+    """Timeline de l'audit : une carte par exigence auditée, PUIS le débat
+    contradictoire (avocat + juge) déclenché sur les BLOQUANT sémantiques.
+
+    Chaque entrée est un échange complet (``agent``/``role``/``mission``/
+    ``input``/``output``), rendu tel quel par la boîte de verre. Les cartes
+    d'audit gardent ``req_id``/``flagged`` (compat + tri éventuel côté front).
+    """
     out: List[dict] = []
     for r in records or []:
         if (r.get("label") or "").split("#")[0] != "audit_exigence":
             continue
         payload = r.get("input") or {}
         res = r.get("output") or {}
+        req_id = (payload.get("exigence") or {}).get("id", "?")
         out.append({
-            "req_id": (payload.get("exigence") or {}).get("id", "?"),
+            "agent": f"Audit {req_id}", "role": "IA",
+            "mission": SKILL_META["audit_exigence"][2],
+            "req_id": req_id,
             "input": _fmt_audit_input(payload),
             "output": _fmt_audit_output(res),
             "flagged": audit_is_flagged(res),
@@ -298,6 +386,12 @@ def humanize_audit(records: List[dict]) -> List[dict]:
             "latency_ms": r.get("latency_ms"),
             "cached": bool(r.get("cached")),
         })
+    # Débat contradictoire tracé pendant l'audit (avocat -> juge) : jusqu'ici
+    # filtré et donc invisible dans la boîte de verre.
+    debate = [r for r in (records or [])
+              if (r.get("label") or "").split("#")[0]
+              in ("defense_exigence", "juge_verdict")]
+    out.extend(humanize(debate))
     return out
 
 
@@ -326,4 +420,39 @@ def build_timeline(records: List[dict], findings: List[dict]) -> List[dict]:
     synth = [m for m in llm_msgs if m["role"] == "synthèse"]
     timeline.extend(ia)
     timeline.extend(synth)
+    return timeline
+
+
+def build_generation_timeline(records: List[dict],
+                              child_ids: Optional[List[str]] = None) -> List[dict]:
+    """Boîte de verre de la génération de filles : proposition, puis audit /
+    débat / réécriture RESTREINTS aux filles générées.
+
+    La génération auto-audite une COPIE de toute la matrice (débat + réécriture
+    des filles signalées) : sans filtrage, la timeline noierait la génération
+    sous l'audit des dizaines d'exigences préexistantes. On ne garde donc, pour
+    audit/correction/défense, que les records portant sur une fille (``child_ids``) ;
+    la génération et les réécritures (qui ne touchent QUE les filles dans ce flux)
+    sont toujours conservées, et le juge suit sa défense.
+    """
+    ids = set(child_ids or [])
+    timeline: List[dict] = []
+    include_next_juge = False
+    for r in records or []:
+        skill = (r.get("label") or "").split("#")[0]
+        keep = False
+        if skill == "generation_filles":
+            keep = True
+        elif skill == "redaction_exigence":
+            keep = True  # réécritures : seules les filles sont réécrites ici
+        elif skill in ("audit_exigence", "suggest_correction", "defense_exigence"):
+            rid = ((r.get("input") or {}).get("exigence") or {}).get("id")
+            keep = (not ids) or (rid in ids)
+            if skill == "defense_exigence":
+                include_next_juge = keep
+        elif skill == "juge_verdict":
+            keep = include_next_juge
+            include_next_juge = False
+        if keep:
+            timeline.extend(humanize([r]))
     return timeline

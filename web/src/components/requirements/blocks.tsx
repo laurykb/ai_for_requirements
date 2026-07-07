@@ -23,8 +23,8 @@ export type AuditFinding = { req_id: string; axis: string; severity: string; mes
 export type AuditReport = { n: number; score: number; counts: Record<string, number>;
                             flagged_ids: string[]; n_non_audite: number;
                             findings: AuditFinding[];
-                            exchanges: { req_id: string; input: string; output: string;
-                                         flagged: boolean }[] };
+                            // Cartes d'audit + débat contradictoire, échanges complets.
+                            exchanges: Exchange[] };
 export type Suggestion = { texte?: string; justification?: string; changements?: string[];
                            corrige_tout?: boolean; error?: string };
 export type FixProgress = { phase: string; passe: number; done: number; total: number;

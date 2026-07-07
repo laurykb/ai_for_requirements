@@ -10,7 +10,7 @@ import { Dot, Hint, Meter, Pill, Spinner, type Tone } from "@/components/ui";
 import { type Req } from "@/components/req-graph";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
-  type AuditFinding, type AuditReport, type FixItem, type FixProgress, type FixRecap,
+  type AuditFinding, type AuditReport, type Exchange, type FixItem, type FixProgress, type FixRecap,
 } from "@/components/requirements/blocks";
 
 /** Statuts finaux de la correction en lot (miroir de lynx/src/autofix.py). */
@@ -131,7 +131,7 @@ export type GenFille = { id_propose: string; texte: string; justification: strin
                          aspect_couvert: string; findings_restants: AuditFinding[];
                          statut: string };
 export type GenRecap = { filles: GenFille[]; aspects_non_couverts: string[];
-                         niveau_filles: number };
+                         niveau_filles: number; exchanges?: Exchange[] };
 export type GenProgress = { phase: string; passe?: number; done?: number;
                             total?: number; req_id?: string | null };
 
@@ -238,6 +238,10 @@ export function GenerateChildrenBlock({ sel, llmOk, disabled, genRunning, genPro
               Aspects de la mère non couverts (transparence de couverture) :{" "}
               {genRecap.aspects_non_couverts.join(" · ")}
             </p>
+          )}
+          {genRecap.exchanges && genRecap.exchanges.length > 0 && (
+            <GlassBox exchanges={genRecap.exchanges}
+                      title="Comment LynX a généré ces filles — boîte de verre" />
           )}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
@@ -408,10 +412,7 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
             </>
           )}
           <GlassBox
-            exchanges={audit.exchanges.map((x) => ({
-              agent: `Audit ${x.req_id}`, role: "IA",
-              input: x.input, output: x.output,
-            }))}
+            exchanges={audit.exchanges}
             title="Comment LynX a audité — boîte de verre"
           />
         </div>

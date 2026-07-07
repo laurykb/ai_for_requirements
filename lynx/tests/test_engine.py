@@ -418,6 +418,86 @@ def test_trace_humanize_audit_flags_only_problems():
     assert [a["req_id"] for a in hs] == ["REQ-A", "REQ-B"]
     assert hs[0]["flagged"] is True and "Pertinence" in hs[0]["output"]
     assert hs[1]["flagged"] is False and "Conforme" in hs[1]["output"]
+    # Cartes d'audit : échange complet (agent/role) pour la boîte de verre.
+    assert hs[0]["agent"] == "Audit REQ-A" and hs[0]["role"] == "IA"
+
+
+def test_trace_humanize_debate_agents():
+    """Avocat + juge : nommés et formatés (plus de JSON brut)."""
+    from src import trace
+    records = [
+        {"label": "defense_exigence",
+         "input": {"exigence": {"id": "REQ-X", "texte": "Cible 850 MW."},
+                   "accusation": "Contredit la plage 900-1000 MW amont."},
+         "output": {"plaidoyer": "Deux modes distincts.",
+                    "elements_contexte": ["mode dégradé"],
+                    "refutation_possible": True},
+         "ok": True},
+        {"label": "juge_verdict",
+         "input": {"accusation": "Contredit 900-1000 MW.", "plaidoyer": "Deux modes."},
+         "output": {"verdict": "MAINTENU", "motivation": "850 viole la plage citée."},
+         "ok": True},
+    ]
+    msgs = trace.humanize(records)
+    assert msgs[0]["agent"] == "Avocat de la défense"
+    assert "REQ-X" in msgs[0]["input"] and "Réfutation possible" in msgs[0]["output"]
+    assert msgs[1]["agent"] == "Juge du débat"
+    assert "MAINTENU" in msgs[1]["output"]
+    # Aucun dump JSON brut (pas d'accolade de dict Python).
+    assert "{" not in msgs[0]["output"] and "{" not in msgs[1]["output"]
+
+
+def test_trace_humanize_audit_surfaces_debate():
+    """Le débat déclenché pendant l'audit remonte dans la boîte de verre."""
+    from src import trace
+    recs = [
+        {"label": "audit_exigence",
+         "input": {"exigence": {"id": "REQ-A", "texte": "t"}, "parent": None,
+                   "soeurs": [], "filles": []},
+         "output": {"redaction": {"conforme": True}, "pertinence": {"coherent": False,
+                    "probleme": "x"}, "couverture": {"complet": True},
+                    "redondance": {"redondant": False}}, "ok": True},
+        {"label": "defense_exigence",
+         "input": {"exigence": {"id": "REQ-A"}, "accusation": "incohérent"},
+         "output": {"plaidoyer": "p", "refutation_possible": False}, "ok": True},
+        {"label": "juge_verdict",
+         "input": {"accusation": "incohérent", "plaidoyer": "p"},
+         "output": {"verdict": "RETROGRADE", "motivation": "m"}, "ok": True},
+    ]
+    hs = trace.humanize_audit(recs)
+    agents = [a["agent"] for a in hs]
+    assert agents == ["Audit REQ-A", "Avocat de la défense", "Juge du débat"]
+    assert "RÉTROGRADÉ" in hs[2]["output"]
+
+
+def test_trace_generation_timeline_filters_to_children():
+    """La timeline de génération garde la proposition + les records des filles,
+    et écarte l'audit des exigences préexistantes (bruit)."""
+    from src import trace
+    records = [
+        {"label": "generation_filles",
+         "input": {"exigence_mere": {"id": "REQ-L1-A-001", "texte": "m"},
+                   "niveau_filles": 2, "filles_existantes": []},
+         "output": {"filles": [{"texte": "fille 1", "aspect_couvert": "poids"}],
+                    "aspects_non_couverts": []}, "ok": True},
+        # Audit d'une exigence préexistante : bruit -> écarté.
+        {"label": "audit_exigence",
+         "input": {"exigence": {"id": "REQ-OLD-999"}, "parent": None,
+                   "soeurs": [], "filles": []},
+         "output": {"redaction": {"conforme": True}}, "ok": True},
+        # Audit d'une fille générée : conservé.
+        {"label": "audit_exigence",
+         "input": {"exigence": {"id": "REQ-L2-A-001"}, "parent": None,
+                   "soeurs": [], "filles": []},
+         "output": {"redaction": {"conforme": True}}, "ok": True},
+    ]
+    tl = trace.build_generation_timeline(records, child_ids=["REQ-L2-A-001"])
+    agents = [m["agent"] for m in tl]
+    assert "Agent Génération (déclinaison)" in agents[0]
+    assert "Agent Audit" in agents  # la fille
+    # L'exigence préexistante n'a produit aucune carte.
+    assert not any("REQ-OLD-999" in (m.get("input") or "") for m in tl)
+    assert "fille 1" in tl[0]["output"]
 
 
 # --- suggestion de correction --------------------------------------------
