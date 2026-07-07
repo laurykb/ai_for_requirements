@@ -270,8 +270,23 @@ def build_corpus(target: int = 350, stride: int = 2, use_llm: bool = True) -> di
     attach_budgets(spec)
     verifs = derive_verifications(spec, stride=stride)
     reqs = spec + verifs
+    # Rédaction : parallélisée quand le LLM est actif (Ollama NUM_PARALLEL≥1 +
+    # cache disque). ``ThreadPoolExecutor.map`` préserve l'ordre ; ``rediger`` est
+    # I/O-bound (HTTP Ollama) et lit/écrit un cache idempotent, donc thread-safe.
+    # La rédaction se fait AVANT de retirer ``_element``/``_verifie`` (fiche_prose
+    # d'une vérification en dépend).
+    if use_llm:
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+        workers = max(1, int(os.environ.get("GEN_MAX_WORKERS", "4")))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            textes = list(ex.map(lambda r: rediger(r, use_llm=True), reqs))
+        for r, t in zip(reqs, textes):
+            r["texte"] = t
+    else:
+        for r in reqs:
+            r["texte"] = rediger(r, use_llm=False)
     for r in reqs:
-        r["texte"] = rediger(r, use_llm=use_llm)
         r.pop("_element", None)
         r.pop("_verifie", None)
     return {
