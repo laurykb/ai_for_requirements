@@ -40,6 +40,22 @@ def _refine_chunks(chunks: list[dict]) -> list[dict]:
         chunks = reorder_long_context(chunks)
     return chunks
 
+
+def refine_for_generation(chunks: list[dict]) -> list[dict]:
+    """Affinage pré-génération EXPOSÉ aux appelants — contrat marqueur↔passage.
+
+    La numérotation [1..n] du CONTEXTE (et donc les marqueurs [n] de la réponse
+    et la table de citations) est construite sur les chunks APRÈS affinage
+    (dédup/plafond/réordonnancement). Tout appelant qui affiche, streame ou
+    persiste « les passages » doit utiliser CETTE liste — sinon un marqueur [n]
+    pointe vers le mauvais passage. Usage :
+
+        chunks = refine_for_generation(chunks)
+        rep, citations = answer(q, chunks, already_refined=True)
+        # -> `chunks[i-1]` est bien le passage cité [i]
+    """
+    return _refine_chunks(chunks)
+
 # Permet de choisir le GPU à utiliser (par défaut GPU 0 uniquement)
 def set_cuda_visible_devices(gpu_ids="0"):
     os.environ["CUDA_VISIBLE_DEVICES"] = gpu_ids
@@ -126,7 +142,10 @@ Comment est-ce que tu dois réfléchir : la Sortie du MODE EXPLICATION (exemple)
 [Réponse]
 réponse finale très explicite, détaillé si il le faut, exhaustive pour la question qui est demandé, sans contenu hors CONTEXTE
 elle doit être la réponse finale donc ce que l'utilisateur lit, comprends, interprête, c'est la partie la plus importante du processus.
-Utilise les numéros de source [1], [2], etc. pour indiquer d'où provient chaque information dans ta réponse.
+Appose un marqueur [n] immédiatement après CHAQUE affirmation factuelle, où n est le numéro
+du passage du CONTEXTE (<<<DOCUMENT n>>>) qui la soutient — plusieurs si nécessaire,
+ex. « la TOE est certifiée EAL3+ [2]. » ou « ... [1][3] ». N'écris aucune affirmation
+factuelle sans son marqueur ; si aucun passage ne la soutient, ne l'écris pas.
 
 [Justification]
 - Précise où tu es allé chercher la ou les informations pour répondre, en citant les numéros de source [1], [2], etc.
@@ -139,7 +158,8 @@ Utilise les numéros de source [1], [2], etc. pour indiquer d'où provient chaqu
 # restaure la qualité sur petit modèle - mesuré : EAL3+ correctement extrait en ~27 s.
 LEAN_SYSTEM_PROMPT = """Tu es un assistant documentaire technique. Réponds à la QUESTION en t'appuyant UNIQUEMENT sur le CONTEXTE fourni.
 Règles :
-- Cite tes sources avec [1], [2]... correspondant aux numéros des extraits.
+- Appose un marqueur [n] immédiatement après CHAQUE affirmation factuelle, où n est le
+  numéro de l'extrait qui la soutient (plusieurs si besoin : [1][3]).
 - Sois précis et factuel ; conserve les identifiants, niveaux et valeurs exacts (ex: EAL3+, FCS_CKM).
 - Si l'information n'est pas dans le contexte, dis-le clairement.
 Réponds directement, sans préambule."""
@@ -299,15 +319,21 @@ def _build_answer_llm(keep_alive: int | None = None):
 
 
 def answer(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
-           conversation_history: list[dict] = None) -> tuple[str, list[dict]]:
+           conversation_history: list[dict] = None,
+           already_refined: bool = False) -> tuple[str, list[dict]]:
     """
     Prend la question utilisateur + les chunks sélectionnés,
     envoie un prompt au LLM, retourne (réponse_texte, citation_map).
-    conversation_history : liste de {"role": "user"|"assistant", "content": "..."} 
+    conversation_history : liste de {"role": "user"|"assistant", "content": "..."}
                            pour la mémoire conversationnelle.
+    already_refined : True si l'appelant a DÉJÀ passé les chunks par
+                      refine_for_generation() (contrat marqueur↔passage) —
+                      le réordonnancement n'étant pas idempotent, on ne
+                      ré-affine jamais deux fois.
     """
     set_cuda_visible_devices(gpu_ids)
-    chunks = _refine_chunks(chunks)
+    if not already_refined:
+        chunks = _refine_chunks(chunks)
     context = build_context(chunks)
     citations = build_citation_map(chunks)
     _guardrails_scan(question, chunks)
@@ -331,14 +357,17 @@ def answer(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
 
 
 def answer_stream(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
-                  conversation_history: list[dict] = None):
+                  conversation_history: list[dict] = None,
+                  already_refined: bool = False):
     """
     Version streaming de answer() : génère les tokens un par un via llm.stream().
     Retourne (générateur, citations).
     conversation_history : mémoire conversationnelle injectée dans le prompt.
+    already_refined : chunks déjà passés par refine_for_generation() (voir answer()).
     """
     set_cuda_visible_devices(gpu_ids)
-    chunks = _refine_chunks(chunks)
+    if not already_refined:
+        chunks = _refine_chunks(chunks)
     context = build_context(chunks)
     citations = build_citation_map(chunks)
     _guardrails_scan(question, chunks)

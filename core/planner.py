@@ -30,8 +30,8 @@ from utils.tracing import start_trace, span
 from env_config import PLANNER_MODEL
 
 from core.agent import (
-    ReActAgent, _accumulate_chunks, _extract_json_object,
-    _passages_observation, _synthesize, _synthesize_stream,
+    ReActAgent, _accumulate_chunks, _extract_json_object, _gather_passage,
+    _passages_observation, _synthesize, _synthesize_stream, _unpack_synthesis,
 )
 
 logger = get_logger("rag.planner")
@@ -283,19 +283,20 @@ class PlannerAgent:
 
                 # Dédoublonnage entre étapes : un passage déjà vu n'est pas re-versé
                 # au contexte de synthèse (les étapes proches se recouvrent souvent).
+                # Chaque passage retenu est versé avec son chunk INTÉGRAL (aligné
+                # index à index par tools.rag_tool) -> synthèse ancrée sur le même
+                # contenu que celui montré à l'utilisateur.
+                res_chunks = result.get("chunks") or []
                 new_passages = []
-                for p in (result.get("passages") or []):
+                for j, p in enumerate(result.get("passages") or []):
                     key = (p.get("source"), p.get("page"), (p.get("text") or "").strip()[:160])
                     if key not in seen_passages:
                         seen_passages.add(key)
                         new_passages.append(p)
+                        _gather_passage(gathered, p,
+                                        res_chunks[j] if j < len(res_chunks) else None)
                 observation = _passages_observation({"passages": new_passages}, sources,
                                                     max_chars=1600)
-                for p in new_passages:
-                    gathered.append({"doc": p.get("text", ""),
-                                     "meta": {"source": p.get("source"),
-                                              "page_number": p.get("page"),
-                                              "heading": p.get("section")}})
                 _accumulate_chunks(gathered_chunks, seen_chunk_keys, result.get("chunks"))
 
                 hors_scope = (not result.get("ok", False)
@@ -336,13 +337,18 @@ class PlannerAgent:
             if gathered:
                 parts = []
                 with span("synthesis", passages=len(gathered)):
-                    token_gen, syn_citations = self.stream_synthesizer(question, gathered)
+                    token_gen, syn_citations, used_chunks = _unpack_synthesis(
+                        self.stream_synthesizer(question, gathered))
                     for tok in token_gen:
                         parts.append(tok)
                         yield {"type": "answer_token", "text": tok}
                 answer = "".join(parts).strip()
                 if syn_citations:
                     sources = syn_citations
+                if used_chunks is not None:
+                    # Contrat marqueur↔passage : les chunks exposés à l'UI sont
+                    # EXACTEMENT la liste numérotée [1..n] de la synthèse.
+                    gathered_chunks = used_chunks
             else:
                 answer = _NO_RESULT_ANSWER
                 yield {"type": "answer_token", "text": answer}

@@ -140,7 +140,7 @@ def self_rag_query(
     """
     from core.model_router import build_llm
     from core.ask import _prepare_retrieval
-    from core.llm_answer import answer as llm_answer
+    from core.llm_answer import answer as llm_answer, refine_for_generation
     from core.evaluation import _get_judge_llm
 
     judge_llm  = _get_judge_llm()
@@ -169,10 +169,14 @@ def self_rag_query(
             break
 
         # -- Génération --------------------------------------------------------
+        # Affinage AVANT génération : best_chunks (renvoyés à l'appelant puis
+        # affichés) = la liste numérotée du contexte (contrat marqueur↔passage).
+        chunks = refine_for_generation(chunks)
         response, citations = llm_answer(
             q_main, chunks,
             system_prompt=system_prompt,
             conversation_history=conversation_history,
+            already_refined=True,
         )
 
         # -- Évaluation --------------------------------------------------------
