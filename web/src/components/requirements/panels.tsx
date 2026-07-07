@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { Dot, Hint, Meter, Pill, Spinner, type Tone } from "@/components/ui";
 import { type Req } from "@/components/req-graph";
 import {
-  GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
+  DebateBadge, GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
   type AuditReport, type FixItem, type FixProgress, type FixRecap,
 } from "@/components/requirements/blocks";
 
@@ -240,6 +240,7 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
                               {f.axis}
                             </span>{" "}
                             {f.message}
+                            <DebateBadge debate={f.debate} />
                           </span>
                         </li>
                       ))}

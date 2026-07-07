@@ -7,17 +7,19 @@
 import ReactMarkdown from "react-markdown";
 
 import { API_BASE } from "@/lib/api";
-import { type Tone } from "@/components/ui";
+import { Hint, type Tone } from "@/components/ui";
 
 // ─── Types (miroir de l'API /api/lynx/*) ───────────────────────────────────
 
+export type Debate = { statut: string; plaidoyer: string; jugement: string; erreur?: string };
 export type Finding = { scope: string; sev: string; analyzer: string; method?: string;
-                        sim?: number | null; msg: string };
+                        sim?: number | null; msg: string; debate?: Debate | null };
 export type Exchange = { agent: string; role: string; mission?: string; input?: string;
                          output?: string; latency_ms?: number | null; cached?: boolean; ok?: boolean };
 export type Verdict = { verdict: string; message: string; findings: Finding[];
                         impacted: string[]; exchanges: Exchange[] };
-export type AuditFinding = { req_id: string; axis: string; severity: string; message: string };
+export type AuditFinding = { req_id: string; axis: string; severity: string; message: string;
+                             debate?: Debate | null };
 export type AuditReport = { n: number; score: number; counts: Record<string, number>;
                             flagged_ids: string[]; n_non_audite: number;
                             findings: AuditFinding[];
@@ -35,6 +37,36 @@ export type FixRecap = { recap: FixItem[]; compteurs: Record<string, number>;
 
 export const SEV_TONE: Record<string, Tone> = { INFO: "good", WARNING: "warn",
                                                 BLOCKING: "bad", BLOQUANT: "bad" };
+
+/** Badge du débat contradictoire sur un BLOQUANT sémantique : « contesté ·
+ * maintenu » ou « contesté · rétrogradé », plaidoyer + motivation dépliables. */
+export function DebateBadge({ debate }: { debate?: Debate | null }) {
+  if (!debate) return null;
+  const retro = debate.statut === "RETROGRADE";
+  return (
+    <details className="chat-details mt-1">
+      <summary className="text-[11px]">
+        <span className={`rounded bg-muted px-1 py-px font-mono text-[10px] ${
+          retro ? "text-warn" : "text-fg-faint"}`}>
+          contesté · {retro ? "rétrogradé" : "maintenu"}
+        </span>{" "}
+        <Hint text="Chaque BLOQUANT issu d'un agent IA passe par un débat contradictoire : un avocat de la défense tente de le réfuter à partir du contexte de traçabilité, un juge tranche. Réfuté → rétrogradé en avertissement (jamais supprimé). Toute erreur pendant le débat conserve le verdict initial." />
+      </summary>
+      <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-fg-muted">
+        {debate.plaidoyer && (
+          <p><span className="font-medium text-foreground">Avocat de la défense :</span>{" "}
+            {debate.plaidoyer}</p>
+        )}
+        {debate.jugement && (
+          <p><span className="font-medium text-foreground">Juge :</span> {debate.jugement}</p>
+        )}
+        {debate.erreur && (
+          <p className="text-fg-faint">Débat interrompu ({debate.erreur}) — verdict initial conservé.</p>
+        )}
+      </div>
+    </details>
+  );
+}
 export const ROLE_STYLE: Record<string, { bg: string; label: string }> = {
   "déterministe": { bg: "#0891B2", label: "Règle" },
   embeddings: { bg: "#0D9488", label: "Vectoriel" },

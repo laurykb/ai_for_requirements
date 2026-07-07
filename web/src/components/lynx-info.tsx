@@ -347,6 +347,21 @@ export function LynxInfo() {
           )}
         </div>
 
+        <div className="mt-3 rounded-lg border border-edge bg-surface-2 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+            Débat contradictoire sur les BLOQUANT
+            <Hint text="Fail-safe : toute erreur LLM pendant le débat conserve le BLOQUANT initial. Les constats factuels (doublons d'identifiants, liens cassés, cycles, dépassements d'allocation) ne passent jamais au débat." />
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+            Avant d&apos;être rendu, chaque verdict BLOQUANT issu d&apos;un agent IA (audit comme
+            analyse d&apos;impact) est contesté : <span className="font-mono">defense_exigence</span>,
+            l&apos;avocat de la défense, tente de le réfuter à partir du contexte de traçabilité
+            de l&apos;exigence accusée ; <span className="font-mono">juge_verdict</span>, le juge,
+            tranche. Un verdict réfuté est rétrogradé en avertissement — jamais supprimé — et
+            le débat (plaidoyer, motivation) reste dépliable sur le constat.
+          </p>
+        </div>
+
         <div className="mt-3 space-y-2">
           {skills.map((s) => (
             <SkillEditor key={s.name} s={s} onTest={runEval} evalRunning={evalRunning} />

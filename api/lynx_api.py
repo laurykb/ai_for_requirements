@@ -52,7 +52,8 @@ def _ui_findings(report) -> list[dict]:
     """Constats au format UI (même reshape que lynx/app.py)."""
     return [{"scope": f.scope.value, "sev": f.severity.value, "analyzer": f.analyzer,
              "method": (f.details or {}).get("method", ""),
-             "sim": (f.details or {}).get("similarity"), "msg": f.message}
+             "sim": (f.details or {}).get("similarity"), "msg": f.message,
+             "debate": f.debate}
             for f in report.findings]
 
 

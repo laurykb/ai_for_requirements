@@ -17,7 +17,7 @@ import { API_BASE, getJSON } from "@/lib/api";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 import { NIVEAU_COLORS, type Req } from "@/components/req-graph";
 import {
-  GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
+  DebateBadge, GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
   type AuditReport, type Exchange, type Finding, type FixProgress, type FixRecap,
   type Suggestion, type Verdict,
 } from "@/components/requirements/blocks";
@@ -578,6 +578,7 @@ export function Requirements() {
                             {f.scope}
                           </span>{" "}
                           {f.msg}
+                          <DebateBadge debate={f.debate} />
                         </span>
                       </li>
                     ))}
