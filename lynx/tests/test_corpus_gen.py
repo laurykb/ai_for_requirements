@@ -39,3 +39,24 @@ def test_derive_requirements_structure_coherente():
         assert r["base_derivation"]["phase"]
     assert all(r["id"].startswith("REQ-L") for r in reqs)
     assert sum(1 for r in reqs if r["parent_id"] is None) == 1
+
+
+def test_verifications_cycle_en_v():
+    elems = corpus_gen.build_architecture()
+    spec = corpus_gen.derive_requirements(elems)
+    spec_ids = {r["id"] for r in spec}
+    spec_by_id = {r["id"]: r for r in spec}
+    verifs = corpus_gen.derive_verifications(spec, stride=2)
+    assert 0 < len(verifs) < len(spec)          # sous-ensemble
+    vids = {v["id"] for v in verifs}
+    assert len(vids) == len(verifs)             # ids uniques
+    for v in verifs:
+        assert v["type"] == "Vérification"
+        assert v["parent_id"] is None            # hors arbre de décomposition
+        assert v["verification"] in ("I", "A", "D", "T")
+        liens = v["links"]
+        assert len(liens) == 1 and liens[0]["type"] == "VERIFIES"
+        cible = liens[0]["target"]
+        assert cible in spec_ids                 # cible une vraie exigence
+        assert v["niveau"] == spec_by_id[cible]["niveau"]  # symétrie du V
+        assert v["id"].startswith("VER-L")

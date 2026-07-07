@@ -139,3 +139,36 @@ def derive_requirements(elems: List[dict]) -> List[dict]:
             "_element": e,
         })
     return reqs
+
+
+_IADT = ["I", "A", "D", "T"]  # Inspection / Analyse / Démonstration / Test
+
+
+def derive_verifications(spec_reqs: List[dict], stride: int = 2) -> List[dict]:
+    """Branche montante du V : une exigence de vérification pour un sous-ensemble
+    d'exigences de spécification (une sur ``stride``), liée par VERIFIES.
+
+    Le niveau de la vérification = niveau de l'exigence vérifiée (symétrie du V) ;
+    elle n'appartient pas à l'arbre de décomposition (``parent_id`` None).
+    """
+    verifs: List[dict] = []
+    counters: Dict[tuple, int] = {}
+    for i, r in enumerate(spec_reqs):
+        if i % stride != 0:
+            continue
+        # convention d'id : réutilise le code (domaine) de la cible
+        code = r["id"].split("-")[2] if r["id"].count("-") >= 2 else "GEN"
+        niveau = r["niveau"]
+        seq = counters.get((niveau, code), 0) + 1
+        counters[(niveau, code)] = seq
+        methode = _IADT[(niveau + seq) % len(_IADT)]
+        verifs.append({
+            "id": f"VER-L{niveau}-{code}-{seq:03d}",
+            "niveau": niveau, "type": "Vérification", "domaine": r["domaine"],
+            "texte": "", "parent_id": None, "test_status": "PENDING",
+            "verification": methode,
+            "links": [{"type": "VERIFIES", "target": r["id"]}],
+            "contexte_operationnel": r["contexte_operationnel"],
+            "_verifie": r,  # travail interne (retiré à l'assemblage)
+        })
+    return verifs
