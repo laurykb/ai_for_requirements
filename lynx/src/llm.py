@@ -30,8 +30,8 @@ from pydantic import BaseModel, ValidationError
 from . import telemetry
 
 from .config import (
-    LLM_API_KEY, LLM_BASE_URL, LLM_CACHE, LLM_DISABLED, LLM_MODEL,
-    LLM_TIMEOUT_SECONDS, SKILLS_DIR,
+    LLM_API_KEY, LLM_BASE_URL, LLM_CACHE, LLM_CACHE_DIR, LLM_CACHE_DISK,
+    LLM_DISABLED, LLM_MODEL, LLM_TIMEOUT_SECONDS, SKILLS_DIR,
 )
 from .schemas import constrain_generation, response_format as _schema_format, schema_for
 
@@ -85,6 +85,31 @@ def trace_event(label: str, inp: Any, out: Any, **meta) -> None:
 
 def clear_cache() -> None:
     _result_cache.clear()
+
+
+# --- Cache disque (opt-out : LLM_CACHE_DISK=0) ---------------------------------
+# Un fichier JSON par clé (écriture atomique tmp+rename : pas de verrou nécessaire,
+# les agents parallèles écrivent des fichiers distincts ou le même contenu).
+def _disk_get(key: str) -> Optional[dict]:
+    if not LLM_CACHE_DISK:
+        return None
+    path = LLM_CACHE_DIR / f"{key}.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _disk_put(key: str, result: dict) -> None:
+    if not LLM_CACHE_DISK:
+        return
+    try:
+        LLM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = LLM_CACHE_DIR / f".{key}.tmp"
+        tmp.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(LLM_CACHE_DIR / f"{key}.json")
+    except Exception:
+        pass  # un cache qui échoue ne doit jamais casser l'appel
 
 
 def _cache_key(system_prompt: str, user_data: Any) -> str:
@@ -161,10 +186,18 @@ def call_agent(system_prompt: str, user_data: Any, label: Optional[str] = None,
         _record({"label": label, "input": user_data, "output": cached,
                  "cached": True, "ok": True, "latency_ms": None})
         return cached
+    if key is not None:
+        disk = _disk_get(key)
+        if disk is not None and not disk.get("error"):
+            _result_cache[key] = dict(disk)
+            _record({"label": label, "input": user_data, "output": disk,
+                     "cached": True, "ok": True, "latency_ms": None})
+            return dict(disk)
     result = _chat(system_prompt, user_data, temperature=0, label=label, schema=schema,
                    grammar=constrain_generation(label))
     if key is not None and not result.get("error"):
         _result_cache[key] = dict(result)
+        _disk_put(key, result)
     return result
 
 

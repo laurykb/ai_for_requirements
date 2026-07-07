@@ -23,6 +23,11 @@ LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 LLM_MAX_CONCURRENCY = int(os.environ.get("LLM_MAX_CONCURRENCY", "16"))
 # Cache des réponses LLM (reproductibilité : mêmes entrées -> même verdict).
 LLM_CACHE = os.environ.get("LLM_CACHE", "1") != "0"
+# Cache disque en plus du cache mémoire : survit au process, donc une éval
+# re-lancée après édition d'UN prompt ne repaye que les appels de CET agent
+# (la clé inclut modèle + prompt + entrée). LLM_CACHE_DISK=0 pour couper.
+LLM_CACHE_DISK = os.environ.get("LLM_CACHE_DISK", "1") != "0"
+LLM_CACHE_DIR = Path(os.environ.get("LLM_CACHE_DIR", DATA_DIR / "llm_cache"))
 # Vote self-consistency sur les verdicts BLOQUANT (1 = désactivé ; 3 = recommandé).
 LLM_VOTE = int(os.environ.get("LLM_VOTE", "1"))
 # Débat contradictoire (avocat + juge) sur les BLOQUANT sémantiques : un verdict

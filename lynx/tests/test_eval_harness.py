@@ -65,6 +65,18 @@ def test_on_progress_et_on_log(_sandbox):
     assert lignes and "2 cas valides (1 écartés)" in lignes[0]
 
 
+def test_parallele_memes_scores_et_on_case(_sandbox, monkeypatch):
+    monkeypatch.setenv("EVAL_CONCURRENCY", "3")
+    vus = []
+    out = run_eval.run_golden_eval(
+        semantic=False,
+        on_case=lambda case, got, exp, report: vus.append((case["name"], got, exp)))
+    serie = json.loads((_sandbox / "last_eval.json").read_text(encoding="utf-8"))
+    assert out["cases"] == 2 and serie["precision"] == out["precision"]
+    assert out["per_axis"]["ALLOCATION"]["tp"] == 1
+    assert sorted(v[0] for v in vus) == ["alloc_overflow", "clean_update"]
+
+
 def test_annulation_remonte(_sandbox):
     # L'appelant (API SSE) lève depuis on_progress pour annuler : la levée
     # doit remonter telle quelle, sans écrire de résultat.

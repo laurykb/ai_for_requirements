@@ -12,4 +12,5 @@ corpus/telemetry.jsonl
 corpus/feedback.jsonl
 corpus/feedback_dataset.jsonl
 corpus/roi.jsonl
+corpus/llm_cache/
 eval/last_eval.json

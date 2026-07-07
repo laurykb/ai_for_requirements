@@ -15,7 +15,9 @@ Usage :
 """
 
 import json
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from src.models import Action, ActionType, Severity
@@ -125,14 +127,19 @@ def load_cases():
     return valid, len(cases) - len(valid)
 
 
-def run_golden_eval(semantic: bool = True, on_progress=None, on_log=None) -> dict:
+def run_golden_eval(semantic: bool = True, on_progress=None, on_log=None,
+                    on_case=None) -> dict:
     """Fait tourner le golden set et renvoie les scores (comptes bruts inclus).
 
     Réutilisable par le CLI (`main`) comme par l'API (`POST /eval`) :
     - ``on_progress(done, total)`` après chaque cas (annulation : l'appelant
       peut y lever une exception, elle remonte telle quelle) ;
     - ``on_log(ligne)`` reproduit les messages console historiques (en-tête,
-      cas en erreur) — le CLI y branche ``print``.
+      cas en erreur) — le CLI y branche ``print`` ;
+    - ``on_case(case, got, exp, report)`` après chaque cas réussi — pour
+      instrumenter (attribution des FP/FN par agent) sans passe supplémentaire.
+    ``EVAL_CONCURRENCY`` (défaut 1) : nombre de cas évalués en parallèle —
+    à 1, comportement et ordre de sortie strictement historiques.
     Écrit toujours ``last_eval.json`` (même format qu'avant, lu par l'UI).
     """
     cases, dropped = load_cases()
@@ -141,27 +148,60 @@ def run_golden_eval(semantic: bool = True, on_progress=None, on_log=None) -> dic
     if on_log:
         on_log(f"Éval sur {len(cases)} cas valides ({dropped} écartés) · "
                f"mode {'complet (LLM)' if semantic else 'rapide'}\n")
-    for i, case in enumerate(cases):
+
+    def _eval_case(case):
         corpus = [dict(r) for r in (case.get("corpus") or DEFAULT_CORPUS)]
-        action = Action(**case["action"])
-        try:
-            report = run_impact_analysis(corpus, action, semantic=semantic)
-        except Exception as exc:
+        return run_impact_analysis(corpus, Action(**case["action"]), semantic=semantic)
+
+    done_n = 0
+
+    def _absorb(case, report=None, exc=None):
+        nonlocal done_n
+        done_n += 1
+        if exc is not None:
             if on_log:
                 on_log(f"  ! {case['name']}: erreur {exc}")
-            if on_progress:
-                on_progress(i + 1, len(cases))
-            continue
-        got, exp = _flagged_axes(report), set(case["expected"]) & set(AXES)
-        for a in AXES:
-            if a in exp and a in got:
-                tp[a] += 1
-            elif a in exp:
-                fn[a] += 1
-            elif a in got:
-                fp[a] += 1
+        else:
+            got, exp = _flagged_axes(report), set(case["expected"]) & set(AXES)
+            for a in AXES:
+                if a in exp and a in got:
+                    tp[a] += 1
+                elif a in exp:
+                    fn[a] += 1
+                elif a in got:
+                    fp[a] += 1
+            if on_case:
+                try:
+                    on_case(case, got, exp, report)
+                except Exception:
+                    pass
         if on_progress:
-            on_progress(i + 1, len(cases))
+            on_progress(done_n, len(cases))
+
+    workers = max(1, int(os.environ.get("EVAL_CONCURRENCY", "1")))
+    if workers == 1:
+        for case in cases:
+            try:
+                report = _eval_case(case)
+            except Exception as exc:
+                _absorb(case, exc=exc)
+                continue
+            _absorb(case, report)
+    else:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = {pool.submit(_eval_case, c): c for c in cases}
+            for fut in as_completed(futures):
+                case = futures[fut]
+                try:
+                    report = fut.result()
+                except Exception as exc:
+                    _absorb(case, exc=exc)
+                    continue
+                _absorb(case, report)
+        finally:
+            # Annulation (on_progress a levé) : ne pas attendre les cas restants.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     mtp, mfp, mfn = sum(tp.values()), sum(fp.values()), sum(fn.values())
     P = mtp / (mtp + mfp) if (mtp + mfp) else 1.0
