@@ -15,7 +15,8 @@ import ReactMarkdown from "react-markdown";
 
 import { API_BASE, getJSON } from "@/lib/api";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
-import { NIVEAU_COLORS, type Req } from "@/components/req-graph";
+import { type Req } from "@/components/req-graph";
+import { couleurNiveau, maxNiveau } from "@/components/req-levels";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
   type AuditReport, type Exchange, type Finding, type FixProgress, type FixRecap,
@@ -465,7 +466,7 @@ export function Requirements() {
                 <p className="mt-0.5 font-mono text-base text-foreground">{sel.id}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-faint">
                   <span className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: NIVEAU_COLORS[sel.niveau] }} />
+                        style={{ background: couleurNiveau(sel.niveau, maxNiveau(corpus ?? [])) }} />
                   L{sel.niveau} · {sel.domaine ?? "Général"} · test {sel.test_status ?? "PENDING"}
                 </p>
               </div>

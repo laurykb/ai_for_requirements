@@ -19,6 +19,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { couleurNiveau, libelleNiveau, maxNiveau } from "@/components/req-levels";
+
 export type Req = {
   id: string;
   niveau: number;
@@ -29,13 +31,6 @@ export type Req = {
   test_status?: string;
   links?: { type: string; target: string }[];
 };
-
-// Couleurs par niveau L0..L5 (héritées de LynX, éclaircies pour le fond nuit).
-// Hex bruts requis : consommées aussi par three.js (vue 3D), qui ne résout
-// pas les var() CSS. Source unique pour les deux vues.
-export const NIVEAU_COLORS = ["#818cf8", "#60a5fa", "#22d3ee", "#34d399", "#fbbf24", "#fb7185"];
-export const LEVEL_LABELS = ["L0 · Besoin", "L1 · Système", "L2 · Sous-système",
-                             "L3 · Composant", "L4 · Configuration", "L5 · Test"];
 
 // Couleurs d'état des nœuds — MIROIR des tokens de globals.css
 // (--accent-bright, --foreground-bright, --warn, --bad) : three.js exige des
@@ -49,7 +44,7 @@ export const STATE_HEX: Record<string, string> = {
 };
 
 type NodeState = "none" | "selected" | "mentioned" | "flagged-bad" | "flagged-warn" | "impacted";
-type ReqNodeData = { rid: string; niveau: number; state: NodeState };
+type ReqNodeData = { rid: string; niveau: number; couleur: string; state: NodeState };
 
 const ring = (color: string, blur: number, glow: number) =>
   `0 0 0 2px ${color}, 0 0 ${blur}px color-mix(in srgb, ${color} ${glow}%, transparent)`;
@@ -76,7 +71,7 @@ function ReqNode({ data }: NodeProps) {
     >
       <Handle type="target" position={Position.Top} style={{ visibility: "hidden" }} />
       <span className="h-2 w-2 shrink-0 rounded-full"
-            style={{ background: NIVEAU_COLORS[d.niveau] }} />
+            style={{ background: d.couleur }} />
       <span className="font-mono text-[10px] tracking-tight"
             style={{ color: "var(--foreground)" }}>
         {d.rid}
@@ -122,19 +117,20 @@ export const ReqGraph = memo(function ReqGraph({
   onSelect: (id: string) => void;
 }) {
   const { nodes, edges } = useMemo(() => {
+    const nMax = maxNiveau(corpus);
     const byLevel = new Map<number, Req[]>();
     for (const r of corpus) {
-      const lvl = Math.max(0, Math.min(5, r.niveau ?? 0));
+      const lvl = Math.max(0, r.niveau ?? 0);
       byLevel.set(lvl, [...(byLevel.get(lvl) ?? []), r]);
     }
     const nodes: Node[] = [];
-    const levels = [...byLevel.keys()].sort();
+    const levels = [...byLevel.keys()].sort((a, b) => a - b);
     for (const lvl of levels) {
       // Étiquette de niveau à gauche de la rangée.
       nodes.push({
         id: `lvl-${lvl}`, type: "level",
         position: { x: -215, y: lvl * 140 + 4 },
-        data: { label: LEVEL_LABELS[lvl], color: NIVEAU_COLORS[lvl] },
+        data: { label: libelleNiveau(lvl), color: couleurNiveau(lvl, nMax) },
         draggable: false, selectable: false, focusable: false,
       });
       const reqs = byLevel.get(lvl)!;
@@ -144,7 +140,7 @@ export const ReqGraph = memo(function ReqGraph({
           id: r.id, type: "req",
           position: { x: i * 150, y: lvl * 140 },
           data: {
-            rid: r.id, niveau: lvl,
+            rid: r.id, niveau: lvl, couleur: couleurNiveau(lvl, nMax),
             state: (selected === r.id ? "selected"
               : mentioned.has(r.id) ? "mentioned"
               : flaggedSev.get(r.id) === "bad" ? "flagged-bad"
