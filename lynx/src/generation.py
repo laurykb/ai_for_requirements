@@ -16,6 +16,7 @@ import threading
 from typing import Callable, List, Optional
 
 from . import llm
+from .audit import audit_matrix
 from .autofix import BatchCancelled, run_batch_fix
 from .config import MAX_NIVEAU, SKILLS_DIR
 from .redaction import _rules_text  # même référentiel que l'agent de rédaction
@@ -114,17 +115,19 @@ def generate_children(corpus: List[dict], req_id: str,
 
     # Auto-audit de la copie (débat contradictoire inclus), puis réécriture
     # des filles signalées — même boucle que la correction en lot, bornée à
-    # 2 passes et restreinte aux filles générées.
-    from .audit import audit_matrix
-    emit({"phase": "audit", "passe": 0, "done": 0, "total": len(copie)})
-    rapport = audit_matrix(copie, deep=True, on_event=lambda done, total: emit(
+    # 2 passes et restreinte aux filles générées (scope = ids des filles :
+    # pas de ré-audit à froid de tout le corpus existant).
+    child_ids = set(par_id)
+    emit({"phase": "audit", "passe": 0, "done": 0, "total": len(child_ids)})
+    rapport = audit_matrix(copie, deep=True, scope=child_ids,
+                           on_event=lambda done, total: emit(
         {"phase": "audit", "passe": 0, "done": done, "total": total}))
     a_corriger = [f for f in rapport.findings
                   if f.req_id in par_id and f.severity in ("BLOQUANT", "WARNING")]
     recap_fix = {}
     if a_corriger:
         out = run_batch_fix(
-            copie, a_corriger, max_passes=2, deep=True,
+            copie, a_corriger, max_passes=2, deep=True, scope=child_ids,
             on_progress=lambda info: emit(
                 {**info, "phase": "reecriture" if info.get("phase") == "correction"
                  else "audit"}),

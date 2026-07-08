@@ -32,9 +32,8 @@ def _filles(n):
 def _audit_propre(monkeypatch):
     monkeypatch.setattr(generation, "run_batch_fix",
                         lambda *a, **k: pytest.fail("rien à corriger"))
-    import src.audit as audit_mod
-    monkeypatch.setattr(audit_mod, "audit_matrix",
-                        lambda corpus, deep=True, on_event=None:
+    monkeypatch.setattr(generation, "audit_matrix",
+                        lambda corpus, deep=True, on_event=None, scope=None:
                         MatrixReport(n=len(corpus), score=100, findings=[]))
 
 
@@ -64,14 +63,13 @@ def test_generation_nominale(monkeypatch):
 def test_fille_flaggee_reecrite(monkeypatch):
     monkeypatch.setattr(generation.llm, "call_agent",
                         lambda *a, **k: _filles(2))
-    import src.audit as audit_mod
 
-    def fake_audit(corpus, deep=True, on_event=None):
+    def fake_audit(corpus, deep=True, on_event=None, scope=None):
         return MatrixReport(n=len(corpus), score=90, findings=[
             MatrixFinding("REQ-L2-SYS-001", "REDACTION", "WARNING", "vague")])
-    monkeypatch.setattr(audit_mod, "audit_matrix", fake_audit)
+    monkeypatch.setattr(generation, "audit_matrix", fake_audit)
 
-    def fake_fix(copie, findings, max_passes, deep, on_progress=None, cancelled=None):
+    def fake_fix(copie, findings, max_passes, deep, scope=None, on_progress=None, cancelled=None):
         assert max_passes == 2
         assert [f.req_id for f in findings] == ["REQ-L2-SYS-001"]
         return {"recap": [{"req_id": "REQ-L2-SYS-001",
@@ -113,3 +111,30 @@ def test_mere_introuvable(monkeypatch):
                         lambda *a, **k: pytest.fail("pas d'appel LLM"))
     out = generation.generate_children(_corpus(), "ABSENT")
     assert "error" in out
+
+
+def test_generate_children_scopes_audit_to_children(monkeypatch):
+    """L'auto-audit de génération ne cible QUE les filles générées (pas tout le corpus)."""
+    from src import generation
+    from src.audit import MatrixReport
+
+    captured = {}
+    def fake_audit(corpus, deep=True, on_event=None, scope=None):
+        captured["scope"] = scope
+        return MatrixReport(n=len(corpus), score=100, findings=[], counts={})
+    monkeypatch.setattr(generation, "audit_matrix", fake_audit)
+    # L'agent de génération propose 2 filles.
+    monkeypatch.setattr(generation.llm, "call_agent", lambda *a, **k: {
+        "filles": [{"texte": "Le sous-système doit démarrer en 2 s.", "aspect_couvert": "démarrage"},
+                   {"texte": "Le sous-système doit s'arrêter en 1 s.", "aspect_couvert": "arrêt"}],
+        "aspects_non_couverts": []})
+
+    corpus = [
+        {"id": "R0", "niveau": 0, "texte": "Le système doit fonctionner.", "parent_id": None},
+        {"id": "R1", "niveau": 1, "texte": "Le système doit démarrer.", "parent_id": "R0"},
+    ]
+    res = generation.generate_children(corpus, "R1")
+    assert "error" not in res
+    child_ids = {f["id_propose"] for f in res["filles"]}
+    # L'audit a été scopé exactement aux filles générées.
+    assert captured["scope"] == child_ids
