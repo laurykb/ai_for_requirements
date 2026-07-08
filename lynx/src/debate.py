@@ -36,6 +36,14 @@ def build_context(tree: RequirementTree, req_id: str) -> Dict[str, Any]:
     }
 
 
+def _maintenu(plaidoyer: str = "", jugement: str = "", erreur: Optional[str] = None) -> Dict[str, Any]:
+    """Verdict MAINTENU : fail-safe LLM ou avocat qui ne conteste pas."""
+    outcome: Dict[str, Any] = {"statut": "MAINTENU", "plaidoyer": plaidoyer, "jugement": jugement}
+    if erreur:
+        outcome["erreur"] = erreur
+    return outcome
+
+
 def contest_blocking(finding_msg: str, req_context: Dict[str, Any]) -> Dict[str, Any]:
     """Débat avocat → juge sur une accusation BLOQUANT.
 
@@ -46,16 +54,13 @@ def contest_blocking(finding_msg: str, req_context: Dict[str, Any]) -> Dict[str,
     defense = llm.call_skill("defense_exigence",
                              {**req_context, "accusation": finding_msg})
     if defense.get("error"):
-        return {"statut": "MAINTENU", "plaidoyer": "", "jugement": "",
-                "erreur": f"avocat : {defense['error']}"}
+        return _maintenu(erreur=f"avocat : {defense['error']}")
     plaidoyer = (defense.get("plaidoyer") or "").strip()
     if not defense.get("refutation_possible", False):
-        # L'avocat lui-même ne voit pas de réfutation fondée : inutile de
-        # déranger le juge, le verdict est maintenu (trace conservée).
-        return {"statut": "MAINTENU", "plaidoyer": plaidoyer,
-                "jugement": "L'avocat ne conteste pas l'accusation."}
-    # NB : donner le contexte complet au juge a été essayé et MESURÉ moins bon
-    # (il redevient clément) — le juge ne voit que l'accusation et le plaidoyer.
+        # L'avocat ne voit pas de réfutation fondée : inutile de saisir le juge.
+        return _maintenu(plaidoyer, "L'avocat ne conteste pas l'accusation.")
+    # Donner le contexte complet au juge a été testé et mesuré moins bon
+    # (il redevient clément) : il ne voit que l'accusation et le plaidoyer.
     jugement = llm.call_skill("juge_verdict", {
         "accusation": finding_msg,
         "plaidoyer": plaidoyer,
@@ -63,8 +68,7 @@ def contest_blocking(finding_msg: str, req_context: Dict[str, Any]) -> Dict[str,
         "elements_contexte": defense.get("elements_contexte") or [],
     })
     if jugement.get("error"):
-        return {"statut": "MAINTENU", "plaidoyer": plaidoyer, "jugement": "",
-                "erreur": f"juge : {jugement['error']}"}
+        return _maintenu(plaidoyer, erreur=f"juge : {jugement['error']}")
     statut = "RETROGRADE" if jugement.get("verdict") == "RETROGRADE" else "MAINTENU"
     return {"statut": statut, "plaidoyer": plaidoyer,
             "jugement": (jugement.get("motivation") or "").strip()}
