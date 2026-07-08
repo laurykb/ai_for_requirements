@@ -122,7 +122,7 @@ def _has_kw(ctx: str, words: list[str], symbols: list[str], original: str) -> bo
 
 def _classify_kind(clause: str) -> str:
     ctx = _strip_accents(clause.lower())
-    if any(k in clause.lower() or k in ctx for k in _RANGE_KW):
+    if _has_kw(ctx, _RANGE_KW, [], clause):
         return "range"
     if _has_kw(ctx, _MEASURE_KW, _MEASURE_SYM, clause):
         return "measure"
