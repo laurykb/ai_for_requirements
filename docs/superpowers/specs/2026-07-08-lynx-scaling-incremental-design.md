@@ -71,6 +71,31 @@ réconcilier l'index avec le corpus courant. Le geste architectural central :
 > **`audit_matrix` devient une primitive scopée et index-backed, partagée par
 > l'audit, l'impact, la génération et la correction.**
 
+## Stratégie adaptative (dynamique selon l'échelle) — principe transversal
+
+Le passage à l'échelle doit être **dynamique** : le système choisit sa stratégie
+selon la taille (et le coût estimé) du corpus, au lieu d'un mode figé. Petit corpus →
+comportement simple d'aujourd'hui ; gros corpus → machinerie incrémentale/async/batch
+activée. C'est une **couche de politique** au-dessus des primitives, pas une bascule
+manuelle.
+
+- **Petit corpus** (sous un seuil, ex. l'audit complet tient en quelques secondes) :
+  recompute synchrone, pas de job async ni de priorisation — la simplicité prime, la
+  latence est déjà bonne. On n'impose pas la surcharge de l'incrémental là où elle ne
+  rapporte rien.
+- **Gros corpus** : incrémental + async + streaming + batching vLLM + priorisation par
+  suspicion. La machinerie ne s'active que quand elle paye.
+- **Décision** : sur une métrique de coût estimé (nombre d'appels LLM à faire = taille
+  du *dirty set*, pas N brut ; débit LLM courant), pas sur un `N` codé en dur. Un seul
+  seuil configurable, avec valeur par défaut mesurée sur le poste. Les primitives
+  (index ANN, store de verdicts, `audit_matrix(scope=…)`) sont **les mêmes dans les
+  deux modes** — seule la politique d'ordonnancement/async change. Ça garantit la
+  parité : le petit et le gros chemin produisent les mêmes verdicts.
+
+Conséquence sur le plan : la Phase 0 (numpy) est *scale-agnostic* (bénéfique partout,
+aucun downside) ; la couche de politique adaptative est introduite avec la Phase 3
+(async/job), une fois les primitives en place.
+
 ## Architecture
 
 ### Le geste central — `audit_matrix(corpus, scope=None)`
