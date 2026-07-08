@@ -461,13 +461,8 @@ def analyze_impact_latent(ctx: Ctx) -> List[Finding]:
     if not vecs or vecs[0] is None:
         _route([], [], note="embeddings indisponibles")
         return []
-    scored = []
-    for i, c in enumerate(candidates):
-        cv = vecs[i + 1]
-        if cv is not None:
-            s = embeddings.cosine(vecs[0], cv)
-            if s >= EMBED_LATENT_THRESHOLD:
-                scored.append((c, s))
+    sims = embeddings.similarities_to(vecs[0], vecs[1:])
+    scored = [(c, s) for c, s in zip(candidates, sims) if s >= EMBED_LATENT_THRESHOLD]
     if not scored:
         _route([], [], note=f"aucune exigence proche parmi {len(candidates)} (seuil {EMBED_LATENT_THRESHOLD})")
         return []

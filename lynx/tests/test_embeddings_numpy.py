@@ -74,3 +74,19 @@ def test_most_similar_picks_reference_best(monkeypatch):
     ref_best = int(np.argmax(ref_scores))
     assert best_id == candidates[ref_best][0]
     assert abs(best_score - ref_scores[ref_best]) < 1e-9
+
+
+def test_impact_latent_scoring_matches_reference(monkeypatch):
+    """La sélection des candidats proches ne change pas après vectorisation."""
+    from src import analyzers
+    from src.config import EMBED_LATENT_THRESHOLD
+
+    target_vec = [1.0, 0.0, 0.0, 0.0]
+    # 3 candidats : un proche (>=seuil), un lointain, un invalide.
+    cand_vecs = [[0.99, 0.14, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], None]
+    sims = analyzers.embeddings.similarities_to(target_vec, cand_vecs)
+    ref = [_ref_cosine(target_vec, c) if c else 0.0 for c in cand_vecs]
+    for g, r in zip(sims, ref):
+        assert abs(g - r) < 1e-9
+    retenus = [i for i, s in enumerate(sims) if s >= EMBED_LATENT_THRESHOLD]
+    assert retenus == [0]  # seul le candidat proche passe le seuil
