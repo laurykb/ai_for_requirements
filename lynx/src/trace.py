@@ -1,16 +1,15 @@
 """Boîte de verre : rend lisibles les échanges entre agents.
 
-LynX n'est pas une chaîne où les agents se parlent : c'est un **fan-out**.
-L'orchestrateur envoie à chaque agent (analyseur) un extrait de la matrice,
-chacun rend un avis *indépendant*, puis un agent de **synthèse** agrège tous les
-avis en un verdict unique. Ce module transforme les échanges bruts — le payload
-JSON envoyé à chaque agent LLM et la réponse reçue, capturés par ``llm`` — en
-messages en langage naturel, pour les afficher dans l'UI.
+LynX fonctionne en fan-out, pas en chaîne : l'orchestrateur envoie à chaque
+agent un extrait de la matrice, chacun rend un avis indépendant, puis un agent
+de synthèse agrège tous les avis en un verdict unique. Ce module transforme les
+échanges bruts — le payload JSON envoyé à chaque agent LLM et la réponse reçue,
+capturés par ``llm`` — en messages en langage naturel pour l'UI.
 """
 
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional
 
 # Nom lisible + rôle + mission de chaque agent, par nom de skill.
 SKILL_META = {
@@ -174,6 +173,16 @@ def _fmt_input(skill: str, payload: Any) -> str:
     return str(payload)
 
 
+def _fmt_coherence_output(label: str, out: dict, preuve_txt: str) -> str:
+    """Rend une sortie de cohérence (amont ou aval) : même forme, seul le
+    libellé change entre coherence_pertinence et coherence_pertinence_aval."""
+    base = f"{label} : **{_oui_non(out.get('est_coherent'))}**. {out.get('synthese', '')}"
+    rupt = out.get("rupture_avec")
+    if rupt:
+        base += f" Rupture avec {_id_list(rupt)}."
+    return base + preuve_txt
+
+
 def _fmt_output(skill: str, out: Any) -> str:
     """Décrit, en français, la réponse rendue par l'agent."""
     if not isinstance(out, dict):
@@ -183,12 +192,7 @@ def _fmt_output(skill: str, out: Any) -> str:
     preuve = (out.get("preuve") or "").strip()
     preuve_txt = f" Preuve citée : « {preuve} »." if preuve else ""
     if skill == "coherence_pertinence":
-        base = (f"Cohérent : **{_oui_non(out.get('est_coherent'))}**. "
-                f"{out.get('synthese', '')}")
-        rupt = out.get("rupture_avec")
-        if rupt:
-            base += f" Rupture avec {_id_list(rupt)}."
-        return base + preuve_txt
+        return _fmt_coherence_output("Cohérent", out, preuve_txt)
     if skill == "couverture_amont":
         base = (f"Parent couvert : **{_oui_non(out.get('est_complet'))}**. "
                 f"{out.get('synthese', '')}")
@@ -205,12 +209,7 @@ def _fmt_output(skill: str, out: Any) -> str:
             base += f" Sœurs en conflit : {_id_list(conf)}."
         return base + preuve_txt
     if skill == "coherence_pertinence_aval":
-        base = (f"Cohérent avec ses filles : **{_oui_non(out.get('est_coherent'))}**. "
-                f"{out.get('synthese', '')}")
-        rupt = out.get("rupture_avec")
-        if rupt:
-            base += f" Rupture avec {_id_list(rupt)}."
-        return base + preuve_txt
+        return _fmt_coherence_output("Cohérent avec ses filles", out, preuve_txt)
     if skill == "impact_latent":
         impactees = out.get("impactees") or []
         base = out.get("synthese", "") or (f"{len(impactees)} exigence(s) latente(s) impactée(s)."
@@ -361,12 +360,12 @@ def _fmt_audit_output(out: Any) -> str:
 
 
 def humanize_audit(records: List[dict]) -> List[dict]:
-    """Timeline de l'audit : une carte par exigence auditée, PUIS le débat
+    """Timeline de l'audit : une carte par exigence auditée, puis le débat
     contradictoire (avocat + juge) déclenché sur les BLOQUANT sémantiques.
 
     Chaque entrée est un échange complet (``agent``/``role``/``mission``/
-    ``input``/``output``), rendu tel quel par la boîte de verre. Les cartes
-    d'audit gardent ``req_id``/``flagged`` (compat + tri éventuel côté front).
+    ``input``/``output``). Les cartes d'audit gardent en plus ``req_id`` et
+    ``flagged`` (compat + tri éventuel côté front).
     """
     out: List[dict] = []
     for r in records or []:
@@ -425,14 +424,14 @@ def build_timeline(records: List[dict], findings: List[dict]) -> List[dict]:
 
 def build_generation_timeline(records: List[dict],
                               child_ids: Optional[List[str]] = None) -> List[dict]:
-    """Boîte de verre de la génération de filles : proposition, puis audit /
-    débat / réécriture RESTREINTS aux filles générées.
+    """Boîte de verre de la génération de filles : proposition, puis audit,
+    débat et réécriture restreints aux filles générées.
 
-    La génération auto-audite une COPIE de toute la matrice (débat + réécriture
+    La génération auto-audite une copie de toute la matrice (débat + réécriture
     des filles signalées) : sans filtrage, la timeline noierait la génération
     sous l'audit des dizaines d'exigences préexistantes. On ne garde donc, pour
     audit/correction/défense, que les records portant sur une fille (``child_ids``) ;
-    la génération et les réécritures (qui ne touchent QUE les filles dans ce flux)
+    la génération et les réécritures (qui ne touchent que les filles dans ce flux)
     sont toujours conservées, et le juge suit sa défense.
     """
     ids = set(child_ids or [])
