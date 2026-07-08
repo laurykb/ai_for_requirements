@@ -11,6 +11,7 @@ import hashlib
 from typing import Dict, List, Optional
 
 import httpx
+import numpy as np
 
 from .config import EMBED_BASE_URL, EMBED_DISABLED, EMBED_DUP_THRESHOLD, EMBED_MODEL, LLM_API_KEY, LLM_TIMEOUT_SECONDS
 
@@ -86,6 +87,57 @@ def cosine(a: List[float], b: List[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
+def _stack(vectors: List[Optional[List[float]]]):
+    """Empile des vecteurs en matrice numpy L2-normalisée (une ligne par vecteur).
+
+    Renvoie ``(matrice float64 (n, dim), mask booléen des lignes valides)``. Un
+    vecteur None / vide / de mauvaise dimension devient une ligne nulle marquée
+    invalide (sa similarité vaudra 0, jamais un faux positif).
+    """
+    n = len(vectors)
+    dim = next((len(v) for v in vectors if v), 0)
+    m = np.zeros((n, dim or 1), dtype=np.float64)
+    valid = np.zeros(n, dtype=bool)
+    for i, v in enumerate(vectors):
+        if v and dim and len(v) == dim:
+            m[i] = v
+            valid[i] = True
+    norms = np.linalg.norm(m, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return m / norms, valid
+
+
+def duplicate_pairs(vectors: List[Optional[List[float]]], threshold: float):
+    """Paires ``(i, j, score)`` (i < j) de cosinus >= ``threshold``.
+
+    Remplace la double boucle O(N²) Python par une seule matmul numpy. Les
+    vecteurs invalides sont exclus (jamais signalés comme doublons).
+    """
+    n = len(vectors)
+    if n < 2:
+        return []
+    m, valid = _stack(vectors)
+    sims = m @ m.T
+    iu = np.triu_indices(n, k=1)
+    vi, vj = iu
+    keep = valid[vi] & valid[vj] & (sims[vi, vj] >= threshold)
+    return [(int(vi[k]), int(vj[k]), float(sims[vi[k], vj[k]]))
+            for k in np.nonzero(keep)[0]]
+
+
+def similarities_to(target_vec: Optional[List[float]],
+                    cand_vecs: List[Optional[List[float]]]) -> List[float]:
+    """Cosinus de ``target_vec`` contre chaque candidat (0.0 si l'un est invalide)."""
+    if not cand_vecs:
+        return []
+    m, valid = _stack([target_vec] + list(cand_vecs))
+    if not valid[0]:
+        return [0.0] * len(cand_vecs)
+    sims = m[1:] @ m[0]
+    sims = np.where(valid[1:], sims, 0.0)
+    return [float(s) for s in sims]
+
+
 def most_similar(target_text: str, candidates: List[tuple]) -> Optional[tuple]:
     """Renvoie (id, score) du candidat le plus proche, ou None si indispo.
 
@@ -96,16 +148,15 @@ def most_similar(target_text: str, candidates: List[tuple]) -> Optional[tuple]:
     vecs = get_embeddings([target_text] + [c[1] for c in candidates])
     if not vecs or vecs[0] is None:
         return None
-    tv = vecs[0]
-    best_id, best_score = None, -1.0
-    for i, (cid, _) in enumerate(candidates):
-        cv = vecs[i + 1]
-        if cv is None:
-            continue
-        s = cosine(tv, cv)
-        if s > best_score:
-            best_id, best_score = cid, s
-    return (best_id, best_score) if best_id is not None else None
+    m, valid = _stack(vecs)
+    if not valid[0]:
+        return None
+    sims = m[1:] @ m[0]
+    sims = np.where(valid[1:], sims, -np.inf)
+    if not np.isfinite(sims).any():
+        return None
+    j = int(np.argmax(sims))
+    return (candidates[j][0], float(sims[j]))
 
 
 def is_duplicate(target_text: str, candidates: List[tuple], threshold: float = EMBED_DUP_THRESHOLD):
