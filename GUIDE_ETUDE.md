@@ -3,8 +3,7 @@
 Porte d'entrée pour un **relecteur** (étudiant, pair) qui veut comprendre *comment*
 le projet a été réalisé et donner un retour utile. Ce guide donne un **ordre de
 lecture**, une **carte des modules** et les **décisions de conception** à critiquer.
-Pour le positionnement et les résultats, voir [README.md](README.md) ; pour l'état
-d'avancement, [REPRISE.md](REPRISE.md).
+Pour le positionnement et les résultats, voir [README.md](README.md).
 
 > **Un dépôt, deux outils.** L'app hôte (`app/`) est l'**Outil RAG** documentaire ;
 > **LynX** (dans `lynx/`) est l'assistant de vérification d'exigences, embarqué tel
@@ -129,8 +128,8 @@ python -m evals.run_eval --mode retrieval   # RAG : hit@k / recall
 Les choix les plus intéressants à challenger — c'est là qu'un retour aide vraiment :
 
 - **RAG — mesurer avant d'optimiser.** Des leviers ont été *retirés* car la donnée ne
-  les justifiait pas (GraphRAG = 0 effet, réécriture de requête négative). Cf.
-  `REPRISE.md`. Question : la méthode d'A/B (`evals/`) est-elle assez robuste ?
+  les justifiait pas (GraphRAG = 0 effet, réécriture de requête négative). Question :
+  la méthode d'A/B (`evals/`) est-elle assez robuste ?
 - **RAG — routeur sans LLM** (`core/router.py`) : router Auto/RAG/Agent par heuristique
   plutôt que par un appel LLM. Bon compromis latence/robustesse, ou trop rigide ?
 - **RAG — sortie de LangChain** au profit d'un client HTTP direct (`core/llm_client.py`)
@@ -143,4 +142,3 @@ Les choix les plus intéressants à challenger — c'est là qu'un retour aide v
 - **LynX — déterministe d'abord, LLM en dernier recours** (ex. routeur embeddings de la
   redondance qui n'appelle le LLM que dans la zone ambiguë). Où est la bonne frontière ?
 - **Transverse — cadre PoC mono-poste assumé** (Streamlit, verrou fichier, pas d'auth).
-  Voir `lynx/CRITIQUE.md` / `lynx/AUTOCRITIQUE.md` pour l'auto-critique existante.

@@ -105,4 +105,4 @@ tests/              tests déterministes (sans LLM)
 
 Docs liées : `README.md` (démarrage), `ROADMAP.md` (reste à faire),
 `HARDENING.md` (backlog durcissement), `HARDWARE.md` (échelle),
-`CRITIQUE.md` / `AUTOCRITIQUE.md` (auto-critiques), `eval/COMPARAISON_MODELES.md`.
+`eval/COMPARAISON_MODELES.md`.

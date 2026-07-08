@@ -83,7 +83,6 @@ python -m eval.run_eval --fast                # déterministe seul
 - **`ROADMAP.md`** — ce qui reste à faire pour un produit réel.
 - **`HARDWARE.md`** — montée en charge (Ollama réglé, vLLM).
 - **`HARDENING.md`** — backlog de durcissement (revue adversariale).
-- **`CRITIQUE.md`** / **`AUTOCRITIQUE.md`** — auto-critiques.
 - **`eval/COMPARAISON_MODELES.md`** — choix du modèle par la donnée.
 
 ## Configuration (env ou `src/config.py`)
