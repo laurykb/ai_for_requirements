@@ -16,6 +16,9 @@ from .analyzers import (
     analyze_impact_latent, analyze_pertinence, analyze_pertinence_aval, analyze_redondance,
 )
 from .config import MAX_NIVEAU
+from .models import Action, ActionType, Finding, ImpactReport, LinkType, Scope, Severity
+from .orchestration_config import active_analyzers
+from .tree import RequirementTree, _DECOMP
 
 # Libellé lisible de chaque agent, pour la trace dans l'UI.
 AGENT_LABELS = {
@@ -28,8 +31,6 @@ AGENT_LABELS = {
     analyze_impact_latent: "Impact latent",
     analyze_coreference: "Cohérence des co-références",
 }
-from .models import Action, ActionType, Finding, ImpactReport, LinkType, Scope, Severity
-from .tree import RequirementTree, _DECOMP
 
 
 class ActionError(ValueError):
@@ -45,11 +46,11 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
         if action.test_status is not None:
             changes["test_status"] = action.test_status
         return tree.with_updated(action.target_id, changes)
-    if action.action_type == ActionType.DELETE:
+    elif action.action_type == ActionType.DELETE:
         if action.target_id not in tree:
             raise ActionError(f"Exigence cible introuvable : {action.target_id}")
         return tree.with_deleted(action.target_id)
-    if action.action_type == ActionType.CREATE:
+    elif action.action_type == ActionType.CREATE:
         if action.target_id in tree:
             raise ActionError(f"Identifiant déjà utilisé : {action.target_id}")
         parent = tree.get(action.parent_id) if action.parent_id else None
@@ -72,7 +73,7 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
             "test_status": action.test_status or "PENDING",
         }
         return tree.with_added(new_req)
-    if action.action_type == ActionType.LINK:
+    elif action.action_type == ActionType.LINK:
         child, parent = action.target_id, action.link_target
         ltype = action.link_type or LinkType.DERIVE
         if child not in tree:
@@ -97,7 +98,7 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
                 f"(L{node.niveau}) ne sont pas à des niveaux adjacents. Un lien de "
                 f"décomposition relie N → N+1 ; le saut de niveau est interdit.")
         return tree.with_link(child, parent, ltype)
-    if action.action_type == ActionType.UNLINK:
+    elif action.action_type == ActionType.UNLINK:
         child, parent, ltype = action.target_id, action.link_target, action.link_type
         if child not in tree:
             raise ActionError(f"Exigence source du lien introuvable : {child}")
@@ -105,7 +106,8 @@ def build_candidate_tree(tree: RequirementTree, action: Action) -> RequirementTr
         if not any(lk.target == parent and (ltype is None or lk.type == ltype) for lk in node.links):
             raise ActionError(f"Aucun lien vers {parent} à retirer sur {child}.")
         return tree.with_unlink(child, parent, ltype)
-    raise ValueError(f"Action inconnue : {action.action_type}")
+    else:
+        raise ValueError(f"Action inconnue : {action.action_type}")
 
 
 def _safe(analyzer, ctx) -> List[Finding]:
@@ -120,30 +122,34 @@ def _safe(analyzer, ctx) -> List[Finding]:
             impacted_ids=[ctx.action.target_id])]
 
 
+# Titres de section affichés dans la narration, dans l'ordre du pipeline d'analyse.
+_SCOPE_TITLES = {
+    "STRUCTURE": "Validité structurelle",
+    "ALLOCATION": "Allocation / budget",
+    "AMONT": "T1 — Pertinence / cohérence amont",
+    "COUVERTURE": "T2 — Couverture du parent (complétude)",
+    "HORIZONTAL": "T3 — Redondance / sur-spécification",
+    "PERTINENCE_AVAL": "T4 — Pertinence / cohérence aval",
+    "IMPACT_LATENT": "Impact latent (exigences non reliées)",
+    "COHERENCE_REF": "Cohérence des co-références",
+    "AVAL": "Propagation aval (descendants)",
+}
+_SEVERITY_MARK = {Severity.INFO: "", Severity.WARNING: "attention", Severity.BLOCKING: "bloquant"}
+
+
 def _narrate(report: ImpactReport) -> str:
     lines = [f"**Statut global : {report.global_status.value}** "
              f"pour {report.action_type.value} sur `{report.target_id}`.", ""]
     by_scope: dict[str, List[Finding]] = {}
     for f in report.findings:
         by_scope.setdefault(f.scope.value, []).append(f)
-    titles = {
-        "STRUCTURE": "Validité structurelle",
-        "ALLOCATION": "Allocation / budget",
-        "AMONT": "T1 — Pertinence / cohérence amont",
-        "COUVERTURE": "T2 — Couverture du parent (complétude)",
-        "HORIZONTAL": "T3 — Redondance / sur-spécification",
-        "PERTINENCE_AVAL": "T4 — Pertinence / cohérence aval",
-        "IMPACT_LATENT": "Impact latent (exigences non reliées)",
-        "COHERENCE_REF": "Cohérence des co-références",
-        "AVAL": "Propagation aval (descendants)",
-    }
-    for scope, title in titles.items():
+    for scope, title in _SCOPE_TITLES.items():
         items = by_scope.get(scope)
         if not items:
             continue
         lines.append(f"### {title}")
         for f in items:
-            mark = {Severity.INFO: "", Severity.WARNING: "attention", Severity.BLOCKING: "bloquant"}[f.severity]
+            mark = _SEVERITY_MARK[f.severity]
             prefix = f"{mark} : " if mark else ""
             lines.append(f"- {prefix}{f.message}")
         lines.append("")
@@ -246,7 +252,6 @@ def run_impact_analysis(corpus: List[dict], action: Action, semantic: bool = Tru
     ctx = Ctx(current=current, candidate=candidate, action=action)
     findings: List[Finding] = []
     # Ordre et activation PILOTABLES depuis l'UI (corpus/orchestration.json).
-    from .orchestration_config import active_analyzers
     det_analyzers, sem_analyzers = active_analyzers()
 
     for analyzer in det_analyzers:
