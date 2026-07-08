@@ -215,9 +215,12 @@ Un fichier SQLite sous `corpus/` (ex. `corpus/lynx_store.sqlite`), tables :
 - **Phase 1 — embeddings persistés (SQLite)** : cache-through 3 niveaux (L1 mémoire →
   L2 SQLite `embeddings` → Ollama) transparent derrière `get_embeddings`. Pas d'index
   ANN. Gate : parité (vecteurs identiques) + plus de ré-embed au cold-start.
-- **Phase 2 — store de verdicts + `audit_matrix(scope=…)`** : table SQLite `verdicts` ;
-  génération/correction passent un `scope`. Gate : **test de parité golden** legacy vs
-  scopé.
+- **Phase 2 — `audit_matrix(scope=…)`** : passes déterministes calculées en plein puis
+  filtrées, boucle sémantique LLM restreinte au scope ; génération/correction passent
+  un `scope`. Gate : **test de parité golden** (scoped == full filtré au scope), unit +
+  corpus réel. **Store de verdicts SQLite (`verdicts`) DIFFÉRÉ** (révisé 2026-07-08 :
+  YAGNI à ≤2000 — le déterministe est mesuré à 46 ms, le scope suffit à tuer le
+  cold-audit ; à reconsidérer en Phase 3 si un score plein persistant est requis).
 - **Phase 3 — job async + SSE + score progressif + politique adaptative** : audit non
   bloquant, réouverture instantanée via `audit_reports` ; la couche de politique
   (synchrone petit corpus / async gros) est introduite ici.
