@@ -1,4 +1,4 @@
-"""Configuration d'orchestration PILOTABLE depuis l'UI.
+"""Configuration d'orchestration pilotable depuis l'UI.
 
 L'ordre et l'activation des agents d'analyse d'impact sont persistés dans
 ``corpus/orchestration.json`` :
@@ -6,11 +6,11 @@ L'ordre et l'activation des agents d'analyse d'impact sont persistés dans
     {"deterministic": [{"name": "analyze_allocation", "enabled": true}, …],
      "semantic":      [{"name": "analyze_pertinence",  "enabled": true}, …]}
 
-- déterministes : exécutés SÉQUENTIELLEMENT, dans l'ordre configuré ;
+- déterministes : exécutés séquentiellement, dans l'ordre configuré ;
 - sémantiques   : lancés en parallèle, l'ordre = ordre de lancement.
 
 Sans fichier (ou entrée inconnue) : les listes par défaut de ``analyzers.py``.
-Un agent absent du fichier est considéré ACTIF (ajout de code sans migration).
+Un agent absent du fichier est considéré actif (ajout de code sans migration).
 """
 from __future__ import annotations
 
@@ -71,8 +71,8 @@ def save_config(cfg: dict) -> dict:
 
 
 def active_analyzers() -> tuple[list, list]:
-    """(déterministes, sémantiques) : fonctions ACTIVES, dans l'ordre configuré.
-    C'est CE point que l'orchestrateur consulte à chaque analyse."""
+    """(déterministes, sémantiques) : fonctions actives, dans l'ordre configuré.
+    C'est ce point que l'orchestrateur consulte à chaque analyse."""
     cfg = load_config()
     det = [_ALL[e["name"]] for e in cfg["deterministic"] if e["enabled"]]
     sem = [_ALL[e["name"]] for e in cfg["semantic"] if e["enabled"]]

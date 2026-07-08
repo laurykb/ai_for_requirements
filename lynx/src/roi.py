@@ -1,8 +1,9 @@
 """Instrumentation de la valeur (ROI).
 
-Chaque défaut capté à la CONCEPTION (lors d'une édition ou d'un audit) est un
-défaut qui n'aura pas à être détecté TARD, à la remontée du V (par les tests) :
-c'est le *shift-left*. On le journalise pour quantifier la valeur de l'assistant.
+Chaque défaut capté à la conception (lors d'une édition ou d'un audit) est un
+défaut qui n'aura pas à être détecté plus tard, à la remontée du V (par les
+tests) : c'est du shift-left. On le journalise pour quantifier la valeur de
+l'assistant.
 """
 
 from __future__ import annotations

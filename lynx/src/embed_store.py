@@ -4,7 +4,7 @@ But : survivre au process. Au redémarrage, on relit les vecteurs du disque au l
 de tout ré-embedder. Transparent pour les appelants (via ``embeddings.get_embeddings``).
 
 Les vecteurs sont stockés en float64 (bit-identiques aux floats Python renvoyés par
-l'API), donc le cache ne change AUCUNE similarité : parité stricte préservée. Un cache
+l'API), donc le cache ne change aucune similarité : parité stricte préservée. Un cache
 qui échoue ne casse jamais un appel — LynX reste fonctionnel sans lui.
 """
 from __future__ import annotations

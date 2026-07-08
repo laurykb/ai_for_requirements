@@ -273,7 +273,7 @@ def build_corpus(target: int = 350, stride: int = 2, use_llm: bool = True) -> di
     # Rédaction : parallélisée quand le LLM est actif (Ollama NUM_PARALLEL≥1 +
     # cache disque). ``ThreadPoolExecutor.map`` préserve l'ordre ; ``rediger`` est
     # I/O-bound (HTTP Ollama) et lit/écrit un cache idempotent, donc thread-safe.
-    # La rédaction se fait AVANT de retirer ``_element``/``_verifie`` (fiche_prose
+    # La rédaction se fait avant de retirer ``_element``/``_verifie`` (fiche_prose
     # d'une vérification en dépend).
     if use_llm:
         import os

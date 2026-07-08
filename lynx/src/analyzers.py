@@ -11,7 +11,7 @@ Sémantiques (agents LLM) :
   - couverture (T2) : le parent reste-t-il entièrement couvert par ses filles ?
   - redondance (T3) : la cible est-elle redondante / sur-spécifiée vs ses sœurs ?
   - pertinence aval (T4) : la cible reste-t-elle cohérente/pertinente vs ses filles ?
-  - impact latent : des exigences NON reliées sont-elles sémantiquement impactées ?
+  - impact latent : des exigences non reliées sont-elles sémantiquement impactées ?
   - co-références : les exigences partageant un référent concret restent-elles cohérentes ?
 """
 
@@ -220,7 +220,7 @@ def analyze_pertinence(ctx: Ctx) -> List[Finding]:
         if votes and incoh <= len(votes) // 2:
             sev = Severity.WARNING
             base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
-    # Débat contradictoire APRÈS le vote, sur le verdict consolidé.
+    # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence", scope=Scope.AMONT, severity=sev,
         message=_with_preuve(base, resp),
@@ -387,7 +387,7 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
                                     else "Rupture de pertinence en aval.")
 
     # Delta-aware (même principe que analyze_couverture) : si la rupture aval
-    # existait déjà AVANT l'action (jugée sur l'ancien texte de la cible), on ne
+    # existait déjà avant l'action (jugée sur l'ancien texte de la cible), on ne
     # l'impute pas à cette édition — sinon chaque UPDATE re-signale un état
     # ancien (faux positifs mesurés). Ne s'applique que si le texte a changé.
     if not coherent:
@@ -414,7 +414,7 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
         if votes and incoh <= len(votes) // 2:
             sev = Severity.WARNING
             base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
-    # Débat contradictoire APRÈS le vote, sur le verdict consolidé.
+    # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL, severity=sev,
         message=_with_preuve(base, resp),
@@ -516,7 +516,7 @@ def analyze_coreference(ctx: Ctx) -> List[Finding]:
         llm.trace_event("routeur_coreference", {"cible": target.id},
                         {"referents": [], "co_references": [], "note": "aucun référent concret dans l'énoncé"})
         return []
-    # La chaîne VERTICALE (ancêtres/descendants) est déjà jugée par les agents
+    # La chaîne verticale (ancêtres/descendants) est déjà jugée par les agents
     # amont/aval : la re-signaler ici dupliquerait le même défaut sous un autre
     # axe (faux positifs mesurés). La co-référence cherche les conflits
     # trans-branche — les sœurs et les exigences non reliées restent scannées.

@@ -1,6 +1,6 @@
 """Audit global de la matrice de traçabilité.
 
-Scanne TOUT le corpus (pas seulement une édition) pour produire un score de
+Scanne l'ensemble du corpus (pas seulement une édition) pour produire un score de
 fiabilité et la liste des points faibles : liens manquants, doublons d'ID,
 cycles, dépassements de budget (déterministe), puis rédaction, pertinence,
 couverture, redondance et pertinence aval par exigence (une passe LLM par exigence,

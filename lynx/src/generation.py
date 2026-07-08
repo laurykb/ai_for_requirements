@@ -1,12 +1,12 @@
 """Génération descendante d'exigences filles L(n) -> L(n+1).
 
 Depuis une exigence mère sélectionnée, l'agent ``generation_filles`` propose
-2 à 7 filles (bornes aussi côté code), insérées sur une COPIE du corpus puis
+2 à 7 filles (bornes aussi côté code), insérées sur une copie du corpus puis
 auto-auditées (débat contradictoire inclus) ; les filles encore signalées sont
 réécrites via la boucle de correction en lot (max 2 passes). Le corpus réel
-n'est JAMAIS muté ici : la validation sélective (``/generate/children/apply``)
+n'est jamais muté ici : la validation sélective (``/generate/children/apply``)
 crée ensuite réellement les filles cochées, avec leur lien DERIVE (parent_id).
-Un seul niveau à la fois — pas de cascade.
+Un seul niveau à la fois, pas de cascade.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def generate_children(corpus: List[dict], req_id: str,
         return {"error": f"L'agent n'a proposé que {len(proposees)} fille(s) "
                          f"exploitables (minimum {MIN_FILLES})."}
 
-    # Insertion sur une COPIE : le corpus réel reste intact.
+    # Insertion sur une copie : le corpus réel reste intact.
     existants = {r.get("id") for r in corpus}
     ids = _child_ids(mere.id, niveau_fille, len(proposees), existants)
     copie = [dict(r) for r in corpus]

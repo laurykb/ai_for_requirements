@@ -2,9 +2,9 @@
 
 Pour chaque exigence signalée par l'audit (BLOQUANT ou WARNING), demande une
 réécriture à l'agent de rédaction (``suggest_correction``), l'applique à une
-COPIE du corpus, puis ré-audite cette copie. Jusqu'à ``max_passes`` passes :
+copie du corpus, puis ré-audite cette copie. Jusqu'à ``max_passes`` passes :
 seules les exigences encore signalées sont retentées. Le corpus réel n'est
-JAMAIS muté ici — la validation sélective (``/audit/fix/apply``) applique
+jamais muté ici — la validation sélective (``/audit/fix/apply``) applique
 ensuite au vrai corpus les seuls textes cochés par l'ingénieur.
 """
 

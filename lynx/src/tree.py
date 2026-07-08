@@ -1,6 +1,6 @@
 """Graphe d'exigences en mémoire (in-process, sans base de graphe externe).
 
-La traçabilité est un **DAG** : `parent_id` est le lien de décomposition
+La traçabilité est un DAG : `parent_id` est le lien de décomposition
 principal, et les liens typés (DERIVE / REFINES / SATISFIES) ajoutent des arêtes
 amont supplémentaires. Les primitives de navigation (parents, enfants, ancêtres,
 frères, descendants) raisonnent sur l'ensemble de ces arêtes ; tous les

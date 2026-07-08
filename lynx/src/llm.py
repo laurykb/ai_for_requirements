@@ -172,7 +172,7 @@ def call_agent(system_prompt: str, user_data: Any, label: Optional[str] = None,
 
     Cache par (modèle, prompt, entrée) -> reproductibilité des verdicts. Seules
     les réponses valides y entrent : une réponse en erreur (invocation, JSON
-    illisible ou non conforme au schéma) n'est JAMAIS mise en cache.
+    illisible ou non conforme au schéma) n'est jamais mise en cache.
     ``label`` identifie l'agent (nom du skill) pour la boîte de verre ; il sert
     aussi à résoudre le schéma dans le registre si ``schema`` n'est pas fourni.
     """

@@ -24,7 +24,7 @@ LLM_MAX_CONCURRENCY = int(os.environ.get("LLM_MAX_CONCURRENCY", "16"))
 # Cache des réponses LLM (reproductibilité : mêmes entrées -> même verdict).
 LLM_CACHE = os.environ.get("LLM_CACHE", "1") != "0"
 # Cache disque en plus du cache mémoire : survit au process, donc une éval
-# re-lancée après édition d'UN prompt ne repaye que les appels de CET agent
+# re-lancée après édition d'un prompt ne repaye que les appels de cet agent
 # (la clé inclut modèle + prompt + entrée). LLM_CACHE_DISK=0 pour couper.
 LLM_CACHE_DISK = os.environ.get("LLM_CACHE_DISK", "1") != "0"
 LLM_CACHE_DIR = Path(os.environ.get("LLM_CACHE_DIR", DATA_DIR / "llm_cache"))
