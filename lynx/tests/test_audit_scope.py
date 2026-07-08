@@ -59,3 +59,38 @@ def test_scoped_semantic_loop_only_visits_scope(monkeypatch):
     monkeypatch.setattr(audit, "_coreference_findings", lambda corpus, tree: [])
     audit.audit_matrix(CORPUS, deep=True, scope={"R2"})
     assert visited == ["R2"]  # aucune exigence hors scope n'a été auditée par LLM
+
+
+def test_scope_filters_deterministic_findings(monkeypatch):
+    """Le filtre de scope s'applique AUX passes déterministes (par req_id), pas qu'au
+    sémantique : un constat structural d'une exigence hors scope est écarté."""
+    corpus = [
+        {"id": "R0", "niveau": 0, "texte": "racine", "parent_id": None},
+        {"id": "R1", "niveau": 1, "texte": "orpheline", "parent_id": "ABSENT"},
+        {"id": "R2", "niveau": 1, "texte": "orpheline2", "parent_id": "ABSENT2"},
+    ]
+    monkeypatch.setattr(audit, "_audit_one", lambda tree, req: [])
+    monkeypatch.setattr(audit.embeddings, "embeddings_available", lambda: False)
+    monkeypatch.setattr(audit.llm, "llm_available", lambda: True)
+    monkeypatch.setattr(audit, "_coreference_findings", lambda corpus, tree: [])
+    full = audit.audit_matrix(corpus, deep=True)
+    scoped = audit.audit_matrix(corpus, deep=True, scope={"R1"})
+    # R1 (parent inexistant) est signalé en structural ; R2 aussi en plein, mais filtré.
+    assert {f.req_id for f in scoped.findings} == {"R1"}
+    assert sorted(_key(f) for f in scoped.findings) == \
+        sorted(_key(f) for f in full.findings if f.req_id == "R1")
+
+
+def test_semantic_output_not_filtered_for_sibling(monkeypatch):
+    """Un constat produit en auditant une exigence du scope mais attribué à une sœur
+    (hors scope) doit SURVIVRE : on ne filtre que l'entrée de la boucle, pas sa sortie."""
+    def cross(tree, req):
+        if req.id == "R1":
+            return [MatrixFinding("R2", "PERTINENCE", "BLOQUANT", "R1 impacte R2")]
+        return []
+    monkeypatch.setattr(audit, "_audit_one", cross)
+    monkeypatch.setattr(audit.embeddings, "embeddings_available", lambda: False)
+    monkeypatch.setattr(audit.llm, "llm_available", lambda: True)
+    monkeypatch.setattr(audit, "_coreference_findings", lambda corpus, tree: [])
+    scoped = audit.audit_matrix(CORPUS, deep=True, scope={"R1"})
+    assert any(f.req_id == "R2" and "impacte" in f.message for f in scoped.findings)
