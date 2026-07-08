@@ -160,3 +160,21 @@ def test_annulation_stoppe_la_boucle(monkeypatch):
     corpus = _corpus()
     with pytest.raises(autofix.BatchCancelled):
         autofix.run_batch_fix(corpus, _findings(corpus), deep=False, cancelled=cancelled)
+
+
+def test_run_batch_fix_forwards_scope(monkeypatch):
+    """run_batch_fix transmet le scope à ses ré-audits (audit incrémental)."""
+    from src.audit import MatrixReport
+
+    seen = {}
+    def fake_audit(corpus, deep=True, on_event=None, scope=None):
+        seen["scope"] = scope
+        return MatrixReport(n=len(corpus), score=100, findings=[], counts={})
+    monkeypatch.setattr(autofix, "audit_matrix", fake_audit)
+    monkeypatch.setattr(autofix, "suggest_correction",
+                        lambda work, rid, msgs: {"texte": "réécrit", "justification": ""})
+
+    corpus = [{"id": "R1", "niveau": 0, "texte": "flou", "parent_id": None}]
+    findings = [{"req_id": "R1", "axis": "REDACTION", "severity": "WARNING", "message": "flou"}]
+    autofix.run_batch_fix(corpus, findings, max_passes=1, scope={"R1"})
+    assert seen["scope"] == {"R1"}

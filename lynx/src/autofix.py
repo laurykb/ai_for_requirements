@@ -11,7 +11,7 @@ ensuite au vrai corpus les seuls textes cochés par l'ingénieur.
 from __future__ import annotations
 
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from .audit import audit_matrix
 from .correction import suggest_correction
@@ -55,7 +55,7 @@ def _emit(on_progress: Optional[Callable[[dict], None]], info: dict) -> None:
 def run_batch_fix(corpus: List[dict], findings, max_passes: int = 3,
                   on_progress: Optional[Callable[[dict], None]] = None,
                   cancelled: Optional[threading.Event] = None,
-                  deep: bool = True) -> dict:
+                  deep: bool = True, scope: Optional[Set[str]] = None) -> dict:
     """Corrige en lot les exigences signalées et renvoie un récapitulatif.
 
     - ``findings`` : constats de l'audit courant (dicts ou ``MatrixFinding``) ;
@@ -110,7 +110,7 @@ def run_batch_fix(corpus: List[dict], findings, max_passes: int = 3,
             et["justification"] = res.get("justification", "")
         _check(cancelled)
         # Ré-audit de la copie : mêmes juges que l'audit d'origine.
-        rep = audit_matrix(work, deep=deep, on_event=lambda done, tot, p=passe: _emit(
+        rep = audit_matrix(work, deep=deep, scope=scope, on_event=lambda done, tot, p=passe: _emit(
             on_progress, {"phase": "audit", "passe": p,
                           "done": done, "total": tot, "req_id": None}))
         _check(cancelled)
