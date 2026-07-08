@@ -47,7 +47,9 @@ def get_embedding(text: str) -> Optional[List[float]]:
 
 
 def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
-    """Embeddings de plusieurs textes en un seul appel. Utilise le cache."""
+    """Embeddings de plusieurs textes en un seul appel. Cache 3 niveaux :
+    L1 mémoire -> L2 SQLite (persistant) -> API. Écrit les nouveaux vecteurs dans les
+    deux caches. Les vecteurs relus du L2 sont bit-identiques à ceux de l'API."""
     if EMBED_DISABLED or not texts:
         return None
     out: List[Optional[List[float]]] = [None] * len(texts)
@@ -59,6 +61,23 @@ def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
         else:
             missing_idx.append(i)
             missing_txt.append(t)
+
+    # L2 : cache disque persistant (survit au process).
+    if missing_txt:
+        from . import embed_store
+        disk = embed_store.get_many([_key(t) for t in missing_txt])
+        if disk:
+            kept_idx, kept_txt = [], []
+            for pos, t in enumerate(missing_txt):
+                k = _key(t)
+                if k in disk:
+                    out[missing_idx[pos]] = disk[k]
+                    _cache[k] = disk[k]
+                else:
+                    kept_idx.append(missing_idx[pos])
+                    kept_txt.append(t)
+            missing_idx, missing_txt = kept_idx, kept_txt
+
     if missing_txt:
         try:
             r = httpx.post(f"{EMBED_BASE_URL}/embeddings", headers=_headers(),
@@ -67,12 +86,17 @@ def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
             data = r.json()["data"]
             if len(data) != len(missing_txt):
                 return None  # réponse incomplète : on ne devine pas l'alignement
+            new_vecs: dict = {}
             for pos, item in enumerate(data):
                 # L'API compatible OpenAI peut réordonner : on se fie au champ `index`.
                 k = item.get("index", pos)
                 vec = item["embedding"]
                 out[missing_idx[k]] = vec
-                _cache[_key(missing_txt[k])] = vec
+                key = _key(missing_txt[k])
+                _cache[key] = vec
+                new_vecs[key] = vec
+            from . import embed_store
+            embed_store.put_many(new_vecs)  # persiste les nouveaux (survit au process)
         except Exception:
             return None
     return out  # aligné sur ``texts`` (peut contenir None si un item a échoué)
