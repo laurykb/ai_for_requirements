@@ -56,6 +56,12 @@ LLM_DISABLED = os.environ.get("LLM_DISABLE", os.environ.get("OLLAMA_DISABLE", ""
 # Si Ollama est injoignable, les agents LLM renvoient un statut SKIPPED
 # et l'analyse déterministe (allocation, propagation) continue de fonctionner.
 
+# --- Cache d'embeddings persistant (SQLite) --------------------------------
+# Survit au process : au redémarrage, on relit les vecteurs du disque au lieu de
+# tout ré-embedder. EMBED_CACHE_DISK=0 pour couper (LynX reste fonctionnel).
+EMBED_CACHE_DISK = os.environ.get("EMBED_CACHE_DISK", "1") != "0"
+EMBED_CACHE_DB = Path(os.environ.get("EMBED_CACHE_DB", DATA_DIR / "lynx_store.sqlite"))
+
 # --- Niveaux du cycle en V ------------------------------------------------
 MAX_NIVEAU = 5  # L0 (besoin) .. L5 (réalisation/test)
 
