@@ -93,6 +93,11 @@ def _stack(vectors: List[Optional[List[float]]]):
     Renvoie ``(matrice float64 (n, dim), mask booléen des lignes valides)``. Un
     vecteur None / vide / de mauvaise dimension devient une ligne nulle marquée
     invalide (sa similarité vaudra 0, jamais un faux positif).
+
+    Précondition : les vecteurs valides partagent une même dimension (garantie ici
+    par ``get_embeddings``, qui renvoie soit un vecteur complet du modèle unique, soit
+    ``None`` — jamais un vecteur plus court). Un vecteur d'une autre dimension est
+    traité comme invalide.
     """
     n = len(vectors)
     dim = next((len(v) for v in vectors if v), 0)
@@ -153,9 +158,11 @@ def most_similar(target_text: str, candidates: List[tuple]) -> Optional[tuple]:
         return None
     sims = m[1:] @ m[0]
     sims = np.where(valid[1:], sims, -np.inf)
-    if not np.isfinite(sims).any():
-        return None
     j = int(np.argmax(sims))
+    # Parité avec l'ancienne boucle (best_score initialisé à -1.0, mise à jour sur >
+    # stricte) : aucun candidat valide, ou meilleur cosinus <= -1.0 -> None.
+    if sims[j] <= -1.0:
+        return None
     return (candidates[j][0], float(sims[j]))
 
 
