@@ -46,15 +46,25 @@ le LLM) :
 
 ## Objectif de CETTE étape
 
-Faire tenir l'outil à **2000–5000 exigences** (voire au-delà) avec, comme critère
-d'acceptation **non négociable** : **parité de comportement**. À grande échelle,
-LynX doit rendre **exactement les mêmes verdicts** qu'aujourd'hui sur petit corpus —
-mêmes constats, mêmes gravités, mêmes scores — seulement plus vite et en incrémental.
-Le passage à l'échelle ne doit **introduire aucune régression de qualité**.
+Faire tenir l'outil sur toute la **plage réelle d'exploitation** avec, comme critère
+d'acceptation **non négociable** : **parité de comportement**. LynX doit rendre
+**exactement les mêmes verdicts** quelle que soit la taille — mêmes constats, mêmes
+gravités, mêmes scores — seulement plus vite et en incrémental. Le passage à l'échelle
+ne doit **introduire aucune régression de qualité**.
+
+**Curseur d'échelle réel** (précisé par Laury) : le cas **courant** est un **petit
+arbre de 50-100 exigences** ; les **gros arbres montent à ~2000 exigences (rare)**.
+On ne vise pas 5000+. Conséquence directe : le **chemin par défaut est le petit
+corpus synchrone** — il doit rester simple et rapide ; la machinerie lourde
+(async/job, priorisation, vLLM) est réservée au cas **rare** des gros arbres. Le duo
+**numpy (Phase 0) + store incrémental (Phase 2)** suffit probablement à rendre même
+un audit de 2000 acceptable à chaud ; async/vLLM ne se justifient que pour la 1re
+passe à froid d'un gros arbre neuf.
 
 ## Décisions de cadrage (validées)
 
-1. **Cible** : 2000–5000 exigences.
+1. **Cible** : plage réelle 50-100 exigences (courant) → ~2000 (rare, gros arbres) ;
+   pas 5000+. Le petit corpus synchrone est le cas par défaut.
 2. **Modèle d'exécution de l'audit** : combiné — déterministe *always-on* + sémantique
    *incrémental / async / persisté*.
 3. **Serving LLM** : ajout de **vLLM** (OpenAI-compatible, continuous batching, 100 %
