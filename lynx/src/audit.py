@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from . import debate, embeddings, llm
 from .config import ALLOCATION_TOLERANCE, EMBED_DUP_THRESHOLD, LATENT_TOPK, LLM_MAX_CONCURRENCY
@@ -226,10 +226,21 @@ def _coreference_findings(corpus: List[dict],
 
 
 def audit_matrix(corpus: List[dict], deep: bool = True,
-                 on_event: Optional[Callable[[int, int], None]] = None) -> MatrixReport:
-    """Audite tout le corpus. ``on_event(done, total)`` suit l'avancement sémantique."""
-    findings: List[MatrixFinding] = list(_structural_findings(corpus))
-    findings += _embedding_duplicates(corpus)  # doublons cross-corpus (déterministe)
+                 on_event: Optional[Callable[[int, int], None]] = None,
+                 scope: Optional[Set[str]] = None) -> MatrixReport:
+    """Audite le corpus. ``on_event(done, total)`` suit l'avancement sémantique.
+
+    ``scope`` : si fourni, ne renvoie que les constats dont ``req_id`` est dans
+    ``scope``, et ne lance la boucle sémantique LLM que pour ces exigences. Les passes
+    déterministes/cross-matrice sont calculées en plein (rapide) puis filtrées — donc
+    un audit scopé rend exactement les constats qu'un audit complet produirait pour
+    ces exigences (parité). ``scope=None`` : audit complet inchangé.
+    """
+    def _in_scope(f: MatrixFinding) -> bool:
+        return scope is None or f.req_id in scope
+
+    findings: List[MatrixFinding] = [f for f in _structural_findings(corpus) if _in_scope(f)]
+    findings += [f for f in _embedding_duplicates(corpus) if _in_scope(f)]
 
     try:
         tree = RequirementTree(corpus)
@@ -237,8 +248,8 @@ def audit_matrix(corpus: List[dict], deep: bool = True,
         tree = None  # doublons : on s'arrête au structurel
 
     if deep and tree is not None and llm.llm_available():
-        findings += _coreference_findings(corpus, tree)  # cohérence trans-matrice (borné)
-        reqs = tree.all()
+        findings += [f for f in _coreference_findings(corpus, tree) if _in_scope(f)]
+        reqs = tree.all() if scope is None else [r for r in tree.all() if r.id in scope]
         total = len(reqs)
         done = 0
         with ThreadPoolExecutor(max_workers=LLM_MAX_CONCURRENCY) as pool:
