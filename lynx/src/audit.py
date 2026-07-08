@@ -166,22 +166,11 @@ def _embedding_duplicates(corpus: List[dict]) -> List[MatrixFinding]:
     vlist = embeddings.get_embeddings([t for _, t in items])  # un seul appel (batch)
     if not vlist:
         return []
-    vecs = {items[i][0]: vlist[i] for i in range(min(len(items), len(vlist)))}
-    findings, seen = [], set()
-    for i in range(len(items)):
-        for j in range(i + 1, len(items)):
-            id1, id2 = items[i][0], items[j][0]
-            v1, v2 = vecs.get(id1), vecs.get(id2)
-            if not v1 or not v2:
-                continue
-            s = embeddings.cosine(v1, v2)
-            if s >= EMBED_DUP_THRESHOLD:
-                key = (id1, id2)
-                if key in seen:
-                    continue
-                seen.add(key)
-                findings.append(MatrixFinding(id1, "REDONDANCE", "BLOQUANT",
-                    f"Doublon probable : {id1} ≈ {id2} (similarité {s:.2f})."))
+    findings: List[MatrixFinding] = []
+    for i, j, s in embeddings.duplicate_pairs(vlist, EMBED_DUP_THRESHOLD):
+        id1, id2 = items[i][0], items[j][0]
+        findings.append(MatrixFinding(id1, "REDONDANCE", "BLOQUANT",
+            f"Doublon probable : {id1} ≈ {id2} (similarité {s:.2f})."))
     return findings
 
 
