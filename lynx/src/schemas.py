@@ -35,20 +35,16 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_valida
 # --------------------------------------------------------------------------
 # Coercitions partagées (tolérance alignée sur celle des appelants)
 # --------------------------------------------------------------------------
-def _norm_gravite_en(v: Any) -> Any:
-    """Les prompts « analyseurs » parlent anglais : BLOQUANT -> BLOCKING."""
-    if not isinstance(v, str):
-        return v
-    up = v.strip().upper()
-    return {"BLOQUANT": "BLOCKING"}.get(up, up)
-
-
-def _norm_gravite_fr(v: Any) -> Any:
-    """Le prompt d'audit parle français : BLOCKING -> BLOQUANT."""
-    if not isinstance(v, str):
-        return v
-    up = v.strip().upper()
-    return {"BLOCKING": "BLOQUANT"}.get(up, up)
+def _norm_gravite(alias: str, canonique: str):
+    """Fabrique un normaliseur de gravité qui remplace ``alias`` par ``canonique``
+    (casse et espaces tolérés) ; utilisé pour les synonymes BLOQUANT/BLOCKING
+    selon la langue du prompt (analyseurs en anglais, audit en français)."""
+    def normaliser(v: Any) -> Any:
+        if not isinstance(v, str):
+            return v
+        up = v.strip().upper()
+        return canonique if up == alias else up
+    return normaliser
 
 
 def _ids(v: Any) -> Any:
@@ -78,8 +74,10 @@ def _en_dicts_id(v: Any) -> Any:
 
 TexteVide = Annotated[str, BeforeValidator(_texte)]
 ListeIds = Annotated[List[str], BeforeValidator(_ids)]
-GraviteEN = Annotated[Literal["INFO", "WARNING", "BLOCKING"], BeforeValidator(_norm_gravite_en)]
-GraviteFR = Annotated[Literal["INFO", "WARNING", "BLOQUANT"], BeforeValidator(_norm_gravite_fr)]
+GraviteEN = Annotated[Literal["INFO", "WARNING", "BLOCKING"],
+                       BeforeValidator(_norm_gravite("BLOQUANT", "BLOCKING"))]
+GraviteFR = Annotated[Literal["INFO", "WARNING", "BLOQUANT"],
+                       BeforeValidator(_norm_gravite("BLOCKING", "BLOQUANT"))]
 
 
 class _SkillModel(BaseModel):
