@@ -69,8 +69,17 @@ passe à froid d'un gros arbre neuf.
    *incrémental / async / persisté*.
 3. **Serving LLM** : ajout de **vLLM** (OpenAI-compatible, continuous batching, 100 %
    local/souverain, 2×48 GB VRAM).
-4. **Persistance** : **MongoDB** (déjà dans la stack) pour le store de verdicts ;
-   embeddings persistés + index ANN in-process (numpy, puis faiss si >10k).
+4. **Persistance** : ~~MongoDB~~ → **SQLite/fichier** (révisé le 2026-07-08, voir
+   ci-dessous). LynX est délibérément file-based et léger (`config.py` : « pas de
+   Redis, pas de Neo4j, in-process ») ; on garde ce principe plutôt que de le coupler
+   à Mongo. Store SQLite sous `corpus/`. **Index ANN abandonné** (YAGNI au curseur
+   ≤2000 : numpy suffit, cf. Phase 0 = dédup 525 en 23 ms).
+
+> **Révision Phase 1 (2026-07-08)** — deux décisions supersèdent le texte d'origine
+> partout où il dit « Mongo » ou « index ANN » côté LynX : (1) la persistance LynX est
+> **SQLite/fichier**, pas Mongo (LynX reste autonome, marche si Mongo est down) ;
+> (2) **pas d'index ANN** — les embeddings persistés + le scoring numpy (Phase 0)
+> suffisent jusqu'à ~2000. Mongo reste le backend du **RAG** (chantier séparé).
 
 ## Principe directeur : de « recalculer » à « indexer + delta »
 
@@ -185,28 +194,33 @@ version legacy (recompute total) vs version index-backed doit rendre des constat
 set : auditer `scope={id}` après édition doit rendre, pour les exigences touchées, les
 mêmes constats qu'un recompute total post-édition.
 
-## Schémas MongoDB (esquisse, à figer au plan)
+## Schémas de persistance SQLite (esquisse, à figer au plan)
 
-- `lynx_verdicts` : `{ _id: context_hash, req_id, corpus_id, findings: [...],
-  model, prompt_version, created_at }`.
-- `lynx_embeddings` : `{ _id: sha256(model ‖ texte), req_id, corpus_id, vector: [...],
-  model, created_at }`.
-- `lynx_audit_reports` : `{ _id: corpus_id, score, counts, flagged_ids, status,
-  updated_at }` (snapshot pour réouverture instantanée).
+Un fichier SQLite sous `corpus/` (ex. `corpus/lynx_store.sqlite`), tables :
+
+- `embeddings(key TEXT PRIMARY KEY, model TEXT, dim INT, vec BLOB, created_at TEXT)`
+  — `key = sha256(EMBED_MODEL::texte)` (clé existante de `embeddings.py`), `vec` =
+  float32 bytes. **Phase 1.**
+- `verdicts(context_hash TEXT PRIMARY KEY, req_id TEXT, findings TEXT/JSON, model TEXT,
+  prompt_version TEXT, created_at TEXT)` — **Phase 2.**
+- `audit_reports(corpus_id TEXT PRIMARY KEY, score INT, counts TEXT/JSON,
+  flagged_ids TEXT/JSON, status TEXT, updated_at TEXT)` — snapshot réouverture
+  instantanée, **Phase 3.**
 
 ## Plan de migration (incrémental, chaque phase livrable seule)
 
 - **Phase 0 — numpy dedup** (quick win immédiat, **zéro changement de comportement**) :
   remplacer le cosinus Python O(N²) par numpy. Gain net sur audit/génération/correction
   sans toucher à la sémantique. Gate : test de parité + benchmark.
-- **Phase 1 — embeddings persistés + index ANN** : store Mongo `lynx_embeddings` ;
-  `impact_latent`/`coreference`/dedup interrogent l'index. Gate : parité + impact
-  analysis constante en N.
-- **Phase 2 — store de verdicts + `audit_matrix(scope=…)`** : Mongo `lynx_verdicts` ;
+- **Phase 1 — embeddings persistés (SQLite)** : cache-through 3 niveaux (L1 mémoire →
+  L2 SQLite `embeddings` → Ollama) transparent derrière `get_embeddings`. Pas d'index
+  ANN. Gate : parité (vecteurs identiques) + plus de ré-embed au cold-start.
+- **Phase 2 — store de verdicts + `audit_matrix(scope=…)`** : table SQLite `verdicts` ;
   génération/correction passent un `scope`. Gate : **test de parité golden** legacy vs
   scopé.
-- **Phase 3 — job async + SSE + score progressif** : audit non bloquant, réouverture
-  instantanée via `lynx_audit_reports`.
+- **Phase 3 — job async + SSE + score progressif + politique adaptative** : audit non
+  bloquant, réouverture instantanée via `audit_reports` ; la couche de politique
+  (synchrone petit corpus / async gros) est introduite ici.
 - **Phase 4 — vLLM + débat borné** : bascule serving, re-dimensionnement concurrence,
   bornage débat/vote.
 
