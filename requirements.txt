@@ -26,6 +26,7 @@ onnxruntime>=1.18.0
 
 # ─────────────── Embeddings & LLM (Ollama) ───────────────
 requests>=2.31.0
+numpy>=2.0                # similarité/dédup vectorisés (embeddings.py)
 
 # ─────────────── Indexation & Recherche ───────────────
 chromadb>=1.0.0           # backend vectoriel par défaut
