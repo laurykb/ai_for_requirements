@@ -1,8 +1,10 @@
 # AI for SSH — suite souveraine pour l'ingénierie de sécurité (PoC)
 
-**AI for SSH** réunit dans une **seule application Streamlit 100 % locale** (aucune API
-externe) deux outils complémentaires pour le travail sur les dossiers de sécurité
-(ANSSI / Critères Communs) :
+**AI for SSH** réunit dans une **application 100 % locale** (aucune API externe) deux
+outils complémentaires pour le travail sur les dossiers de sécurité (ANSSI / Critères
+Communs). Deux interfaces coexistent : l'**UI Streamlit** historique (`app/main.py`,
+lancée par défaut) et une **nouvelle UI Next.js + API FastAPI** en cours de migration
+(`python serve.py --web`) :
 
 | Outil | Rôle | Documentation |
 |---|---|---|
@@ -157,18 +159,21 @@ Prérequis runtime : **Ollama** + **MongoDB**.
 
 | Commande | Rôle |
 |---|---|
-| `streamlit run app/main.py` | UI (Accueil / Chat / Documents / **Observabilité** / Paramètres) |
+| `python serve.py` | UI Streamlit (Accueil / Chat / Documents / **Observabilité** / Paramètres) |
+| `python serve.py --web` | nouvelle UI : API FastAPI (`:8000`) + front Next.js (`:3000`) |
 | `python -m evals.run_eval --mode retrieval` | évaluation chiffrée (retrieval) |
 | `python -m core.agent "…"` | agent ReAct en CLI |
 | `python rag_mcp_server.py` | serveur MCP (stdio) |
 | `python diagnostic.py` | état des services + routage + vector store |
-| `python -m pytest` | 110 tests unitaires (fonctions pures, hors-ligne) ; +40 pour LynX (`lynx/tests/`) |
+| `python -m pytest` | 151 tests unitaires (fonctions pures, hors-ligne) ; +121 pour LynX (`PYTHONPATH=lynx python -m pytest lynx/tests/`) |
 
 ## Structure
 
 ```text
-app/         UI Streamlit unique (main.py + vues chat/documents/settings)
-core/        orchestration (ask, ingest, llm_answer, agent, model_router, self_rag)
+app/         UI Streamlit (main.py + vues chat/documents/settings) — interface par défaut
+api/         backend FastAPI (nouvelle UI) : rag, sessions, documents, system, lynx_api
+web/         front Next.js 16 (nouvelle UI, en migration)
+core/        orchestration (ask, ingest, llm_answer, agent, planner, model_router, self_rag)
 retrieval/   retrieval hybride, fusion RRF, rerank, vector_store (abstraction Chroma)
 indexing/    chunking, embeddings, BM25, persistance Mongo
 nlp/         trim de requête, NER, enrichissement de chunks
@@ -191,7 +196,9 @@ C'est un **PoC de référence**, à prendre comme tel :
   imparfait) ; l'exactitude prime sur la vitesse pour des docs de sécurité.
 - **Latence** : élevée sur petit GPU (offload CPU). Le vrai correctif est l'infra (GPU
   dédié ou modèle hébergé) ; le code (routage, streaming, abstractions) y est déjà prêt.
-- **Pas de couche de service** (FastAPI/conteneur/auth/multi-tenant) : hors périmètre du PoC.
+- **Couche de service en migration** : une **API FastAPI** (`api/`) + un **front Next.js**
+  (`web/`) remplacent progressivement l'UI Streamlit ; conteneur / auth / multi-tenant
+  restent hors périmètre du PoC (mono-poste souverain).
 
 ## Licence / contexte
 
