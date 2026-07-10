@@ -39,10 +39,18 @@ _SUMMARY_PROMPT = """[RÔLE] Tu produis le RÉSUMÉ d'un document technique.
 [RÉSUMÉ]"""
 
 
+_MONGO_CLIENT = None
+
+
 def _chunks_collection():
+    # Client singleton à timeout court : un MongoClient par appel fuyait des
+    # sockets et gelait ~30 s quand Mongo était éteint (cf. chat_sessions._col).
     from pymongo import MongoClient
     from env_config import MONGO_URI, MONGO_DB
-    return MongoClient(MONGO_URI)[MONGO_DB]["chunks"]
+    global _MONGO_CLIENT
+    if _MONGO_CLIENT is None:
+        _MONGO_CLIENT = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
+    return _MONGO_CLIENT[MONGO_DB]["chunks"]
 
 
 def _gather_material(source: str) -> tuple[str, int, str]:

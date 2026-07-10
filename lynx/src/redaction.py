@@ -21,8 +21,12 @@ def _rules_text() -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
 
 
+@lru_cache(maxsize=1)
 def _prompt() -> str:
-    template = (SKILLS_DIR / "redaction_exigence.md").read_text(encoding="utf-8")
+    # Garde d'existence (comme _rules_text) : un skill absent ne doit pas lever
+    # un FileNotFoundError depuis check_redaction. Mis en cache (relu à chaque appel avant).
+    path = SKILLS_DIR / "redaction_exigence.md"
+    template = path.read_text(encoding="utf-8") if path.exists() else "<<REGLES>>"
     return template.replace("<<REGLES>>", _rules_text())
 
 

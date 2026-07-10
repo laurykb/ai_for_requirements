@@ -8,6 +8,7 @@ LLM n'arbitrant que les cas ambigus. Sans effet si l'endpoint est indisponible.
 from __future__ import annotations
 
 import hashlib
+import time
 from typing import Dict, List, Optional
 
 import httpx
@@ -16,7 +17,8 @@ import numpy as np
 from .config import EMBED_BASE_URL, EMBED_DISABLED, EMBED_DUP_THRESHOLD, EMBED_MODEL, LLM_API_KEY, LLM_TIMEOUT_SECONDS
 
 _cache: Dict[str, List[float]] = {}
-_available: Dict[str, bool] = {}
+_available: Dict[str, object] = {}
+_AVAILABLE_TTL = 10  # s
 
 
 def _headers() -> dict:
@@ -26,13 +28,17 @@ def _headers() -> dict:
 def embeddings_available() -> bool:
     if EMBED_DISABLED:
         return False
-    if "ok" not in _available:
+    # Cache avec TTL : sans lui, un endpoint injoignable au premier appel figeait
+    # le pré-filtre embeddings (dédup, impact latent) jusqu'au redémarrage du
+    # process — même une fois Ollama revenu. Aligné sur llm.llm_available().
+    now = time.monotonic()
+    if "ok" not in _available or now - float(_available.get("ts", 0)) > _AVAILABLE_TTL:
         try:
-            v = get_embedding("test")
-            _available["ok"] = bool(v)
+            _available["ok"] = bool(get_embedding("test"))
         except Exception:
             _available["ok"] = False
-    return _available["ok"]
+        _available["ts"] = now
+    return bool(_available["ok"])
 
 
 def _key(text: str) -> str:

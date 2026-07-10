@@ -243,8 +243,8 @@ def _build_history_block(history: list[dict]) -> str:
     recent = history[-6:]
     lines = ["[HISTORIQUE DE LA CONVERSATION]"]
     for msg in recent:
-        role = "Utilisateur" if msg["role"] == "user" else "Assistant"
-        lines.append(f"{role}: {msg['content'][:800]}")  # tronque les longs messages
+        role = "Utilisateur" if msg.get("role") == "user" else "Assistant"
+        lines.append(f"{role}: {str(msg.get('content', ''))[:800]}")  # tronque les longs messages
     lines.append("[FIN DE L'HISTORIQUE]")
     return "\n".join(lines)
 

@@ -24,7 +24,19 @@ from src.models import Action, ActionType, Severity
 from src.orchestrator import run_impact_analysis
 
 _DIR = Path(__file__).parent
-DEFAULT_CORPUS = json.loads((_DIR / "corpus_eval.json").read_text(encoding="utf-8"))["exigences"]
+
+
+def _load_default_corpus() -> list:
+    # Chargé au niveau module (import) : un corpus_eval.json absent/corrompu
+    # ne doit PAS casser l'import de run_eval (importé par l'API POST /eval).
+    try:
+        raw = json.loads((_DIR / "corpus_eval.json").read_text(encoding="utf-8"))
+        return raw.get("exigences", []) if isinstance(raw, dict) else []
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+        return []
+
+
+DEFAULT_CORPUS = _load_default_corpus()
 AXES = ["ALLOCATION", "AMONT", "COUVERTURE", "HORIZONTAL", "PERTINENCE_AVAL",
         "IMPACT_LATENT", "COHERENCE_REF"]
 
@@ -121,8 +133,14 @@ def load_cases():
     cases = list(REFERENCE_CASES)
     gen = _DIR / "cases_generated.json"
     if gen.exists():
-        data = json.loads(gen.read_text(encoding="utf-8"))
-        cases += data.get("cases", data if isinstance(data, list) else [])
+        try:
+            data = json.loads(gen.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                cases += data.get("cases", [])
+            elif isinstance(data, list):
+                cases += data
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass  # cases générés corrompus : on retombe sur les cas de référence
     valid = [c for c in cases if validate_case(c)]
     return valid, len(cases) - len(valid)
 

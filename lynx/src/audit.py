@@ -65,29 +65,30 @@ def _structural_findings(corpus: List[dict]) -> List[MatrixFinding]:
 
     by_id = {r.get("id"): r for r in corpus}
     for r in corpus:
+        rid = r.get("id")  # corpus brut (via API) : le champ id peut manquer
         pid = r.get("parent_id")
         # lien manquant
         if pid and pid not in id_set:
-            findings.append(MatrixFinding(r["id"], "LIEN", "BLOQUANT",
-                                          f"{r['id']} référence un parent inexistant ({pid})."))
+            findings.append(MatrixFinding(rid, "LIEN", "BLOQUANT",
+                                          f"{rid} référence un parent inexistant ({pid})."))
         # intégrité des liens typés transverses
         for lk in (r.get("links") or []):
             tgt = lk.get("target") if isinstance(lk, dict) else getattr(lk, "target", None)
             ltype = lk.get("type") if isinstance(lk, dict) else getattr(lk, "type", "?")
             if tgt and tgt not in id_set:
-                findings.append(MatrixFinding(r["id"], "LIEN", "BLOQUANT",
-                                              f"Lien {ltype} de {r['id']} vers une cible inexistante ({tgt})."))
+                findings.append(MatrixFinding(rid, "LIEN", "BLOQUANT",
+                                              f"Lien {ltype} de {rid} vers une cible inexistante ({tgt})."))
         # cycle
         cur, hops, broken = r.get("parent_id"), 0, False
         while cur and cur in by_id and hops <= len(corpus):
-            if cur == r["id"]:
+            if cur == rid:
                 broken = True
                 break
             cur = by_id[cur].get("parent_id")
             hops += 1
         if broken:
-            findings.append(MatrixFinding(r["id"], "CYCLE", "BLOQUANT",
-                                          f"{r['id']} fait partie d'un cycle de traçabilité."))
+            findings.append(MatrixFinding(rid, "CYCLE", "BLOQUANT",
+                                          f"{rid} fait partie d'un cycle de traçabilité."))
 
     # allocation : dépassement de budget par parent (conversion + tolérance)
     tree = RequirementTree(corpus) if len(id_set) == len(ids) else None
@@ -162,7 +163,7 @@ def _embedding_duplicates(corpus: List[dict]) -> List[MatrixFinding]:
     """Détecte les doublons quasi-identiques dans toute la matrice (embeddings)."""
     if not embeddings.embeddings_available():
         return []
-    items = [(r["id"], r.get("texte", "")) for r in corpus if r.get("texte")]
+    items = [(r.get("id"), r.get("texte", "")) for r in corpus if r.get("texte")]
     vlist = embeddings.get_embeddings([t for _, t in items])  # un seul appel (batch)
     if not vlist:
         return []

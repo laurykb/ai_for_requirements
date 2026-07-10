@@ -396,8 +396,8 @@ def run_evaluation_batch(
     judge = _get_judge_llm() if use_llm_judge else None
 
     for i, pair in enumerate(qa_pairs):
-        question  = pair.get("question", "").strip()
-        reference = pair.get("answer", pair.get("reference", "")).strip()
+        question  = (pair.get("question") or "").strip()
+        reference = (pair.get("answer") or pair.get("reference") or "").strip()
 
         if not question:
             continue
@@ -466,10 +466,26 @@ def aggregate_metrics(results: list) -> dict:
 #  MongoDB persistence
 # -----------------------------------------------------------------------------
 
+_MONGO_CLIENT = None
+
+
+def _mongo_client() -> MongoClient:
+    """Client Mongo singleton à timeout court.
+
+    L'ancien code créait un ``MongoClient(MONGO_URI)`` par appel (fuite de
+    sockets/threads) et, sans ``serverSelectionTimeoutMS``, chaque opération
+    gelait ~30 s quand Mongo était éteint (UI d'éval figée). Aligné sur
+    chat_sessions._col()."""
+    global _MONGO_CLIENT
+    if _MONGO_CLIENT is None:
+        _MONGO_CLIENT = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
+    return _MONGO_CLIENT
+
+
 def save_eval_run_to_mongo(results: list, run_name: str,
                            db_name: str = "ragdb",
                            collection_name: str = "eval_runs") -> str:
-    client = MongoClient(MONGO_URI)
+    client = _mongo_client()
     col = client[db_name][collection_name]
     doc = {
         "run_name": run_name,
@@ -484,7 +500,7 @@ def save_eval_run_to_mongo(results: list, run_name: str,
 
 def load_eval_runs_from_mongo(db_name: str = "ragdb",
                                collection_name: str = "eval_runs") -> list:
-    client = MongoClient(MONGO_URI)
+    client = _mongo_client()
     col = client[db_name][collection_name]
     runs = []
     for r in col.find({}, {"details": 0}):
@@ -496,9 +512,15 @@ def load_eval_runs_from_mongo(db_name: str = "ragdb",
 def load_eval_run_details(run_id: str, db_name: str = "ragdb",
                            collection_name: str = "eval_runs") -> Optional[dict]:
     from bson import ObjectId
-    client = MongoClient(MONGO_URI)
+    from bson.errors import InvalidId
+    try:
+        oid = ObjectId(run_id)
+    except (InvalidId, TypeError):
+        logger.warning("run_id invalide : %r", run_id)
+        return None
+    client = _mongo_client()
     col = client[db_name][collection_name]
-    r = col.find_one({"_id": ObjectId(run_id)})
+    r = col.find_one({"_id": oid})
     if r:
         r["_id"] = str(r["_id"])
     return r

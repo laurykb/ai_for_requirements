@@ -96,7 +96,7 @@ def add_message(session_id: str, role: str, content: str, citations: list = None
     # Auto-titre : uniquement sur le premier message utilisateur.
     if role == "user":
         session = _col().find_one({"session_id": session_id}, {"messages": 1, "title": 1})
-        first_user_message = session and not any(m["role"] == "user" for m in session.get("messages", []))
+        first_user_message = session and not any(m.get("role") == "user" for m in session.get("messages", []))
         if first_user_message:
             title = content[:60] + ("..." if len(content) > 60 else "")
             _col().update_one(

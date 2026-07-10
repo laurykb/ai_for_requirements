@@ -216,10 +216,14 @@ def analyze_pertinence(ctx: Ctx) -> List[Finding]:
     # (température > 0) et conservé seulement si la majorité confirme l'incohérence.
     if sev == Severity.BLOCKING and LLM_VOTE > 1:
         votes = llm.sample_skill("coherence_pertinence", payload, n=LLM_VOTE)
-        incoh = sum(1 for v in votes if v.get("est_coherent") is False)
-        if votes and incoh <= len(votes) // 2:
+        # Ne compter que les votes exploitables : un échantillon en erreur
+        # (dict {"error":...} sans est_coherent) ne doit pas être compté comme
+        # « cohérent » et diluer l'incohérence au point de rétrograder à tort.
+        valid = [v for v in votes if isinstance(v, dict) and "error" not in v and "est_coherent" in v]
+        incoh = sum(1 for v in valid if v.get("est_coherent") is False)
+        if valid and incoh <= len(valid) // 2:
             sev = Severity.WARNING
-            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
+            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(valid)})"
     # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence", scope=Scope.AMONT, severity=sev,
@@ -410,10 +414,11 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
     # Vote self-consistency sur un BLOQUANT à fort enjeu (comme le T1 amont).
     if sev == Severity.BLOCKING and LLM_VOTE > 1:
         votes = llm.sample_skill("coherence_pertinence_aval", payload, n=LLM_VOTE)
-        incoh = sum(1 for v in votes if v.get("est_coherent") is False)
-        if votes and incoh <= len(votes) // 2:
+        valid = [v for v in votes if isinstance(v, dict) and "error" not in v and "est_coherent" in v]
+        incoh = sum(1 for v in valid if v.get("est_coherent") is False)
+        if valid and incoh <= len(valid) // 2:
             sev = Severity.WARNING
-            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
+            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(valid)})"
     # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL, severity=sev,

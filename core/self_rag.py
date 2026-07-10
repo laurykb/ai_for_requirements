@@ -117,8 +117,9 @@ def _evaluate_attempt(
 
     metrics = verify_answer(question, answer, chunks, llm=judge_llm)
     score = _weighted_score(metrics)
-    logger.debug("[self-rag] Score : %.2f (faith=%.2f, ans_rel=%.2f, ctx_rel=%.2f)%s",
-                 score, metrics["faithfulness"], metrics["answer_relevance"], metrics["context_relevance"],
+    logger.debug("[self-rag] Score : %.2f (faith=%s, ans_rel=%s, ctx_rel=%s)%s",
+                 score, metrics.get("faithfulness"), metrics.get("answer_relevance"),
+                 metrics.get("context_relevance"),
                  f" - issues: {metrics['issues']}" if metrics.get("issues") else "")
     return metrics, score
 
@@ -153,16 +154,21 @@ def self_rag_query(
     best_score     = -1.0
 
     current_q = user_q
+    attempt = -1  # défini même si SELF_RAG_MAX_RETRIES < 0 (boucle jamais exécutée)
 
     for attempt in range(SELF_RAG_MAX_RETRIES + 1):
         logger.debug("[self-rag] -- Tentative %d/%d --", attempt + 1, SELF_RAG_MAX_RETRIES + 1)
 
         # -- Retrieval ---------------------------------------------------------
-        q_main, chunks = _prepare_retrieval(
+        # _prepare_retrieval a un retour à arité variable : (q_main, chunks) en
+        # nominal, (q_main, [], max_ce_score) en hors-scope. res[0], res[1]
+        # couvre les deux cas (le hors-scope tombe alors dans le `if not chunks`).
+        res = _prepare_retrieval(
             current_q,
             source_filter=source_filter,
             conversation_history=conversation_history,
         )
+        q_main, chunks = res[0], res[1]
 
         if not chunks:
             logger.debug("[self-rag] Aucun chunk trouvé, arrêt.")
@@ -205,5 +211,5 @@ def self_rag_query(
         current_q = _alternative_rewrite(user_q, attempt + 1, llm_writer)
 
     best_metrics["self_rag_score"]    = best_score
-    best_metrics["self_rag_attempts"] = attempt + 1  # noqa: F821 (toujours défini après la boucle)
+    best_metrics["self_rag_attempts"] = attempt + 1
     return best_answer, best_chunks, best_citations, best_metrics

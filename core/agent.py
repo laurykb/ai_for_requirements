@@ -357,7 +357,13 @@ class ReActAgent:
                 if self.retrieve_only:
                     call_args.setdefault("mode", "passages")
                     call_args.setdefault("max_passages", 6)
-                result = self.tool_runner(action, call_args)
+                try:
+                    result = self.tool_runner(action, call_args)
+                except Exception as exc:
+                    # Un outil qui casse (retrieval indisponible en cours de boucle)
+                    # ne doit pas tuer le flux SSE : on dégrade proprement.
+                    logger.exception("[agent] outil %s en échec", action)
+                    result = {"error": str(exc)[:200], "sources": [], "num_chunks": 0}
 
                 if result.get("mode") == "passages":
                     observation = _passages_observation(result, sources)
@@ -380,12 +386,19 @@ class ReActAgent:
             # Synthèse finale STREAMÉE (token par token).
             if self.retrieve_only and gathered:
                 parts = []
+                syn_citations, used_chunks = None, None
                 with span("synthesis", passages=len(gathered)):
-                    token_gen, syn_citations, used_chunks = _unpack_synthesis(
-                        self.stream_synthesizer(question, gathered))
-                    for tok in token_gen:
-                        parts.append(tok)
-                        yield {"type": "answer_token", "text": tok}
+                    try:
+                        token_gen, syn_citations, used_chunks = _unpack_synthesis(
+                            self.stream_synthesizer(question, gathered))
+                        for tok in token_gen:
+                            parts.append(tok)
+                            yield {"type": "answer_token", "text": tok}
+                    except Exception:
+                        # Coupure/timeout LLM pendant la synthèse : on émet une note
+                        # et on laisse la trame `done` finale se produire (pas de flux figé).
+                        logger.exception("[agent] synthèse interrompue")
+                        yield {"type": "answer_token", "text": "\n\n(synthèse interrompue)"}
                 answer = "".join(parts).strip()
                 if syn_citations:
                     sources = syn_citations

@@ -92,8 +92,8 @@ def render_value_panel():
         if fb.get("total"):
             st.caption(f"Accord : {int(fb['taux_justesse'] * 100)} % ({fb['total']})")
         ev = _load_eval()
-        if ev:
-            st.caption(f"Précision moteur : {int(ev['precision'] * 100)} % ({ev['cases']} cas)")
+        if ev and ev.get("precision") is not None:
+            st.caption(f"Précision moteur : {int(ev['precision'] * 100)} % ({ev.get('cases', '?')} cas)")
         _ts = telemetry.stats()
         if _ts.get("calls"):
             st.caption(f"{_ts['calls']} appels · {_ts['avg_latency_ms']} ms · {int(_ts['success_rate'] * 100)} %")
@@ -112,7 +112,10 @@ def _give_feedback(correct: bool):
 
 
 def _sig(action: Action) -> tuple:
-    corpus_sig = tuple(sorted((r.get("id"), r.get("texte", "")) for r in st.session_state.corpus))
+    corpus_sig = tuple(sorted(
+        ((r.get("id"), r.get("texte", "")) for r in st.session_state.corpus),
+        key=lambda t: (str(t[0] or ""), t[1]),
+    ))
     link_type = str(action.link_type) if action.link_type else None
     return (action.action_type.value, action.target_id, action.new_text,
             action.link_target, link_type,
@@ -286,8 +289,8 @@ def _render_remap_panel(sel, corpus):
     """Remap : liens typés vers/depuis d'autres exigences existantes (DAG)."""
     sid = sel["id"]
     out_links = sel.get("links") or []
-    incoming = [(r["id"], lk.get("type")) for r in corpus
-                for lk in (r.get("links") or []) if lk.get("target") == sid]
+    incoming = [(r.get("id"), lk.get("type")) for r in corpus
+                for lk in (r.get("links") or []) if isinstance(lk, dict) and lk.get("target") == sid]
     n = len(out_links) + len(incoming)
     with st.expander(f"Remapper — liens vers d'autres exigences ({n})"):
         if out_links or incoming:
@@ -317,7 +320,7 @@ def _render_remap_panel(sel, corpus):
             st.caption(":orange[Exigence racine (L0) : pas de mère possible.]")
             return
         role = "mère" if amont else "fille"
-        candidates = [r["id"] for r in corpus if r["id"] != sid and r.get("niveau") == adj]
+        candidates = [r.get("id") for r in corpus if r.get("id") != sid and r.get("niveau") == adj]
         if not candidates:
             st.caption(f":orange[Aucune exigence de niveau L{adj} à relier — une déclinaison ne "
                        f"relie que des niveaux adjacents (N → N+1), pas de saut de niveau.]")
@@ -520,7 +523,7 @@ def render_audit_summary():
     ev = _load_eval()
     color = "#B91C1C" if n_bloq else ("#B45309" if notable else "#15803D")
     head = f"{len(notable)} à fiabiliser · {n_bloq} bloquant(s)" if notable else "Aucun point critique"
-    rel = f" · précision {int(ev['precision'] * 100)} %" if ev else ""
+    rel = f" · précision {int(ev['precision'] * 100)} %" if ev and ev.get("precision") is not None else ""
     st.markdown(f"<span style='font-size:1.1rem;font-weight:600;color:{color}'>{head}</span>"
                 f"<span style='color:#9CA3AF'>  ·  complétude {rep.score}/100{rel}</span>",
                 unsafe_allow_html=True)
@@ -605,7 +608,7 @@ def _cb_update(req_id):
 
 
 def _cb_delete(req_id):
-    cand = [dict(r) for r in st.session_state.corpus if r["id"] != req_id]
+    cand = [dict(r) for r in st.session_state.corpus if r.get("id") != req_id]
     st.session_state.action_request = (Action(action_type=ActionType.DELETE, target_id=req_id), cand)
 
 
@@ -614,6 +617,8 @@ def _cb_create(req_id):
     if not text:
         return
     parent = _find(st.session_state.corpus, req_id)
+    if parent is None:   # exigence introuvable : rien à décliner
+        return
     custom_id = (st.session_state.get(f"newid_{req_id}", "") or "").strip()
     nid = custom_id or f"REQ-NEW-{uuid4().hex[:6].upper()}"
     niveau = int(st.session_state.get(f"newlvl_{req_id}", min(_lvl(parent.get("niveau", 0)) + 1, 5)))
@@ -641,7 +646,7 @@ def _cb_link(sel_id):
         child, parent = other, sel_id
     cand = [dict(r) for r in ss.corpus]
     for r in cand:
-        if r["id"] == child:
+        if r.get("id") == child:
             r["links"] = list(r.get("links") or []) + [{"type": ltype, "target": parent}]
     ss.action_request = (Action(action_type=ActionType.LINK, target_id=child,
                                 link_target=parent, link_type=ltype), cand)
@@ -652,7 +657,7 @@ def _cb_unlink(child_id, parent_id, ltype=None):
     ss = st.session_state
     cand = [dict(r) for r in ss.corpus]
     for r in cand:
-        if r["id"] == child_id:
+        if r.get("id") == child_id:
             r["links"] = [lk for lk in (r.get("links") or [])
                           if not (lk.get("target") == parent_id
                                   and (ltype is None or lk.get("type") == ltype))]
@@ -699,7 +704,7 @@ def _cb_apply_suggestion(req_id):
     text = sug["texte"]
     cand = [dict(r) for r in st.session_state.corpus]
     for r in cand:
-        if r["id"] == req_id:
+        if r.get("id") == req_id:
             r["texte"] = text
     st.session_state.action_request = (Action(action_type=ActionType.UPDATE, target_id=req_id,
                                               new_text=text), cand)
@@ -833,8 +838,8 @@ def page_graph():
         if ss.get("suggest_request") == sel["id"]:
             ss.suggest_request = None
             with st.status("Génération d'une proposition de correction…", expanded=False):
-                ss.suggestion = {**correction.suggest_correction(
-                    corpus, sel["id"], _problems_for(sel["id"])), "req_id": sel["id"]}
+                ss.suggestion = {**(correction.suggest_correction(
+                    corpus, sel["id"], _problems_for(sel["id"])) or {}), "req_id": sel["id"]}
         ed, meta = st.columns([3, 1], gap="large")
         with meta:
             st.markdown(f"**{sel['id']}**")

@@ -56,8 +56,12 @@ def _raw_from_source(source: Union[str, Path, IO, None]) -> List[dict]:
         if not path.exists():
             logger.warning("Corpus introuvable : %s", path)
             return []
-        with path.open(encoding="utf-8") as fh:
-            return _unwrap(json.load(fh))
+        try:
+            with path.open(encoding="utf-8") as fh:
+                return _unwrap(json.load(fh))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            logger.error("JSON de corpus illisible (%s) : %s", path, exc)
+            return []
     # objet fichier (upload Streamlit)
     try:
         return _unwrap(json.load(source))
