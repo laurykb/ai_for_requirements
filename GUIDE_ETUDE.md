@@ -100,7 +100,7 @@ action ─▶ orchestrator.build_candidate_tree()   (arbre « candidat » après
 | Remédiation | `correction.py` + `redaction.py` (réécriture conforme EN9100) |
 | Prompts des agents | `skills/*.md` (un fichier par agent, éditable sans toucher au code) |
 | Persistance / mesure | `store.py`, `corpus_io.py`, `feedback.py`, `roi.py`, `telemetry.py` |
-| Interfaces | `lynx/app.py` (Streamlit), `src/api.py` (HTTP headless) |
+| Interfaces | `api/lynx_api.py` (routeur FastAPI → front Next.js `web/`) ; `lynx/app.py` (Streamlit, legacy) |
 
 Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`.
 
