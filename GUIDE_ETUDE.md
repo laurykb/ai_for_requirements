@@ -55,7 +55,7 @@ Variante **agent** : `core/agent.py` (boucle ReAct) appelle l'outil
 
 | Rôle | Fichiers |
 |---|---|
-| Entrée / config | `serve.py`, `app/main.py`, `env_config.py` |
+| Entrée / config | `serve.py`, `api/main.py` (+ `web/`), `env_config.py` ; UI legacy : `legacy/app/main.py` |
 | Ingestion | `core/ingest.py`, `indexing/{chunking,embedding,keyword_index,store_mongo}.py`, `nlp/chunk_enhancer.py`, `preprocessing/pdf_to_markdown.py` |
 | Retrieval hybride | `retrieval/{retrieve,semantic_search,keyword_bm25,rrf,cross_encoder,parent_child,context_refine,vector_store}.py` |
 | Génération | `core/{llm_answer,llm_client,summarize}.py` |
@@ -100,7 +100,7 @@ action ─▶ orchestrator.build_candidate_tree()   (arbre « candidat » après
 | Remédiation | `correction.py` + `redaction.py` (réécriture conforme EN9100) |
 | Prompts des agents | `skills/*.md` (un fichier par agent, éditable sans toucher au code) |
 | Persistance / mesure | `store.py`, `corpus_io.py`, `feedback.py`, `roi.py`, `telemetry.py` |
-| Interfaces | `lynx/app.py` (Streamlit), `src/api.py` (HTTP headless) |
+| Interfaces | `api/lynx_api.py` (routeur FastAPI → front Next.js `web/`) ; `lynx/app.py` (Streamlit, legacy) |
 
 Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`.
 
@@ -109,12 +109,12 @@ Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`
 ## Lancer & tester
 
 ```bash
-# Application complète (RAG + LynX) : Mongo + Ollama + Streamlit
-bash start.sh                       # ou : python serve.py
+# Application complète (RAG + LynX) : Mongo + Ollama + front Next.js + API FastAPI
+python serve.py                     # (ancienne UI Streamlit : python serve.py --streamlit)
 
 # Tests (hors-ligne, sans Ollama)
-python -m pytest tests                                     # RAG (~110)
-cd lynx && python -m pytest                                # LynX (40)
+python -m pytest tests                                     # RAG (154)
+cd lynx && python -m pytest tests                          # LynX (121)
 
 # Évaluations chiffrées (avec LLM)
 cd lynx && python -m eval.run_eval          # précision/rappel/F1 (réf. F1 0.95)

@@ -165,7 +165,7 @@ def main():
             print(f"     - {issue}")
     else:
         print("  All systems operational!")
-        print("  Ready to run: streamlit run app/main.py")
+        print("  Ready to run: python serve.py  (front Next.js + API FastAPI)")
     
     print(f"\n  Edit .env to customize, or use defaults (auto-detection)")
     print(f"  See SETUP_PORTABLE.md for detailed guide\n")

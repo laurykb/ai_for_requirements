@@ -274,9 +274,15 @@ class PlannerAgent:
 
                 tool_calls += 1
                 with span("plan_step", index=executed) as sp:
-                    result = self.tool_runner(
-                        "rag_search",
-                        {"query": query, "mode": "passages", "max_passages": 6})
+                    try:
+                        result = self.tool_runner(
+                            "rag_search",
+                            {"query": query, "mode": "passages", "max_passages": 6})
+                    except Exception as exc:
+                        # Retrieval indisponible en cours de plan : on dégrade sans
+                        # tuer le flux SSE (la trame `done` finale doit être émise).
+                        logger.exception("[planner] étape %d en échec", executed)
+                        result = {"ok": False, "error": str(exc)[:200], "passages": [], "chunks": []}
                     if sp is not None:
                         sp.set("ok", bool(result.get("ok")))
                         sp.set("hors_scope", bool(result.get("hors_scope")))
@@ -336,12 +342,18 @@ class PlannerAgent:
             answer = ""
             if gathered:
                 parts = []
+                syn_citations, used_chunks = None, None
                 with span("synthesis", passages=len(gathered)):
-                    token_gen, syn_citations, used_chunks = _unpack_synthesis(
-                        self.stream_synthesizer(question, gathered))
-                    for tok in token_gen:
-                        parts.append(tok)
-                        yield {"type": "answer_token", "text": tok}
+                    try:
+                        token_gen, syn_citations, used_chunks = _unpack_synthesis(
+                            self.stream_synthesizer(question, gathered))
+                        for tok in token_gen:
+                            parts.append(tok)
+                            yield {"type": "answer_token", "text": tok}
+                    except Exception:
+                        # Coupure/timeout LLM pendant la synthèse : note + trame `done` garantie.
+                        logger.exception("[planner] synthèse interrompue")
+                        yield {"type": "answer_token", "text": "\n\n(synthèse interrompue)"}
                 answer = "".join(parts).strip()
                 if syn_citations:
                     sources = syn_citations

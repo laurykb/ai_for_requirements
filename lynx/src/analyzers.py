@@ -80,6 +80,27 @@ def _skip(scope: Scope, analyzer: str, ids: List[str], err: str) -> Finding:
                    impacted_ids=ids)
 
 
+def _vote_downgrade_incoherence(skill: str, payload: dict,
+                                sev: Severity, base: str) -> tuple[Severity, str]:
+    """Vote self-consistency partagé par les axes de pertinence (T1 amont / T4 aval).
+
+    Un verdict BLOQUANT à fort enjeu est re-tiré N fois (température > 0) et
+    rétrogradé en WARNING si la majorité ne confirme PAS l'incohérence
+    (`est_coherent=False`). Les échantillons en erreur ne sont pas comptés : un
+    échec ne doit pas être lu comme « cohérent » et diluer l'incohérence au point
+    de rétrograder à tort. Renvoie le `(sev, base)` consolidé (sur lequel le débat
+    contradictoire s'applique ensuite)."""
+    if sev != Severity.BLOCKING or LLM_VOTE <= 1:
+        return sev, base
+    votes = llm.sample_skill(skill, payload, n=LLM_VOTE)
+    valid = [v for v in votes if isinstance(v, dict) and "error" not in v and "est_coherent" in v]
+    incoh = sum(1 for v in valid if v.get("est_coherent") is False)
+    if valid and incoh <= len(valid) // 2:
+        return (Severity.WARNING,
+                base + f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(valid)})")
+    return sev, base
+
+
 # --------------------------------------------------------------------------
 # Déterministe : allocation / budget
 # --------------------------------------------------------------------------
@@ -212,14 +233,7 @@ def analyze_pertinence(ctx: Ctx) -> List[Finding]:
     rupture = _norm_ids(resp.get("rupture_avec"))
     base = resp.get("synthese") or ("Traçabilité cohérente." if coherent else "Rupture de pertinence.")
 
-    # Vote self-consistency : un verdict BLOQUANT à fort enjeu est re-tiré N fois
-    # (température > 0) et conservé seulement si la majorité confirme l'incohérence.
-    if sev == Severity.BLOCKING and LLM_VOTE > 1:
-        votes = llm.sample_skill("coherence_pertinence", payload, n=LLM_VOTE)
-        incoh = sum(1 for v in votes if v.get("est_coherent") is False)
-        if votes and incoh <= len(votes) // 2:
-            sev = Severity.WARNING
-            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
+    sev, base = _vote_downgrade_incoherence("coherence_pertinence", payload, sev, base)
     # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence", scope=Scope.AMONT, severity=sev,
@@ -408,12 +422,7 @@ def analyze_pertinence_aval(ctx: Ctx) -> List[Finding]:
                         details={"preexistante": True, "raw": resp})]
 
     # Vote self-consistency sur un BLOQUANT à fort enjeu (comme le T1 amont).
-    if sev == Severity.BLOCKING and LLM_VOTE > 1:
-        votes = llm.sample_skill("coherence_pertinence_aval", payload, n=LLM_VOTE)
-        incoh = sum(1 for v in votes if v.get("est_coherent") is False)
-        if votes and incoh <= len(votes) // 2:
-            sev = Severity.WARNING
-            base += f" (rétrogradé : incohérence non confirmée par vote {incoh}/{len(votes)})"
+    sev, base = _vote_downgrade_incoherence("coherence_pertinence_aval", payload, sev, base)
     # Débat contradictoire après le vote, sur le verdict consolidé.
     return [debate.contest(Finding(
         analyzer="pertinence_aval", scope=Scope.PERTINENCE_AVAL, severity=sev,

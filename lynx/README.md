@@ -8,6 +8,10 @@ remontée du V, par les tests) ou par relecture humaine (RPP).
 
 100 % local et open-source, sans clé API.
 
+> **Intégré à [AI for SSH](../README.md)** (aux côtés du RAG documentaire), tout en
+> restant **utilisable en standalone** : l'app hôte importe `lynx/app.py` sans modifier
+> son code. La nouvelle UI Next.js expose LynX via l'API FastAPI `api/lynx_api.py`.
+
 ## Fiabilité mesurée
 
 Sur 196 cas labellisés par construction (16 domaines) :
@@ -64,9 +68,11 @@ ollama pull bge-m3               # embeddings (redondance)
 ## Lancement
 
 ```bash
-streamlit run app.py             # interface
-python -m src.api --port 8800    # ou l'API headless (hors Streamlit)
+streamlit run app.py             # interface Streamlit (legacy, cf. racine `serve.py --streamlit`)
 ```
+
+> La surface HTTP de LynX est le routeur FastAPI `api/lynx_api.py`, servi au front
+> Next.js `web/` (lancement depuis la racine : `python serve.py`).
 
 ## Tests & évaluation
 

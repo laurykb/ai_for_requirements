@@ -26,8 +26,7 @@ from __future__ import annotations
 import re
 import time
 from typing import Optional
-from pymongo import MongoClient
-from env_config import MONGO_URI
+from utils.mongo import get_client
 from utils.logging_config import get_logger
 
 logger = get_logger("rag.eval")
@@ -396,8 +395,8 @@ def run_evaluation_batch(
     judge = _get_judge_llm() if use_llm_judge else None
 
     for i, pair in enumerate(qa_pairs):
-        question  = pair.get("question", "").strip()
-        reference = pair.get("answer", pair.get("reference", "")).strip()
+        question  = (pair.get("question") or "").strip()
+        reference = (pair.get("answer") or pair.get("reference") or "").strip()
 
         if not question:
             continue
@@ -469,7 +468,7 @@ def aggregate_metrics(results: list) -> dict:
 def save_eval_run_to_mongo(results: list, run_name: str,
                            db_name: str = "ragdb",
                            collection_name: str = "eval_runs") -> str:
-    client = MongoClient(MONGO_URI)
+    client = get_client()
     col = client[db_name][collection_name]
     doc = {
         "run_name": run_name,
@@ -484,7 +483,7 @@ def save_eval_run_to_mongo(results: list, run_name: str,
 
 def load_eval_runs_from_mongo(db_name: str = "ragdb",
                                collection_name: str = "eval_runs") -> list:
-    client = MongoClient(MONGO_URI)
+    client = get_client()
     col = client[db_name][collection_name]
     runs = []
     for r in col.find({}, {"details": 0}):
@@ -496,9 +495,15 @@ def load_eval_runs_from_mongo(db_name: str = "ragdb",
 def load_eval_run_details(run_id: str, db_name: str = "ragdb",
                            collection_name: str = "eval_runs") -> Optional[dict]:
     from bson import ObjectId
-    client = MongoClient(MONGO_URI)
+    from bson.errors import InvalidId
+    try:
+        oid = ObjectId(run_id)
+    except (InvalidId, TypeError):
+        logger.warning("run_id invalide : %r", run_id)
+        return None
+    client = get_client()
     col = client[db_name][collection_name]
-    r = col.find_one({"_id": ObjectId(run_id)})
+    r = col.find_one({"_id": oid})
     if r:
         r["_id"] = str(r["_id"])
     return r

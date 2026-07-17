@@ -66,6 +66,10 @@ class OllamaClient:
                           json=self._payload(prompt, False, stop, fmt=format), timeout=_TIMEOUT_S)
         r.raise_for_status()
         data = r.json()
+        if data.get("error"):
+            # Ollama renvoie parfois un 200 avec un corps {"error": ...}
+            # (éviction du modèle, OOM VRAM) : ne pas persister une réponse vide.
+            raise RuntimeError(f"Ollama: {data['error']}")
         _record_stats(self.model, data, time.perf_counter() - t0, ttft_s=None)
         return data.get("response", "")
 
@@ -80,6 +84,8 @@ class OllamaClient:
                 if not line:
                     continue
                 data = json.loads(line)
+                if data.get("error"):
+                    raise RuntimeError(f"Ollama: {data['error']}")
                 token = data.get("response", "")
                 if token:
                     if ttft_s is None:

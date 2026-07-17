@@ -43,8 +43,17 @@ def load_config() -> dict:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         return cfg
+    # Syntaxe valide mais structure invalide (racine non-dict, entrées non-dict,
+    # entrée sans "enabled") : on normalise sans jamais lever hors de load_config.
+    if not isinstance(raw, dict):
+        return cfg
     for group in ("deterministic", "semantic"):
-        saved = [e for e in raw.get(group, []) if e.get("name") in _ALL]
+        raw_entries = raw.get(group, [])
+        if not isinstance(raw_entries, list):
+            continue
+        saved = [{"name": e["name"], "enabled": bool(e.get("enabled", True))}
+                 for e in raw_entries
+                 if isinstance(e, dict) and e.get("name") in _ALL]
         saved_names = {e["name"] for e in saved}
         missing = [e for e in cfg[group] if e["name"] not in saved_names]
         if saved:

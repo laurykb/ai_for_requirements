@@ -24,7 +24,11 @@ def record(action_type: str, target_id: str, verdict: str, message: str, correct
         "verdict": verdict, "message": message, "correct": bool(correct),
     }
     from . import jsonl_io
-    jsonl_io.append(FEEDBACK, entry)
+    try:
+        jsonl_io.append(FEEDBACK, entry)
+    except Exception:
+        # Un échec d'écriture disque du feedback ne doit pas casser l'appelant UI.
+        pass
 
 
 def _read() -> List[dict]:
@@ -57,9 +61,11 @@ def export_dataset(path: Path | str = DATA_DIR / "feedback_dataset.jsonl") -> in
     path = Path(path)
     with path.open("w", encoding="utf-8") as fh:
         for r in rows:
+            # .get() : une ligne d'un ancien schéma / éditée à la main ne doit pas
+            # lever un KeyError en cours d'écriture (fichier de sortie tronqué).
             fh.write(json.dumps({
-                "input": f"Action {r['action_type']} sur {r['target_id']}",
-                "verdict": r["verdict"], "message": r["message"],
-                "label_correct": r["correct"],
+                "input": f"Action {r.get('action_type')} sur {r.get('target_id')}",
+                "verdict": r.get("verdict", ""), "message": r.get("message", ""),
+                "label_correct": r.get("correct"),
             }, ensure_ascii=False) + "\n")
     return len(rows)

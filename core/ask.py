@@ -312,5 +312,5 @@ if __name__ == "__main__":
         if citations:
             print("\n--- Sources ---")
             for c in citations:
-                page_str = f", page {c['page']}" if c['page'] else ""
+                page_str = f", page {c.get('page')}" if c.get('page') else ""
                 print(f"  [{c['idx']}] {c['source']}{page_str}")

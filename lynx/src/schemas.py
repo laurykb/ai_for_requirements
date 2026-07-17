@@ -102,10 +102,29 @@ class _SkillModel(BaseModel):
         return out
 
 
+class _VerdictNiveau(_SkillModel):
+    """Base des schémas « à gravité » : si le verdict booléen rendu est « propre »
+    (rien à signaler), la gravité est ramenée à INFO. Cette cohérence croisée
+    élimine la source n°1 de faux positifs (une gravité WARNING alors que le
+    booléen dit que tout va bien — cf. les prompts « INFO si … »). Chaque
+    sous-classe déclare SA condition via `_verdict_propre` ; la base n'ajoute
+    aucun champ, donc l'ordre des champs envoyé au LLM reste celui de la
+    sous-classe."""
+
+    def _verdict_propre(self) -> bool:
+        return False
+
+    @model_validator(mode="after")
+    def _gravite_coherente(self):
+        if self._verdict_propre():
+            self.niveau_gravite = "INFO"
+        return self
+
+
 # --------------------------------------------------------------------------
 # coherence_pertinence (T1) / coherence_pertinence_aval (T4) — même contrat
 # --------------------------------------------------------------------------
-class CoherencePertinence(_SkillModel):
+class CoherencePertinence(_VerdictNiveau):
     """Verdict de cohérence/pertinence vs la chaîne amont (T1) ou les filles (T4)."""
 
     est_coherent: bool
@@ -114,13 +133,8 @@ class CoherencePertinence(_SkillModel):
     preuve: TexteVide = ""
     synthese: TexteVide = ""
 
-    @model_validator(mode="after")
-    def _verdict_fait_foi(self) -> "CoherencePertinence":
-        # Cohérence croisée : une gravité contradictoire (ex. WARNING alors que
-        # est_coherent=true) est ramenée à INFO — source n°1 de faux positifs.
-        if self.est_coherent:
-            self.niveau_gravite = "INFO"
-        return self
+    def _verdict_propre(self) -> bool:
+        return self.est_coherent
 
 
 # --------------------------------------------------------------------------
@@ -139,7 +153,7 @@ class CouvertureAmont(_SkillModel):
 # --------------------------------------------------------------------------
 # redondance_surspec (T3)
 # --------------------------------------------------------------------------
-class RedondanceSurspec(_SkillModel):
+class RedondanceSurspec(_VerdictNiveau):
     """Redondance / sur-spécification de la cible vs ses sœurs."""
 
     aspects_cible: List[str] = Field(default_factory=list)
@@ -151,14 +165,10 @@ class RedondanceSurspec(_SkillModel):
     preuve: TexteVide = ""
     synthese: TexteVide = ""
 
-    @model_validator(mode="after")
-    def _verdict_fait_foi(self) -> "RedondanceSurspec":
-        # Ni redondante ni sur-spécifiée -> la gravité ne peut pas être un
-        # avertissement (le verdict booléen fait foi, cf. prompt : « INFO si
-        # la cible apporte une couverture nouvelle »).
-        if not self.est_redondante and not self.est_sur_specifiee:
-            self.niveau_gravite = "INFO"
-        return self
+    def _verdict_propre(self) -> bool:
+        # Ni redondante ni sur-spécifiée : la cible apporte une couverture
+        # nouvelle -> INFO (cf. prompt).
+        return not self.est_redondante and not self.est_sur_specifiee
 
 
 # --------------------------------------------------------------------------
@@ -169,7 +179,7 @@ class ExigenceImpactee(_SkillModel):
     raison: TexteVide = ""
 
 
-class ImpactLatent(_SkillModel):
+class ImpactLatent(_VerdictNiveau):
     """Exigences non reliées mais réellement impactées par la modification."""
 
     impactees: Annotated[List[ExigenceImpactee], BeforeValidator(_en_dicts_id)] = \
@@ -178,11 +188,8 @@ class ImpactLatent(_SkillModel):
     preuve: TexteVide = ""
     synthese: TexteVide = ""
 
-    @model_validator(mode="after")
-    def _verdict_fait_foi(self) -> "ImpactLatent":
-        if not self.impactees:
-            self.niveau_gravite = "INFO"
-        return self
+    def _verdict_propre(self) -> bool:
+        return not self.impactees
 
 
 # --------------------------------------------------------------------------
@@ -193,7 +200,7 @@ class Conflit(_SkillModel):
     probleme: TexteVide = ""
 
 
-class CoherenceCoreference(_SkillModel):
+class CoherenceCoreference(_VerdictNiveau):
     """Cohérence entre exigences partageant un référent concret."""
 
     coherent: bool
@@ -203,11 +210,8 @@ class CoherenceCoreference(_SkillModel):
     preuve: TexteVide = ""
     synthese: TexteVide = ""
 
-    @model_validator(mode="after")
-    def _verdict_fait_foi(self) -> "CoherenceCoreference":
-        if self.coherent:
-            self.niveau_gravite = "INFO"
-        return self
+    def _verdict_propre(self) -> bool:
+        return self.coherent
 
 
 # --------------------------------------------------------------------------

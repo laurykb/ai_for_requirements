@@ -250,8 +250,12 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         # Sauvegarde .pkl (fallback global - conservé pour compatibilité)
         _bm25_pkl = Path(__file__).resolve().parent.parent / "data" / "bm25_index.pkl"
         _bm25_pkl.parent.mkdir(parents=True, exist_ok=True)
-        with open(_bm25_pkl, "wb") as f:
+        # Écriture atomique : un pickle tronqué (process tué / disque plein pendant
+        # le dump) casserait le chargement BM25 au démarrage (UnpicklingError/EOFError).
+        _bm25_tmp = _bm25_pkl.with_name(_bm25_pkl.name + ".tmp")
+        with open(_bm25_tmp, "wb") as f:
             pickle.dump(bm25_tuple, f)
+        _bm25_tmp.replace(_bm25_pkl)
         logger.info("Index BM25 sauvegardé (MongoDB + pkl)")
 
         _notify_progress(progress_callback, "Termine", 100)

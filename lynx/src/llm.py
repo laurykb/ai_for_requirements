@@ -258,7 +258,9 @@ def _chat_once(messages: List[dict], temperature: float,
         "total_tokens": usage.get("total_tokens", 0)})
     try:
         parsed = json.loads(content)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
+        # TypeError : content vaut None (backend renvoie un 200 avec content:null —
+        # refus, réponse tronquée, message tool_calls sans contenu).
         parsed = {"error": "JSON_PARSE_ERROR", "raw_output": (content or "")[:500]}
     return parsed, content or "", latency
 

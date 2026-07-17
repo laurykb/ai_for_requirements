@@ -29,8 +29,12 @@ DEFECT_TO_AXES = {
 
 def main():
     fast = "--fast" in sys.argv
-    raw = json.loads(DEFAULT_CORPUS.read_text(encoding="utf-8"))
-    corpus = raw["exigences"]
+    try:
+        raw = json.loads(DEFAULT_CORPUS.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        print(f"Corpus illisible ({DEFAULT_CORPUS}) : {exc}")
+        return
+    corpus = raw.get("exigences", [])
     planted = raw.get("meta", {}).get("defauts_plantes", [])
     if not planted:
         print("Aucun défaut planté documenté dans le corpus.")
@@ -51,15 +55,16 @@ def main():
     print(f"{'DÉFAUT PLANTÉ':24} {'DÉTECTÉ':9} AXE(S) ATTENDU(S)")
     print("-" * 70)
     for d in planted:
-        wanted_axes = DEFECT_TO_AXES.get(d["type"], set())
+        dtype = d.get("type", "")
+        wanted_axes = DEFECT_TO_AXES.get(dtype, set())
         ids = d.get("ids", [])
         hit = any(wanted_axes & by_id.get(i, set()) for i in ids)
         # détection plus lenient : un finding quelconque sur un id concerné
         loose = any(i in by_id for i in ids)
-        ok = hit or (loose and d["type"] in {"redondance", "sur_specification"})
+        ok = hit or (loose and dtype in {"redondance", "sur_specification"})
         detected += int(ok)
         mark = "oui" if ok else ("partiel" if loose else "NON")
-        print(f"{d['type']:24} {mark:9} {','.join(sorted(wanted_axes))}")
+        print(f"{dtype:24} {mark:9} {','.join(sorted(wanted_axes))}")
 
     recall = detected / len(planted)
     print("-" * 70)

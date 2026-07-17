@@ -68,7 +68,7 @@ gravité, badges de rôle, flèches typographiques). Voir mémoire `lynx-ux-prin
 ## 5. Industrialisation
 - [ ] **Multi-utilisateur** réel : base de données + authentification + collaboration
       (aujourd'hui : verrou fichier + workspaces).
-- [ ] Conteneurisation, l'API (`src/api.py`) déployée en service.
+- [ ] Conteneurisation, l'API (`api/lynx_api.py`) déployée en service.
 - [ ] Observabilité production (logs structurés, traçabilité des verdicts pour
       certification EN9100).
 

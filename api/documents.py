@@ -6,11 +6,10 @@ import re
 import time
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from pymongo import MongoClient
-
-from env_config import MONGO_URI, MONGO_DB
+from env_config import MONGO_DB
 from core import ingest_queue
 from api.common import _chunks_col
+from utils.mongo import get_client, get_db
 
 router = APIRouter()
 
@@ -129,7 +128,7 @@ def delete_document(name: str) -> dict:
     """Supprime un document de TOUS les index : chunks Mongo, vecteurs Chroma,
     index BM25. (Le Streamlit ne purgeait que Mongo ; ici le retrait est complet.)"""
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
+        client = get_client()
         n = client[MONGO_DB]["chunks"].delete_many({"source": name}).deleted_count
         client[MONGO_DB]["bm25_indexes"].delete_many({"source_doc": name})
     except Exception as e:
@@ -153,7 +152,7 @@ def corpus_reset() -> dict:
     SANS toucher aux sessions ni aux traces. Même geste que le Streamlit."""
     report = []
     try:
-        db = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)[MONGO_DB]
+        db = get_db()
         for cn in ("chunks", "bm25_indexes", "entity_graph"):
             try:
                 report.append(f"{cn}: -{db[cn].delete_many({}).deleted_count}")

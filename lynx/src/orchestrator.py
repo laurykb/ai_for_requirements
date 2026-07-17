@@ -115,9 +115,12 @@ def _safe(analyzer, ctx) -> List[Finding]:
     try:
         return analyzer(ctx)
     except Exception as exc:  # noqa: BLE001
+        # WARNING (et non INFO) : un axe de contrôle qui n'a pas pu tourner doit
+        # peser sur le statut global (recompute_status), sinon un VALIDE peut
+        # masquer un BLOQUANT que l'analyseur planté n'a jamais évalué.
         return [Finding(
             analyzer=getattr(analyzer, "__name__", "analyzer"),
-            scope=Scope.STRUCTURE, severity=Severity.INFO,
+            scope=Scope.STRUCTURE, severity=Severity.WARNING,
             message=f"Analyseur {getattr(analyzer, '__name__', '?')} en erreur : {exc}",
             impacted_ids=[ctx.action.target_id])]
 
@@ -234,10 +237,14 @@ def run_impact_analysis(corpus: List[dict], action: Action, semantic: bool = Tru
             except Exception:
                 pass
 
-    current = RequirementTree(corpus)
     try:
+        # RequirementTree(corpus) lève ValueError sur un corpus malformé, et
+        # build_candidate_tree une pydantic.ValidationError (sous-classe de
+        # ValueError) sur un niveau invalide : les deux doivent produire un
+        # Finding STRUCTURE bloquant, pas remonter brut à l'appelant.
+        current = RequirementTree(corpus)
         candidate = build_candidate_tree(current, action)
-    except ActionError as exc:
+    except (ActionError, ValueError) as exc:
         report = ImpactReport(
             action_type=action.action_type,
             target_id=action.target_id,

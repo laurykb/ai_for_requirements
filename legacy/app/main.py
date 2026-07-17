@@ -5,16 +5,23 @@ Une seule page, plusieurs vues accessibles depuis la barre latérale. Chaque vue
 dans son propre module (app/chat.py, app/documents.py, app/settings_view.py) ; les
 helpers partagés sont dans app/common.py et la file d'ingestion dans app/ingestion.py.
 
-Lancer : streamlit run app/main.py  (le fichier ne peut pas s'appeler app.py :
-le stem collisionnerait avec le package app/ → "'app' is not a package").
+Interface Streamlit historique (legacy) : conservée le temps d'atteindre la
+parité complète du front Next.js (`web/`). Lancement depuis la racine :
+`python serve.py --streamlit`. Le fichier ne peut pas s'appeler app.py :
+le stem collisionnerait avec le package app/ → "'app' is not a package".
 """
 import sys
 import time
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+# app/ vit désormais sous legacy/ (…/legacy/app/main.py) : la racine du dépôt est
+# deux niveaux au-dessus du dossier app. On met la racine ET legacy/ sur sys.path
+# pour que `from env_config`/`from core` (racine) et `from app.*` (sous legacy/)
+# se résolvent tous les deux.
+_ROOT = Path(__file__).resolve().parent.parent.parent
+for _p in (_ROOT, _ROOT / "legacy"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import streamlit as st
 from pymongo import MongoClient
