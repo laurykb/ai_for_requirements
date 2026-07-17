@@ -11,6 +11,7 @@ import json
 import queue
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -187,17 +188,23 @@ def _sse_error_stream(message: str) -> StreamingResponse:
                              headers={"Cache-Control": "no-store"})
 
 
-@router.post("/analyze")
-def analyze(body: AnalyzeBody) -> StreamingResponse:
-    """Analyse d'impact d'UNE action, en boîte de verre SSE : `agent`
-    (start/done par agent), `report` (verdict + constats), `token` (synthèse
-    streamée), `exchanges` (timeline humanisée), `done` / `error`."""
-    corpus = [dict(r) for r in _get_corpus()]
-    try:
-        action = _build_action(body.action)
-    except Exception as e:
-        return _sse_error_stream(f"Action invalide : {str(e)[:200]}")
+def _sse_stream(run: Callable[[Callable[[dict], None], threading.Event], None],
+                *, on_cancel: Callable[[], None] | None = None,
+                cancel_excs: tuple[type[BaseException], ...] = ()) -> StreamingResponse:
+    """Ossature SSE partagée par les endpoints d'analyse (analyze, audit,
+    audit/fix, generate, eval), qui ne diffèrent que par leur travail.
 
+    `run(emit, cancelled)` fait le travail (typiquement sous `_LLM_LOCK`) et
+    publie ses events métier via `emit(...)`, y compris son `done` final. Le
+    helper fournit tout le reste, identique partout : une file, un thread démon,
+    l'annulation quand le client SSE se déconnecte (`emit` lève alors
+    `_Cancelled` au prochain appel), la trame `error` générique et le `None` de
+    fin de flux.
+
+    `on_cancel` nettoie à l'annulation (ex. `llm.stop_trace`, idempotent) ;
+    `cancel_excs` déclare les exceptions d'annulation propres à l'appelant
+    (ex. `BatchCancelled`) à traiter comme un `_Cancelled`.
+    """
     q: queue.Queue = queue.Queue()
     cancelled = threading.Event()
 
@@ -206,32 +213,12 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
             raise _Cancelled()
         q.put(item)
 
-    def worker():
+    def worker() -> None:
         try:
-            with _LLM_LOCK:
-                llm.start_trace()
-                report = run_impact_analysis(
-                    corpus, action, semantic=body.semantic,
-                    on_event=lambda kind, label: emit(
-                        {"type": "agent", "kind": kind, "label": label}))
-                findings = _ui_findings(report)
-                emit({"type": "report", "verdict": verdict_label(report),
-                      "findings": findings, "impacted": report.impacted_ids,
-                      "narrative": report.narrative})
-                for piece in stream_synthesis(report, action, use_llm=body.semantic):
-                    emit({"type": "token", "text": piece})
-                records = llm.stop_trace()
-                emit({"type": "exchanges",
-                      "exchanges": trace.build_timeline(records, findings)})
-                # ROI : défauts captés tôt (shift-left), comme le Streamlit.
-                try:
-                    roi.record_catches("edition", action.action_type.value,
-                                       action.target_id, findings)
-                except Exception:
-                    pass
-            q.put({"type": "done"})
-        except _Cancelled:
-            llm.stop_trace()  # purge le buffer de trace global
+            run(emit, cancelled)
+        except (_Cancelled, *cancel_excs):
+            if on_cancel is not None:
+                on_cancel()
         except Exception as e:
             q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
         q.put(None)
@@ -250,6 +237,44 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-store"})
+
+
+@router.post("/analyze")
+def analyze(body: AnalyzeBody) -> StreamingResponse:
+    """Analyse d'impact d'UNE action, en boîte de verre SSE : `agent`
+    (start/done par agent), `report` (verdict + constats), `token` (synthèse
+    streamée), `exchanges` (timeline humanisée), `done` / `error`."""
+    corpus = [dict(r) for r in _get_corpus()]
+    try:
+        action = _build_action(body.action)
+    except Exception as e:
+        return _sse_error_stream(f"Action invalide : {str(e)[:200]}")
+
+    def run(emit, cancelled):
+        with _LLM_LOCK:
+            llm.start_trace()
+            report = run_impact_analysis(
+                corpus, action, semantic=body.semantic,
+                on_event=lambda kind, label: emit(
+                    {"type": "agent", "kind": kind, "label": label}))
+            findings = _ui_findings(report)
+            emit({"type": "report", "verdict": verdict_label(report),
+                  "findings": findings, "impacted": report.impacted_ids,
+                  "narrative": report.narrative})
+            for piece in stream_synthesis(report, action, use_llm=body.semantic):
+                emit({"type": "token", "text": piece})
+            records = llm.stop_trace()
+            emit({"type": "exchanges",
+                  "exchanges": trace.build_timeline(records, findings)})
+            # ROI : défauts captés tôt (shift-left), comme le Streamlit.
+            try:
+                roi.record_catches("edition", action.action_type.value,
+                                   action.target_id, findings)
+            except Exception:
+                pass
+        emit({"type": "done"})
+
+    return _sse_stream(run, on_cancel=llm.stop_trace)  # purge le buffer de trace
 
 
 class ApplyBody(BaseModel):
@@ -296,49 +321,23 @@ def audit(body: AuditBody) -> StreamingResponse:
     """Audit complet : `progress` (exigences auditées / total), puis `report`
     (score /100, constats par axe, exigences signalées) + `exchanges`."""
     corpus = [dict(r) for r in _get_corpus()]
-    q: queue.Queue = queue.Queue()
-    cancelled = threading.Event()
 
-    def emit(item: dict) -> None:
-        if cancelled.is_set():
-            raise _Cancelled()
-        q.put(item)
+    def run(emit, cancelled):
+        with _LLM_LOCK:
+            llm.start_trace()
+            rep = lynx_audit.audit_matrix(
+                corpus, deep=body.deep,
+                on_event=lambda done, total: emit(
+                    {"type": "progress", "done": done, "total": total}))
+            records = llm.stop_trace()
+        emit({"type": "report", "n": rep.n, "score": rep.score,
+              "counts": rep.counts, "flagged_ids": rep.flagged_ids,
+              "n_non_audite": rep.n_non_audite,
+              "findings": [vars(f) for f in rep.findings],
+              "exchanges": trace.humanize_audit(records)})
+        emit({"type": "done"})
 
-    def worker():
-        try:
-            with _LLM_LOCK:
-                llm.start_trace()
-                rep = lynx_audit.audit_matrix(
-                    corpus, deep=body.deep,
-                    on_event=lambda done, total: emit(
-                        {"type": "progress", "done": done, "total": total}))
-                records = llm.stop_trace()
-            q.put({"type": "report", "n": rep.n, "score": rep.score,
-                   "counts": rep.counts, "flagged_ids": rep.flagged_ids,
-                   "n_non_audite": rep.n_non_audite,
-                   "findings": [vars(f) for f in rep.findings],
-                   "exchanges": trace.humanize_audit(records)})
-            q.put({"type": "done"})
-        except _Cancelled:
-            llm.stop_trace()
-        except Exception as e:
-            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
-        q.put(None)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        try:
-            while True:
-                item = q.get()
-                if item is None:
-                    return
-                yield _sse(item)
-        finally:
-            cancelled.set()
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-store"})
+    return _sse_stream(run, on_cancel=llm.stop_trace)
 
 
 # ─────────────── Correction en lot depuis l'audit (SSE) ───────────────
@@ -357,43 +356,18 @@ def audit_fix(body: FixBody) -> StreamingResponse:
     exigence + compteurs). Le corpus réel n'est PAS modifié : la validation
     sélective passe par /audit/fix/apply."""
     corpus = [dict(r) for r in _get_corpus()]
-    q: queue.Queue = queue.Queue()
-    cancelled = threading.Event()
 
-    def emit(item: dict) -> None:
-        if cancelled.is_set():
-            raise _Cancelled()
-        q.put(item)
+    def run(emit, cancelled):
+        with _LLM_LOCK:
+            out = lynx_autofix.run_batch_fix(
+                corpus, body.findings, max_passes=3, deep=body.deep,
+                on_progress=lambda info: emit({"type": "progress", **info}),
+                cancelled=cancelled)
+        emit({"type": "result", **out})
+        emit({"type": "done"})
 
-    def worker():
-        try:
-            with _LLM_LOCK:
-                out = lynx_autofix.run_batch_fix(
-                    corpus, body.findings, max_passes=3, deep=body.deep,
-                    on_progress=lambda info: emit({"type": "progress", **info}),
-                    cancelled=cancelled)
-            q.put({"type": "result", **out})
-            q.put({"type": "done"})
-        except (_Cancelled, lynx_autofix.BatchCancelled):
-            pass  # client parti : la copie de travail est simplement jetée
-        except Exception as e:
-            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
-        q.put(None)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        try:
-            while True:
-                item = q.get()
-                if item is None:
-                    return
-                yield _sse(item)
-        finally:
-            cancelled.set()
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-store"})
+    # Pas de nettoyage à l'annulation : la copie de travail est simplement jetée.
+    return _sse_stream(run, cancel_excs=(lynx_autofix.BatchCancelled,))
 
 
 class FixApplyItem(BaseModel):
@@ -441,50 +415,25 @@ def generate_children(body: GenerateChildrenBody) -> StreamingResponse:
     `progress` {phase: generation|audit|reecriture, ...} puis `result`
     (récap sélectif — rien n'est créé sans /generate/children/apply)."""
     corpus = [dict(r) for r in _get_corpus()]
-    q: queue.Queue = queue.Queue()
-    cancelled = threading.Event()
 
-    def emit(item: dict) -> None:
-        if cancelled.is_set():
-            raise _Cancelled()
-        q.put(item)
+    def run(emit, cancelled):
+        with _LLM_LOCK:
+            llm.start_trace()  # boîte de verre : proposition + audit + débat + réécriture
+            out = lynx_generation.generate_children(
+                corpus, body.req_id,
+                on_progress=lambda info: emit({"type": "progress", **info}),
+                cancelled=cancelled)
+            records = llm.stop_trace()
+        if out.get("error"):
+            emit({"type": "error", "message": str(out["error"])[:300]})
+        else:
+            child_ids = [f["id_propose"] for f in out.get("filles", [])]
+            out["exchanges"] = trace.build_generation_timeline(records, child_ids)
+            emit({"type": "result", **out})
+            emit({"type": "done"})
 
-    def worker():
-        try:
-            with _LLM_LOCK:
-                llm.start_trace()  # boîte de verre : proposition + audit + débat + réécriture
-                out = lynx_generation.generate_children(
-                    corpus, body.req_id,
-                    on_progress=lambda info: emit({"type": "progress", **info}),
-                    cancelled=cancelled)
-                records = llm.stop_trace()
-            if out.get("error"):
-                q.put({"type": "error", "message": str(out["error"])[:300]})
-            else:
-                child_ids = [f["id_propose"] for f in out.get("filles", [])]
-                out["exchanges"] = trace.build_generation_timeline(records, child_ids)
-                q.put({"type": "result", **out})
-                q.put({"type": "done"})
-        except (_Cancelled, lynx_generation.BatchCancelled):
-            llm.stop_trace()  # client parti : purge le buffer, copie jetée
-        except Exception as e:
-            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
-        q.put(None)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        try:
-            while True:
-                item = q.get()
-                if item is None:
-                    return
-                yield _sse(item)
-        finally:
-            cancelled.set()
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-store"})
+    return _sse_stream(run, on_cancel=llm.stop_trace,  # purge le buffer, copie jetée
+                       cancel_excs=(lynx_generation.BatchCancelled,))
 
 
 class ChildItem(BaseModel):
@@ -533,43 +482,17 @@ def run_eval(body: EvalBody) -> StreamingResponse:
     (cas évalués / total), puis `result` (P/R/F1 micro + par axe). Les
     prompts étant rechargés du disque à chaque appel LLM, un prompt
     sauvegardé depuis l'onglet Informations est évalué tel quel."""
-    q: queue.Queue = queue.Queue()
-    cancelled = threading.Event()
+    def run(emit, cancelled):
+        with _LLM_LOCK:
+            out = run_golden_eval(
+                semantic=not body.fast,
+                on_progress=lambda done, total: emit(
+                    {"type": "progress", "done": done, "total": total}))
+        emit({"type": "result", **out})
+        emit({"type": "done"})
 
-    def emit(item: dict) -> None:
-        if cancelled.is_set():
-            raise _Cancelled()
-        q.put(item)
-
-    def worker():
-        try:
-            with _LLM_LOCK:
-                out = run_golden_eval(
-                    semantic=not body.fast,
-                    on_progress=lambda done, total: emit(
-                        {"type": "progress", "done": done, "total": total}))
-            q.put({"type": "result", **out})
-            q.put({"type": "done"})
-        except _Cancelled:
-            pass  # client parti : rien à nettoyer (last_eval.json non écrit)
-        except Exception as e:
-            q.put({"type": "error", "message": f"{type(e).__name__}: {str(e)[:200]}"})
-        q.put(None)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    def gen():
-        try:
-            while True:
-                item = q.get()
-                if item is None:
-                    return
-                yield _sse(item)
-        finally:
-            cancelled.set()
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-store"})
+    # Rien à nettoyer à l'annulation (last_eval.json n'est pas écrit).
+    return _sse_stream(run)
 
 
 @router.get("/eval/last")
