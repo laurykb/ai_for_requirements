@@ -212,4 +212,4 @@ C'est un **PoC de référence**, à prendre comme tel :
 
 ## Licence / contexte
 
-Projet personnel d'apprentissage (AI Engineer). Documents ANSSI publics. Code MIT (au choix).
+Projet personnel d'apprentissage (AI Engineer). Documents ANSSI publics.
