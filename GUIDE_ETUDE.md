@@ -109,12 +109,12 @@ Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`
 ## Lancer & tester
 
 ```bash
-# Application complète (RAG + LynX) : Mongo + Ollama + Streamlit
-bash start.sh                       # ou : python serve.py
+# Application complète (RAG + LynX) : Mongo + Ollama + front Next.js + API FastAPI
+python serve.py                     # (ancienne UI Streamlit : python serve.py --streamlit)
 
 # Tests (hors-ligne, sans Ollama)
-python -m pytest tests                                     # RAG (~110)
-cd lynx && python -m pytest                                # LynX (40)
+python -m pytest tests                                     # RAG (154)
+cd lynx && python -m pytest tests                          # LynX (121)
 
 # Évaluations chiffrées (avec LLM)
 cd lynx && python -m eval.run_eval          # précision/rappel/F1 (réf. F1 0.95)
