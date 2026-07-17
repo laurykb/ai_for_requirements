@@ -7,20 +7,13 @@ from __future__ import annotations
 
 import json
 
-from pymongo import MongoClient
-
-from env_config import MONGO_URI, MONGO_DB
-
-_client: MongoClient | None = None
+from utils.mongo import get_db
 
 
 def _chunks_col():
-    """Collection `chunks` (client Mongo paresseux, timeout court : l'API doit
-    répondre vite même si Mongo est éteint)."""
-    global _client
-    if _client is None:
-        _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
-    return _client[MONGO_DB]["chunks"]
+    """Collection `chunks` via le client Mongo singleton partagé (timeout court :
+    l'API doit répondre vite même si Mongo est éteint — voir utils.mongo)."""
+    return get_db()["chunks"]
 
 
 def _trim_chunk(c: dict) -> dict:

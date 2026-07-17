@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from pymongo import MongoClient
+from env_config import MONGO_DB
 
-from env_config import MONGO_URI, MONGO_DB
+from utils.mongo import get_client
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ def perf_stats() -> dict:
 def traces(limit: int = 20) -> dict:
     """Dernières traces de requêtes (spans chronométrés, persistés en Mongo)."""
     try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1500)
+        client = get_client()
         rows = list(client[MONGO_DB]["traces"].find().sort("_id", -1).limit(max(1, min(limit, 100))))
     except Exception:
         return {"available": False, "traces": []}
