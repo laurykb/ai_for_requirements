@@ -1,8 +1,9 @@
 """API FastAPI (backend du nouveau front) — point d'entrée.
 
-L'UI humaine cible est le front Next.js (`web/`) ; pendant la migration,
-l'application fonctionnelle reste le Streamlit (`app/main.py`). Cette API
-n'importe jamais streamlit : elle parle directement à Mongo et Ollama.
+L'UI humaine est le front Next.js (`web/`), servi par cette API. L'ancienne UI
+Streamlit (`legacy/app/main.py`) reste disponible en secours le temps d'atteindre
+la parité. Cette API n'importe jamais streamlit : elle parle directement à Mongo
+et Ollama.
 
 Ce module ne fait QUE l'assemblage ; chaque domaine vit dans son routeur :
   - api/rag.py        couche Q&A : RAG direct + agent ReAct, streaming SSE
@@ -12,7 +13,7 @@ Ce module ne fait QUE l'assemblage ; chaque domaine vit dans son routeur :
   - api/lynx_api.py   LynX (AI for Requirements)
   - api/common.py     utilitaires partagés (Mongo, SSE, mise en forme chunk)
 
-Lancer : `python serve.py --web` (ou `uvicorn api.main:app --port 8000`).
+Lancer : `python serve.py` (ou `uvicorn api.main:app --port 8000`).
 """
 from __future__ import annotations
 

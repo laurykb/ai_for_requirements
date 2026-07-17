@@ -72,7 +72,7 @@ streamlit run app.py             # interface Streamlit (legacy, cf. racine `serv
 ```
 
 > La surface HTTP de LynX est le routeur FastAPI `api/lynx_api.py`, servi au front
-> Next.js `web/` (lancement depuis la racine : `python serve.py --web`).
+> Next.js `web/` (lancement depuis la racine : `python serve.py`).
 
 ## Tests & évaluation
 

@@ -1,7 +1,8 @@
-# web/ — AI for SSH (nouvelle interface)
+# web/ — AI for SSH (interface cible)
 
-Front **Next.js (App Router) + Tailwind, TypeScript**, en cours de migration depuis
-l'interface Streamlit (`app/main.py`). Direction artistique héritée
+Front **Next.js (App Router) + Tailwind, TypeScript** : l'interface par défaut
+(`python serve.py`). Reprend l'ancienne UI Streamlit (désormais `legacy/app/main.py`),
+dont quelques fonctions restent à porter. Direction artistique héritée
 d'AI_for_geopolitics : dark OLED, motion sobre, kit UI maison (`src/components/ui.tsx`)
 — avec l'accent périwinkle propre à AI for SSH.
 
@@ -25,7 +26,7 @@ Pendant la migration, **l'application fonctionnelle reste le Streamlit** :
 Prérequis : Node ≥ 20 (installé via nvm : `nvm use default`).
 
 ```bash
-python serve.py --web   # depuis la racine : Mongo + Ollama + API :8000 + front :3000
+python serve.py   # depuis la racine : Mongo + Ollama + API :8000 + front :3000
 ```
 
 ou, front seul (sans l'API) :

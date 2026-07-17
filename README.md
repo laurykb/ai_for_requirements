@@ -2,9 +2,10 @@
 
 **AI for SSH** réunit dans une **application 100 % locale** (aucune API externe) deux
 outils complémentaires pour le travail sur les dossiers de sécurité (ANSSI / Critères
-Communs). Deux interfaces coexistent : l'**UI Streamlit** historique (`app/main.py`,
-lancée par défaut) et une **nouvelle UI Next.js + API FastAPI** en cours de migration
-(`python serve.py --web`) :
+Communs). L'interface est un **front Next.js + API FastAPI** (`python serve.py`, par
+défaut) ; l'ancienne **UI Streamlit** reste disponible en secours dans
+[`legacy/`](legacy/README.md) le temps d'atteindre la parité complète
+(`python serve.py --streamlit`) :
 
 | Outil | Rôle | Documentation |
 |---|---|---|
@@ -16,7 +17,8 @@ MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par ou
 
 > **Genèse — le merge.** AI for SSH est l'**unification de deux projets** auparavant
 > distincts : le RAG documentaire (dépôt `rag_project`) et **LynX / AI for Requirements**.
-> L'app hôte (`app/main.py`) embarque LynX **sans modifier son code** — voir
+> Le front Next.js sert les deux outils via l'API FastAPI (`api/rag.py`, `api/lynx_api.py`) ;
+> l'UI Streamlit legacy embarque LynX **sans modifier son code** — voir
 > [Intégration des deux outils](#intégration-des-deux-outils).
 
 > **Ce que c'est** : une implémentation de référence **réutilisable et multi-OS** qui
@@ -29,9 +31,13 @@ MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par ou
 
 ## Intégration des deux outils
 
-`app/main.py` est l'**hôte** « AI for SSH ». Il expose l'Outil RAG (Accueil, Chat,
-Documents, Observabilité, Paramètres) via sa barre latérale, et l'**AI for Requirements**
-en plein écran :
+**UI cible (Next.js).** Le front `web/` parle à l'API FastAPI `api/` : l'Outil RAG passe
+par `api/rag.py`, l'**AI for Requirements** par `api/lynx_api.py` (qui wrappe `lynx/src`).
+RAG et LynX sont **deux applications distinctes** choisies à l'accueil (navigations
+séparées) — lancement : `python serve.py`.
+
+**UI legacy (Streamlit).** `legacy/app/main.py` est l'ancien **hôte** unifié. Il expose
+l'Outil RAG via sa barre latérale et l'AI for Requirements en plein écran :
 
 - **Chargement non intrusif** : `_load_lynx()` importe `lynx/app.py` via `importlib` sous
   le nom de module unique `lynx_main`, avec `lynx/` ajouté au `sys.path` → les
@@ -116,6 +122,9 @@ GPU contraint (un modèle 8B + grand contexte déborde la VRAM → offload CPU).
 
 ## Architecture
 
+Carte de lecture complète (couches, UI cible vs legacy, points d'entrée, flux) :
+**[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
 ```mermaid
 flowchart LR
   subgraph Ingestion
@@ -148,8 +157,8 @@ pip install -r lynx/requirements.txt                 # dépendances du module AI
 python -m spacy download fr_core_news_sm
 ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.2:3b en option pour le mode rapide)
 cp .env.example .env
-python serve.py            # démarre MongoDB + Ollama + l'app (Outil RAG + AI for Requirements)
-# (ou, si les services tournent déjà : streamlit run app/main.py)
+python serve.py            # démarre MongoDB + Ollama + le front Next.js + l'API FastAPI
+# (ancienne UI Streamlit, le temps de la parité : python serve.py --streamlit)
 ```
 
 Guide complet (modèles, GPU, gotchas par OS) : **[SETUP_PORTABLE.md](SETUP_PORTABLE.md)**.
@@ -159,20 +168,20 @@ Prérequis runtime : **Ollama** + **MongoDB**.
 
 | Commande | Rôle |
 |---|---|
-| `python serve.py` | UI Streamlit (Accueil / Chat / Documents / **Observabilité** / Paramètres) |
-| `python serve.py --web` | nouvelle UI : API FastAPI (`:8000`) + front Next.js (`:3000`) |
+| `python serve.py` | UI cible : API FastAPI (`:8000`) + front Next.js (`:3000`) |
+| `python serve.py --streamlit` | UI Streamlit legacy (`legacy/app`), le temps de la parité |
 | `python -m evals.run_eval --mode retrieval` | évaluation chiffrée (retrieval) |
 | `python -m core.agent "…"` | agent ReAct en CLI |
 | `python rag_mcp_server.py` | serveur MCP (stdio) |
 | `python diagnostic.py` | état des services + routage + vector store |
-| `python -m pytest` | 151 tests unitaires (fonctions pures, hors-ligne) ; +121 pour LynX (`PYTHONPATH=lynx python -m pytest lynx/tests/`) |
+| `python -m pytest` | 154 tests unitaires (fonctions pures, hors-ligne) ; +121 pour LynX (`cd lynx && python -m pytest tests/`) |
 
 ## Structure
 
 ```text
-app/         UI Streamlit (main.py + vues chat/documents/settings) — interface par défaut
-api/         backend FastAPI (nouvelle UI) : rag, sessions, documents, system, lynx_api
-web/         front Next.js 16 (nouvelle UI, en migration)
+api/         backend FastAPI (UI cible) : rag, sessions, documents, system, lynx_api
+web/         front Next.js 16 (UI cible) — RAG et LynX, navigations séparées
+lynx/        AI for Requirements : moteur multi-agents (src/) + prompts (skills/)
 core/        orchestration (ask, ingest, llm_answer, agent, planner, model_router, self_rag)
 retrieval/   retrieval hybride, fusion RRF, rerank, vector_store (abstraction Chroma)
 indexing/    chunking, embeddings, BM25, persistance Mongo
@@ -180,6 +189,7 @@ nlp/         trim de requête, NER, enrichissement de chunks
 evals/       harnais d'évaluation + golden set
 utils/       tracing, sécurité, logging
 env_config.py  config portable centralisée
+legacy/app/  UI Streamlit historique (secours le temps de la parité)
 ```
 
 ## Limites assumées

@@ -55,7 +55,7 @@ Variante **agent** : `core/agent.py` (boucle ReAct) appelle l'outil
 
 | Rôle | Fichiers |
 |---|---|
-| Entrée / config | `serve.py`, `app/main.py`, `env_config.py` |
+| Entrée / config | `serve.py`, `api/main.py` (+ `web/`), `env_config.py` ; UI legacy : `legacy/app/main.py` |
 | Ingestion | `core/ingest.py`, `indexing/{chunking,embedding,keyword_index,store_mongo}.py`, `nlp/chunk_enhancer.py`, `preprocessing/pdf_to_markdown.py` |
 | Retrieval hybride | `retrieval/{retrieve,semantic_search,keyword_bm25,rrf,cross_encoder,parent_child,context_refine,vector_store}.py` |
 | Génération | `core/{llm_answer,llm_client,summarize}.py` |
