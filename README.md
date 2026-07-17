@@ -1,4 +1,4 @@
-# AI for SSH — suite souveraine pour l'ingénierie de sécurité (PoC)
+# AI for SSH : SaaS pour l'ingénierie de sécurité
 
 **AI for SSH** réunit dans une **application 100 % locale** (aucune API externe) deux
 outils complémentaires pour le travail sur les dossiers de sécurité (ANSSI / Critères
