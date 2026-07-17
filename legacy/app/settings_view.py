@@ -237,7 +237,7 @@ def view_settings():
     if rc[0].button("Redémarrer l'app", icon=":material/restart_alt:", use_container_width=True):
         import os as _os
         _os.execv(sys.executable, [sys.executable, "-m", "streamlit", "run",
-                                   str(_ROOT / "app" / "main.py")])
+                                   str(_ROOT / "legacy" / "app" / "main.py")])
     if rc[1].button("Version d'Ollama", icon=":material/info:", use_container_width=True):
         import subprocess
         try:

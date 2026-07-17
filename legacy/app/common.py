@@ -6,7 +6,8 @@ from pymongo import MongoClient
 
 from env_config import MONGO_URI, MONGO_DB, OLLAMA_HOST
 
-_ROOT = Path(__file__).resolve().parent.parent
+# legacy/app/common.py → racine du dépôt = trois niveaux au-dessus (…/legacy/app/).
+_ROOT = Path(__file__).resolve().parent.parent.parent
 ALL_DOCS = "Tous les documents"
 DOCS_OUT = _ROOT / "docs" / "out"
 DOCS_PDF = _ROOT / "docs" / "PDF"

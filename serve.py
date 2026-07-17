@@ -2,8 +2,8 @@
 """
 Lance tout d'un coup : MongoDB + Ollama, puis l'application.
 
-    python serve.py          # interface actuelle (Streamlit)
-    python serve.py --web    # nouvelle interface (API FastAPI :8000 + front Next.js :3000)
+    python serve.py            # interface Next.js (API FastAPI :8000 + front :3000) — défaut
+    python serve.py --streamlit  # interface Streamlit historique (legacy/app)
 
 - Démarre les services seulement s'ils ne tournent pas déjà.
 - Multi-OS : utilise `mongod` / `ollama` du PATH, ou les chemins MONGO_BIN /
@@ -103,16 +103,29 @@ def run_web() -> None:
         api.terminate()
 
 
+def run_streamlit_legacy() -> None:
+    """Interface Streamlit historique (`legacy/app`).
+
+    Conservée le temps que le front Next.js (`web/`) atteigne la parité complète.
+    `main.py` (sous legacy/) met lui-même la racine et `legacy/` sur sys.path, donc
+    aucun PYTHONPATH n'est nécessaire ici.
+    """
+    subprocess.run([sys.executable, "-m", "streamlit", "run",
+                    str(ROOT / "legacy" / "app" / "main.py")])
+
+
 def main() -> None:
     start_mongo()
     start_ollama()
     _wait(27017, "MongoDB")
     _wait(11434, "Ollama")
     print("\nLancement de l'application...\n")
-    if "--web" in sys.argv:
-        run_web()
+    # Défaut : le front Next.js + API FastAPI (cible de la migration). `--streamlit`
+    # relance l'ancienne UI Streamlit tant que la parité n'est pas atteinte.
+    if "--streamlit" in sys.argv:
+        run_streamlit_legacy()
     else:
-        subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "main.py")])
+        run_web()
 
 
 if __name__ == "__main__":
