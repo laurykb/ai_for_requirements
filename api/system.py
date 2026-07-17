@@ -96,36 +96,29 @@ def set_generation_model(body: ModelAction) -> dict:
         raise HTTPException(502, f"Ollama : {e}")
 
 
+# Clés .env modifiables depuis la vue Paramètres — source unique, partagée par la
+# lecture (GET) et l'écriture (liste blanche du POST) : ajouter une clé ici la rend
+# lisible ET modifiable, sans risque de dérive entre les deux endpoints.
+_SETTABLE_KEYS = ("NUM_CHUNKS", "EMBED_MODEL", "GEN_MODEL", "WEIGHT_SEMANTIC",
+                  "WEIGHT_BM25", "CE_RELEVANCE_THRESHOLD", "AUTO_KEYWORDS",
+                  "AUTO_QUESTIONS", "CHUNKING_MODE", "RAPTOR_SUMMARIES",
+                  "SELF_RAG_ENABLED", "SELF_RAG_THRESHOLD", "SELF_RAG_MAX_RETRIES")
+
+
 @router.get("/api/settings")
 def get_settings() -> dict:
     """Valeurs .env actuelles (celles que la vue Paramètres peut modifier)
     + le system prompt par défaut."""
     import env_config as cfg
     from core.llm_answer import DEFAULT_SYSTEM_PROMPT
-    return {"values": {
-        "NUM_CHUNKS": cfg.NUM_CHUNKS,
-        "EMBED_MODEL": cfg.EMBED_MODEL,
-        "GEN_MODEL": cfg.GEN_MODEL,
-        "WEIGHT_SEMANTIC": cfg.WEIGHT_SEMANTIC,
-        "WEIGHT_BM25": cfg.WEIGHT_BM25,
-        "CE_RELEVANCE_THRESHOLD": cfg.CE_RELEVANCE_THRESHOLD,
-        "AUTO_KEYWORDS": cfg.AUTO_KEYWORDS,
-        "AUTO_QUESTIONS": cfg.AUTO_QUESTIONS,
-        "CHUNKING_MODE": cfg.CHUNKING_MODE,
-        "RAPTOR_SUMMARIES": cfg.RAPTOR_SUMMARIES,
-        "SELF_RAG_ENABLED": cfg.SELF_RAG_ENABLED,
-        "SELF_RAG_THRESHOLD": cfg.SELF_RAG_THRESHOLD,
-        "SELF_RAG_MAX_RETRIES": cfg.SELF_RAG_MAX_RETRIES,
-    }, "default_system_prompt": DEFAULT_SYSTEM_PROMPT}
+    return {"values": {k: getattr(cfg, k) for k in _SETTABLE_KEYS},
+            "default_system_prompt": DEFAULT_SYSTEM_PROMPT}
 
 
 class EnvUpdates(BaseModel):
     updates: dict[str, str]
 
-_ENV_ALLOWED = {"NUM_CHUNKS", "EMBED_MODEL", "GEN_MODEL", "WEIGHT_SEMANTIC",
-                "WEIGHT_BM25", "CE_RELEVANCE_THRESHOLD", "AUTO_KEYWORDS",
-                "AUTO_QUESTIONS", "CHUNKING_MODE", "RAPTOR_SUMMARIES",
-                "SELF_RAG_ENABLED", "SELF_RAG_THRESHOLD", "SELF_RAG_MAX_RETRIES"}
+_ENV_ALLOWED = set(_SETTABLE_KEYS)
 
 
 @router.post("/api/settings")
