@@ -318,18 +318,16 @@ def _build_answer_llm(keep_alive: int | None = None):
     return build_llm("generate", keep_alive=keep_alive)
 
 
-def answer(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
-           conversation_history: list[dict] = None,
-           already_refined: bool = False) -> tuple[str, list[dict]]:
-    """
-    Prend la question utilisateur + les chunks sélectionnés,
-    envoie un prompt au LLM, retourne (réponse_texte, citation_map).
-    conversation_history : liste de {"role": "user"|"assistant", "content": "..."}
-                           pour la mémoire conversationnelle.
-    already_refined : True si l'appelant a DÉJÀ passé les chunks par
-                      refine_for_generation() (contrat marqueur↔passage) —
-                      le réordonnancement n'étant pas idempotent, on ne
-                      ré-affine jamais deux fois.
+def _prepare_generation(question: str, chunks: list[dict], gpu_ids="0",
+                        system_prompt=None, conversation_history: list[dict] = None,
+                        already_refined: bool = False) -> tuple:
+    """Préambule commun à answer()/answer_stream() : GPU → affinage des chunks
+    (si l'appelant ne l'a pas déjà fait) → contexte + carte de citations →
+    garde-fous → prompt final. Renvoie (llm, final_prompt, citations).
+
+    already_refined : True si les chunks sont DÉJÀ passés par
+    refine_for_generation() (contrat marqueur↔passage) — le réordonnancement
+    n'étant pas idempotent, on ne ré-affine jamais deux fois.
     """
     set_cuda_visible_devices(gpu_ids)
     if not already_refined:
@@ -351,7 +349,22 @@ def answer(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
         question=question,
         history_block=history_block,
     )
+    return llm, final_prompt, citations
 
+
+def answer(question: str, chunks: list[dict], gpu_ids="0", system_prompt=None,
+           conversation_history: list[dict] = None,
+           already_refined: bool = False) -> tuple[str, list[dict]]:
+    """
+    Prend la question utilisateur + les chunks sélectionnés,
+    envoie un prompt au LLM, retourne (réponse_texte, citation_map).
+    conversation_history : liste de {"role": "user"|"assistant", "content": "..."}
+                           pour la mémoire conversationnelle.
+    already_refined : True si l'appelant a DÉJÀ passé les chunks par
+                      refine_for_generation() (voir _prepare_generation).
+    """
+    llm, final_prompt, citations = _prepare_generation(
+        question, chunks, gpu_ids, system_prompt, conversation_history, already_refined)
     response = llm.invoke(final_prompt)
     return response, citations
 
@@ -365,25 +378,8 @@ def answer_stream(question: str, chunks: list[dict], gpu_ids="0", system_prompt=
     conversation_history : mémoire conversationnelle injectée dans le prompt.
     already_refined : chunks déjà passés par refine_for_generation() (voir answer()).
     """
-    set_cuda_visible_devices(gpu_ids)
-    if not already_refined:
-        chunks = _refine_chunks(chunks)
-    context = build_context(chunks)
-    citations = build_citation_map(chunks)
-    _guardrails_scan(question, chunks)
-
-    if system_prompt is None:
-        system_prompt = get_system_prompt()
-
-    history_block = _build_history_block(conversation_history or [])
-
-    llm = _build_answer_llm()
-    final_prompt = _build_final_prompt(
-        system_prompt=system_prompt,
-        context=context,
-        question=question,
-        history_block=history_block,
-    )
+    llm, final_prompt, citations = _prepare_generation(
+        question, chunks, gpu_ids, system_prompt, conversation_history, already_refined)
 
     def _gen():
         try:
