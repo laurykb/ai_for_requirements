@@ -9,6 +9,12 @@ possible pour un développeur qui découvre le dépôt : une seule commande pip,
 une seule doc d'installation, et `serve.py` qui signale ce qui manque avec la
 commande exacte pour corriger.
 
+**Contrainte cible** : le code tournera dans un **réseau en environnement
+restreint** (pas d'accès internet, pas d'assistant IA). L'installation doit
+donc être possible entièrement **hors-ligne** : tout ce qui se télécharge se
+prépare sur une machine connectée, puis se copie. Aucune dépendance runtime à
+un service externe (déjà le cas : Ollama, MongoDB, modèles — tout est local).
+
 ## État de départ (constat)
 
 - 5 fichiers de dépendances : `requirements.txt`, `requirements-gpu.txt`,
@@ -63,6 +69,9 @@ Fonction `check_setup()` appelée en tête de `main()`. Contraintes : rapide,
 
 - **Non bloquant** : l'app démarre quand même (même philosophie que les checks
   Mongo/Ollama actuels). Affichage `✗` + commande exacte.
+- **Réseau restreint** : chaque message de manque ajoute un renvoi
+  « (hors-ligne : voir SETUP_PORTABLE.md § Réseau restreint) » — les commandes
+  affichées supposent internet, l'annexe donne l'équivalent par copie.
 - `diagnostic.py` reste l'outil d'audit approfondi — pas de duplication : le
   pre-flight ne couvre que ce qui bloque un nouveau venu.
 
@@ -71,6 +80,18 @@ Fonction `check_setup()` appelée en tête de `main()`. Contraintes : rapide,
 - `SETUP_PORTABLE.md` : LE guide — prérequis → `pip install -r
   requirements.txt` (une commande) → `python serve.py` (qui signale les
   manques). Notes par OS en annexe. Mention `requirements-gpu.txt` optionnel.
+- `SETUP_PORTABLE.md` § **« Réseau restreint (hors-ligne) »** (nouvelle
+  annexe) : quoi préparer côté machine connectée, quoi copier, comment
+  installer sans réseau :
+
+  | Artefact | Côté connecté | Côté restreint |
+  |---|---|---|
+  | paquets Python | `pip download -r requirements.txt -d wheels/` (+ `-gpu` si besoin) | `pip install --no-index --find-links wheels/ -r requirements.txt` |
+  | modèle spaCy | `pip download` de la roue `fr_core_news_sm` dans `wheels/` | installée avec les autres roues |
+  | reranker | déjà un dossier local `models/bge-reranker-v2-m3/` | copier le dossier tel quel |
+  | modèles Ollama | `ollama pull …` puis récupérer `~/.ollama/models` | copier `~/.ollama/models` (blobs + manifests) |
+  | front Next.js | `npm install` dans `web/` | copier `web/node_modules/` (`dev.sh` saute `npm install` s'il est présent) |
+  | MongoDB / Ollama binaires | téléchargement des installeurs | install hors-ligne + `MONGO_BIN`/`OLLAMA_BIN` dans `.env` (déjà supporté) |
 - `README.md` : section installation réduite à ~3 lignes + lien vers
   SETUP_PORTABLE.md.
 - `MIGRATION.md` : §4 (tables des 4 manifestes) réécrit pour 3 fichiers ;
