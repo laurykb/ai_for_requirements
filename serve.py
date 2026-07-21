@@ -103,7 +103,11 @@ def collect_missing(root, env, spacy_ok, ollama_tags, node_ok):
                         "python -m spacy download fr_core_news_sm"))
     ce_dir = Path(env.get("CROSS_ENCODER_LOCAL_PATH")
                   or root / "models" / "bge-reranker-v2-m3")
-    if not ce_dir.is_dir() or not any(ce_dir.iterdir()):
+    try:
+        ce_ok = ce_dir.is_dir() and any(ce_dir.iterdir())
+    except OSError:
+        ce_ok = False
+    if not ce_ok:
         missing.append(("cross-encoder de reranking (models/bge-reranker-v2-m3)",
                         "huggingface-cli download BAAI/bge-reranker-v2-m3 "
                         "--local-dir models/bge-reranker-v2-m3"))
@@ -144,14 +148,18 @@ def _node_ok():
 
 
 def check_setup():
-    missing = collect_missing(ROOT, os.environ, _spacy_model_ok(),
-                              _ollama_tags(), _node_ok())
-    if not missing:
+    try:
+        missing = collect_missing(ROOT, os.environ, _spacy_model_ok(),
+                                  _ollama_tags(), _node_ok())
+        if not missing:
+            return
+        print("Prérequis manquants (l'app démarre quand même) :")
+        for label, cmd in missing:
+            print(f"  ✗ {label}\n    → {cmd}")
+        print("  (réseau restreint : voir SETUP_PORTABLE.md § Réseau restreint)\n")
+    except Exception:
+        # Garantie non bloquante : aucune erreur ne doit arrêter le démarrage.
         return
-    print("Prérequis manquants (l'app démarre quand même) :")
-    for label, cmd in missing:
-        print(f"  ✗ {label}\n    → {cmd}")
-    print("  (réseau restreint : voir SETUP_PORTABLE.md § Réseau restreint)\n")
 
 
 def run_web() -> None:

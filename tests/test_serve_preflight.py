@@ -1,7 +1,10 @@
 """Pre-flight de serve.py : collect_missing est pure et testable hors-ligne."""
+import os
 from pathlib import Path
 
-from serve import collect_missing
+import pytest
+
+from serve import check_setup, collect_missing
 
 
 def _env(tmp_path, **extra):
@@ -80,3 +83,27 @@ def test_node_absent(tmp_path):
     missing = collect_missing(tmp_path, _env(tmp_path), spacy_ok=True,
                               ollama_tags=None, node_ok=False)
     assert any("Node" in label for label, _ in missing)
+
+
+def test_reranker_illisible_compte_comme_manquant(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("running as root; permissions ignored")
+    d = tmp_path / "reranker"
+    d.mkdir()
+    (d / "model.safetensors").touch()
+    try:
+        os.chmod(d, 0o000)
+        missing = collect_missing(tmp_path, _env(tmp_path), spacy_ok=True,
+                                  ollama_tags=None, node_ok=True)
+        assert any("reranker" in label for label, _ in missing)
+    finally:
+        os.chmod(d, 0o755)
+
+
+def test_check_setup_ne_leve_jamais(tmp_path, monkeypatch):
+    _reranker_ok(tmp_path)
+    def raising_collect(*args, **kwargs):
+        raise RuntimeError("simulated error")
+    monkeypatch.setattr("serve.collect_missing", raising_collect)
+    # Ne doit pas lever d'exception.
+    assert check_setup() is None
