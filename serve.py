@@ -86,6 +86,74 @@ def _wait(port: int, name: str, timeout: int = 30) -> None:
     print(f"  {name} : pas prêt après {timeout}s (l'app démarre quand même).")
 
 
+# ─────────────────────────── Pre-flight (portabilité) ───────────────────────────
+# Vérifications RAPIDES (filesystem + HTTP, aucun import lourd) de ce qui bloque
+# un nouveau venu. Non bloquant : l'app démarre quand même, comme pour Mongo/
+# Ollama absents. L'audit approfondi reste `python diagnostic.py`.
+
+def collect_missing(root, env, spacy_ok, ollama_tags, node_ok):
+    """Pure : liste [(prérequis manquant, commande pour corriger)].
+
+    ollama_tags : modèles Ollama installés, ou None si le service est injoignable
+    (dans ce cas on ne signale rien — pas de faux positif).
+    """
+    missing = []
+    if not spacy_ok:
+        missing.append(("modèle spaCy fr_core_news_sm",
+                        "python -m spacy download fr_core_news_sm"))
+    ce_dir = Path(env.get("CROSS_ENCODER_LOCAL_PATH")
+                  or root / "models" / "bge-reranker-v2-m3")
+    if not ce_dir.is_dir() or not any(ce_dir.iterdir()):
+        missing.append(("cross-encoder de reranking (models/bge-reranker-v2-m3)",
+                        "huggingface-cli download BAAI/bge-reranker-v2-m3 "
+                        "--local-dir models/bge-reranker-v2-m3"))
+    if ollama_tags is not None:
+        bases = {t.split(":")[0] for t in ollama_tags}
+        for var in ("EMBED_MODEL", "GEN_MODEL"):
+            model = env.get(var, "")
+            if model and model.split(":")[0] not in bases:
+                missing.append((f"modèle Ollama {model} ({var})",
+                                f"ollama pull {model}"))
+    if not node_ok:
+        missing.append(("Node.js >= 20 (front Next.js)",
+                        "voir SETUP_PORTABLE.md § Prérequis"))
+    return missing
+
+
+def _spacy_model_ok():
+    import importlib.util
+    return importlib.util.find_spec("fr_core_news_sm") is not None
+
+
+def _ollama_tags():
+    if not _port_open(11434):
+        return None
+    try:
+        import json
+        import urllib.request
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=3) as r:
+            data = json.load(r)
+        return [m.get("name", "") for m in data.get("models", [])]
+    except Exception:
+        return None
+
+
+def _node_ok():
+    # dev.sh charge nvm lui-même : nvm présent suffit.
+    return bool(shutil.which("node")) or (Path.home() / ".nvm").is_dir()
+
+
+def check_setup():
+    missing = collect_missing(ROOT, os.environ, _spacy_model_ok(),
+                              _ollama_tags(), _node_ok())
+    if not missing:
+        return
+    print("Prérequis manquants (l'app démarre quand même) :")
+    for label, cmd in missing:
+        print(f"  ✗ {label}\n    → {cmd}")
+    print("  (réseau restreint : voir SETUP_PORTABLE.md § Réseau restreint)\n")
+
+
 def run_web() -> None:
     """Nouvelle interface : API FastAPI (:8000) + front Next.js (:3000).
 
@@ -119,6 +187,7 @@ def main() -> None:
     start_ollama()
     _wait(27017, "MongoDB")
     _wait(11434, "Ollama")
+    check_setup()
     print("\nLancement de l'application...\n")
     # Défaut : le front Next.js + API FastAPI (cible de la migration). `--streamlit`
     # relance l'ancienne UI Streamlit tant que la parité n'est pas atteinte.
