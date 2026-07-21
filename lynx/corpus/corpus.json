@@ -1,0 +1,368 @@
+{
+  "meta": {
+    "version": "6.1-generated",
+    "description": "Corpus drone de surveillance généré (multi-domaines, L0..L5).",
+    "defauts_plantes": [
+      {
+        "type": "lacune_couverture",
+        "ids": [
+          "REQ-L0-SYS-001",
+          "REQ-L1-SYS-001",
+          "REQ-L1-SYS-002",
+          "REQ-L1-SYS-003",
+          "REQ-L1-STR-001"
+        ],
+        "explication": "Le besoin L0 (REQ-L0-SYS-001) exige un fonctionnement 'par conditions météorologiques' (résistance pluie/vent/givrage). Aucune des quatre filles L1 ne décline cet aspect environnemental : elles couvrent l'endurance (REQ-L1-SYS-001), la portée (REQ-L1-SYS-002), le jour/nuit (REQ-L1-SYS-003) et la masse (REQ-L1-STR-001), mais la robustesse météorologique (étanchéité, plafond de vent admissible, dégivrage) n'est dérivée par aucune fille. Concept parent orphelin de couverture."
+      },
+      {
+        "type": "redondance",
+        "ids": [
+          "REQ-L2-PROP-001",
+          "REQ-L2-PROP-003"
+        ],
+        "explication": "Deux exigences sœurs sous REQ-L1-SYS-001 expriment la même chose : REQ-L2-PROP-001 demande une endurance d'au moins 6 heures en croisière, et REQ-L2-PROP-003 demande aussi une endurance d'au moins 6 heures en conditions nominales de croisière. Doublon sans valeur ajoutée ni condition distinctive exploitée."
+      },
+      {
+        "type": "sur_specification",
+        "ids": [
+          "REQ-L3-LDT-003",
+          "REQ-L2-LDT-001"
+        ],
+        "explication": "REQ-L3-LDT-003 spécifie l'antenne sol (gain 18 dBi, suivi azimut/site), un équipement du segment sol qui n'est requis par aucun aspect de son parent REQ-L2-LDT-001 (portée radio depuis le drone), au-delà de ce que REQ-L3-LDT-001 couvre déjà pour atteindre les 80 km. Cette fille ajoute une contrainte d'équipement sol non dérivée du besoin parent : sur-spécification de conception."
+      },
+      {
+        "type": "incoherence",
+        "ids": [
+          "REQ-L2-PROP-004",
+          "REQ-L1-SYS-001"
+        ],
+        "explication": "REQ-L2-PROP-004 impose de LIMITER l'endurance à 4 heures maximum, ce qui contredit directement son parent REQ-L1-SYS-001 (et le besoin L0 REQ-L0-SYS-001) exigeant une endurance d'AU MOINS 6 heures. La fille rend le parent insatisfiable : contradiction directe entre une borne supérieure (4 h) et une borne inférieure (6 h)."
+      },
+      {
+        "type": "depassement_budget",
+        "ids": [
+          "REQ-L2-STR-001",
+          "REQ-L3-STR-002",
+          "REQ-L3-STR-003"
+        ],
+        "explication": "Le parent REQ-L2-STR-001 plafonne la masse propulsion à 12 kg. Or ses enfants budgétaires totalisent 8 kg (pack batterie REQ-L3-STR-002) + 6 kg (moteurs et hélices REQ-L3-STR-003) = 14 kg, soit 2 kg au-dessus du plafond chiffré du parent. Somme des enfants (14 kg) > plafond du parent (12 kg)."
+      },
+      {
+        "type": "rupture_tracabilite",
+        "ids": [
+          "REQ-L5-OBS-001",
+          "REQ-L4-OPT-001"
+        ],
+        "explication": "REQ-L5-OBS-001 traite d'une procédure de maintenance logistique (remplacement du pack batterie, domaine Logistique) mais est rattachée par parent_id à REQ-L4-OPT-001 qui concerne le refroidissement cryogénique du détecteur infrarouge (domaine Charge utile optronique). La fille ne se rattache plus logiquement à son ancêtre optronique : la chaîne de traçabilité est rompue (elle aurait dû dériver de la branche propulsion/structure batterie, ex. REQ-L3-STR-002)."
+      }
+    ]
+  },
+  "exigences": [
+    {
+      "id": "REQ-L0-SYS-001",
+      "niveau": 0,
+      "type": "Expression du Besoin",
+      "domaine": "Système",
+      "texte": "Le système de drone de surveillance doit assurer une mission de reconnaissance optronique d'une durée minimale de 6 heures dans un rayon de 80 km, par conditions météorologiques de jour comme de nuit.",
+      "parent_id": null,
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L1-SYS-001",
+      "niveau": 1,
+      "type": "Spécification Fonctionnelle",
+      "domaine": "Système",
+      "texte": "Le drone doit assurer une endurance opérationnelle d'au moins 6 heures avec une charge utile optronique embarquée.",
+      "parent_id": "REQ-L0-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L1-SYS-002",
+      "niveau": 1,
+      "type": "Spécification Fonctionnelle",
+      "domaine": "Système",
+      "texte": "Le drone doit transmettre en temps réel le flux vidéo de la charge utile à la station sol jusqu'à une distance de 80 km.",
+      "parent_id": "REQ-L0-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L1-SYS-003",
+      "niveau": 1,
+      "type": "Spécification Fonctionnelle",
+      "domaine": "Système",
+      "texte": "Le drone doit acquérir des images exploitables de jour comme de nuit grâce à une charge utile optronique multi-capteurs.",
+      "parent_id": "REQ-L0-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L1-STR-001",
+      "niveau": 1,
+      "type": "Spécification Fonctionnelle",
+      "domaine": "Structure",
+      "texte": "La masse maximale au décollage du drone ne doit pas dépasser 25 kg afin de respecter la catégorie réglementaire visée.",
+      "parent_id": "REQ-L0-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-PROP-001",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Propulsion",
+      "texte": "Le sous-système de propulsion doit fournir une puissance permettant une endurance d'au moins 6 heures en vol de croisière à 90 km/h.",
+      "parent_id": "REQ-L1-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-PROP-002",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Propulsion",
+      "texte": "La chaîne énergétique doit reposer sur un pack batterie lithium-ion offrant une capacité utile d'au moins 2,5 kWh.",
+      "parent_id": "REQ-L1-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-PROP-003",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Propulsion",
+      "texte": "Le sous-système de propulsion doit garantir une endurance opérationnelle d'au moins 6 heures en conditions nominales de croisière.",
+      "parent_id": "REQ-L1-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-PROP-004",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Propulsion",
+      "texte": "Le sous-système de propulsion doit limiter son endurance maximale à 4 heures afin de réduire l'usure des moteurs.",
+      "parent_id": "REQ-L1-SYS-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-LDT-001",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Liaison de données",
+      "texte": "La liaison de données doit assurer une portée radio en visibilité directe d'au moins 80 km avec une marge de liaison de 6 dB.",
+      "parent_id": "REQ-L1-SYS-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-LDT-002",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Liaison de données",
+      "texte": "La liaison de données doit fournir un débit descendant d'au moins 8 Mbit/s pour la transmission du flux vidéo compressé.",
+      "parent_id": "REQ-L1-SYS-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-OPT-001",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Charge utile optronique",
+      "texte": "La charge utile optronique doit intégrer un capteur électro-optique jour offrant une résolution permettant l'identification d'une cible humaine à 2 km.",
+      "parent_id": "REQ-L1-SYS-003",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-OPT-002",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Charge utile optronique",
+      "texte": "La charge utile optronique doit intégrer un capteur infrarouge thermique permettant la détection nocturne d'une cible humaine à 1,5 km.",
+      "parent_id": "REQ-L1-SYS-003",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-STR-001",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Structure",
+      "texte": "La masse du sous-système de propulsion (moteurs, hélices, batteries, câblage) ne doit pas dépasser 12 kg.",
+      "parent_id": "REQ-L1-STR-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-STR-002",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Structure",
+      "texte": "La masse de la charge utile optronique, gimbal compris, ne doit pas dépasser 9 kg.",
+      "parent_id": "REQ-L1-STR-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L2-STR-003",
+      "niveau": 2,
+      "type": "Conception Préliminaire",
+      "domaine": "Structure",
+      "texte": "La masse de la cellule structurale et de l'avionique (hors propulsion et charge utile) ne doit pas dépasser 7 kg.",
+      "parent_id": "REQ-L1-STR-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-PROP-001",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Propulsion",
+      "texte": "Le pack batterie doit être constitué de cellules lithium-ion 21700 organisées en configuration 12S permettant une tension nominale de 44,4 V.",
+      "parent_id": "REQ-L2-PROP-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-PROP-002",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Propulsion",
+      "texte": "Chaque moteur de propulsion doit délivrer une poussée nominale de 35 N à 80 % de régime pour le vol de croisière.",
+      "parent_id": "REQ-L2-PROP-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-PROP-003",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Propulsion",
+      "texte": "Le calculateur de gestion de l'énergie doit estimer l'état de charge avec une précision de plus ou moins 3 % afin de déclencher le retour automatique.",
+      "parent_id": "REQ-L2-PROP-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-LDT-001",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Liaison de données",
+      "texte": "L'émetteur de la liaison de données doit fonctionner dans la bande C avec une puissance d'émission ajustable jusqu'à 2 W.",
+      "parent_id": "REQ-L2-LDT-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-LDT-002",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Liaison de données",
+      "texte": "Le codec vidéo embarqué doit compresser le flux au format H.265 avec un débit cible configurable entre 4 et 12 Mbit/s.",
+      "parent_id": "REQ-L2-LDT-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-LDT-003",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Liaison de données",
+      "texte": "L'antenne sol de la liaison de données doit présenter un gain d'au moins 18 dBi et un suivi automatique du drone en azimut et site.",
+      "parent_id": "REQ-L2-LDT-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-OPT-001",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Charge utile optronique",
+      "texte": "Le capteur électro-optique jour doit disposer d'un zoom optique x30 et d'un détecteur de 1920x1080 pixels.",
+      "parent_id": "REQ-L2-OPT-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-OPT-002",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Charge utile optronique",
+      "texte": "Le capteur infrarouge doit utiliser un détecteur LWIR refroidi de résolution 640x512 pixels avec un pas pixel de 12 microns.",
+      "parent_id": "REQ-L2-OPT-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-OPT-003",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Charge utile optronique",
+      "texte": "Le gimbal de la charge utile doit assurer une stabilisation gyroscopique sur trois axes avec un jitter résiduel inférieur à 25 microradians.",
+      "parent_id": "REQ-L2-OPT-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-STR-001",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Structure",
+      "texte": "La voilure et le fuselage doivent être réalisés en matériau composite carbone-époxy pour limiter la masse de cellule à 5 kg.",
+      "parent_id": "REQ-L2-STR-003",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-STR-002",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Structure",
+      "texte": "Le pack batterie complet, boîtier et BMS inclus, doit présenter une masse n'excédant pas 8 kg.",
+      "parent_id": "REQ-L2-STR-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L3-STR-003",
+      "niveau": 3,
+      "type": "Conception Détaillée",
+      "domaine": "Structure",
+      "texte": "L'ensemble des quatre moteurs et hélices doit présenter une masse cumulée n'excédant pas 6 kg.",
+      "parent_id": "REQ-L2-STR-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L4-PROP-001",
+      "niveau": 4,
+      "type": "Conception Détaillée",
+      "domaine": "Propulsion",
+      "texte": "Le BMS doit équilibrer activement les cellules avec un courant d'équilibrage d'au moins 200 mA par cellule.",
+      "parent_id": "REQ-L3-PROP-001",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L4-OPT-001",
+      "niveau": 4,
+      "type": "Conception Détaillée",
+      "domaine": "Charge utile optronique",
+      "texte": "Le détecteur infrarouge doit être maintenu à une température de fonctionnement de 77 K par un cryocooler de type Stirling intégré.",
+      "parent_id": "REQ-L3-OPT-002",
+      "test_status": "PENDING"
+    },
+    {
+      "id": "REQ-L5-PROP-001",
+      "niveau": 5,
+      "type": "Réalisation",
+      "domaine": "Propulsion",
+      "texte": "L'essai d'endurance au sol doit démontrer une autonomie d'au moins 6 heures sur banc à puissance de croisière représentative.",
+      "parent_id": "REQ-L3-PROP-002",
+      "test_status": "OK"
+    },
+    {
+      "id": "REQ-L5-LDT-001",
+      "niveau": 5,
+      "type": "Réalisation",
+      "domaine": "Liaison de données",
+      "texte": "L'essai en vol doit confirmer la réception d'un flux vidéo H.265 sans coupure à 80 km en visibilité directe.",
+      "parent_id": "REQ-L3-LDT-001",
+      "test_status": "KO"
+    },
+    {
+      "id": "REQ-L5-OPT-001",
+      "niveau": 5,
+      "type": "Réalisation",
+      "domaine": "Charge utile optronique",
+      "texte": "L'essai d'identification doit démontrer la reconnaissance d'une silhouette humaine à 2 km avec le capteur jour en conditions de visibilité standard.",
+      "parent_id": "REQ-L3-OPT-001",
+      "test_status": "OK"
+    },
+    {
+      "id": "REQ-L5-OBS-001",
+      "niveau": 5,
+      "type": "Réalisation",
+      "domaine": "Logistique",
+      "texte": "La procédure de maintenance doit permettre le remplacement du pack batterie en moins de 10 minutes par un opérateur formé.",
+      "parent_id": "REQ-L4-OPT-001",
+      "test_status": "PENDING"
+    }
+  ]
+}

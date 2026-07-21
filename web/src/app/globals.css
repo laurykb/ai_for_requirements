@@ -1,0 +1,392 @@
+@import "tailwindcss";
+
+/* Direction artistique : thème Thales — nuit bleu profond dérivée du bleu
+   officiel (#242B75, Pantone 2765C), accent aqua officiel (#5DBFD5,
+   Pantone 3125C — le point du A du logo), statuts vert/ambre/rouge,
+   motion discrète. Structure héritée d'AI_for_geopolitics. */
+:root {
+  /* ── Couche 1 · Primitives (identité Thales) ─────────────────────────── */
+  --thales-blue: #242b75; /* Pantone 2765C */
+  --thales-aqua: #5dbfd5; /* Pantone 3125C — le point du A */
+
+  /* ── Couche 2 · Sémantiques (surfaces, textes, statuts) ──────────────── */
+  --background: #060819;
+  --surface: #0c102b;
+  --surface-2: #121737;
+  --muted: #1b2147;
+  --foreground: #e9ecf5;
+  --foreground-bright: #eef1f8; /* accents lumineux : lettres du logo, état « citée » */
+  --foreground-muted: #99a1b8;
+  --foreground-faint: #636b85;
+  --border: rgba(148, 163, 214, 0.14);
+  --border-strong: rgba(148, 163, 214, 0.3);
+  --accent: var(--thales-aqua);
+  --accent-bright: #7fd4e6;
+  --good: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+
+  /* ── Couche 3 · Composants ────────────────────────────────────────────── */
+  /* Intro : nuit de la planète aqua. */
+  --globe-night: #0b2531;
+  /* Chips de rôle des agents LynX (boîte de verre). */
+  --role-rule: #0891b2;
+  --role-vector: #0d9488;
+  --role-agent: #7c3aed;
+  --role-synthesis: #b45309;
+  --role-default: #4b5563;
+  /* Visionneuse « page blanche » (Documents) : le seul îlot clair du thème. */
+  --doc-bg: #f4f4f7;
+  --doc-ink: #1f1f23;
+  --doc-highlight-bg: #fff3bf;
+  --doc-highlight-edge: #f59f00;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-muted: var(--muted);
+  --color-foreground: var(--foreground);
+  --color-fg-muted: var(--foreground-muted);
+  --color-fg-faint: var(--foreground-faint);
+  --color-edge: var(--border);
+  --color-edge-strong: var(--border-strong);
+  --color-thales: var(--thales-blue);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-jetbrains);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+::selection {
+  background: rgba(93, 191, 213, 0.3);
+}
+
+/* Curseur de streaming : un trait aqua qui bat, discret. */
+.stream-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent-bright);
+  animation: caret-blink 1s steps(2) infinite;
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise-in {
+  animation: rise-in 240ms ease-out both;
+}
+
+/* Entrées décalées pour les cartes de l'accueil. */
+.rise-in-2 {
+  animation: rise-in 240ms ease-out 80ms both;
+}
+.rise-in-3 {
+  animation: rise-in 240ms ease-out 160ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .rise-in-2,
+  .rise-in-3 {
+    animation: none;
+  }
+  .stream-caret::after {
+    animation: none;
+  }
+}
+
+/* ===== Introduction Thales (accueil) =========================================== */
+/* La planète est posée à sa place finale (le point du A) : tout le voyage est
+   raconté par scale() — loin (petit), plongée (grand), atterrissage (taille du
+   point). Les lettres apparaissent pendant le dézoom. */
+
+.intro-globe {
+  animation: intro-globe 4.6s cubic-bezier(0.45, 0.05, 0.35, 1) both;
+  will-change: transform;
+}
+@keyframes intro-globe {
+  0% {
+    transform: scale(7);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(8);
+    opacity: 1;
+  }
+  55% {
+    transform: scale(24);
+  }
+  88% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Rotation : les « continents » défilent derrière le clip circulaire. */
+.intro-spin {
+  animation: intro-spin 2.6s linear infinite;
+}
+@keyframes intro-spin {
+  from {
+    transform: translateX(-100px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Les lettres se révèlent pendant l'atterrissage de la planète. */
+.intro-letters {
+  animation: intro-letters 1.4s ease-out 3.1s both;
+}
+@keyframes intro-letters {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Le perchoir reste invisible tant que l'intro joue : le logo animé glisse
+   vers une zone vide, puis le statique prend le relais au démontage. */
+.home-root:has(.intro-overlay) #home-thales {
+  opacity: 0;
+}
+#home-thales {
+  transition: opacity 200ms ease-out;
+}
+
+/* ===== Visionneuse page blanche (Documents) ==================================== */
+/* Le document entier sur fond clair, typographie de lecture, passage surligné. */
+.doc-page {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14.5px;
+  line-height: 1.75;
+  color: var(--doc-ink);
+}
+.doc-page h1, .doc-page h2, .doc-page h3, .doc-page h4 {
+  font-family: var(--font-inter), system-ui, sans-serif;
+  color: #111;
+  margin: 1.1em 0 0.4em;
+  font-weight: 600;
+}
+.doc-page h1 { font-size: 1.35em; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.doc-page p { margin: 0.6em 0; }
+.doc-page ul, .doc-page ol { margin: 0.6em 0; padding-left: 1.4em; }
+.doc-page ul { list-style: disc; }
+.doc-page ol { list-style: decimal; }
+.doc-page table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 0.95em; }
+.doc-page th, .doc-page td { border: 1px solid #ddd; padding: 5px 9px; }
+.doc-page th { background: #f5f5f5; }
+.doc-page code { background: #f2f2f4; padding: 1px 5px; border-radius: 4px; }
+.doc-highlight {
+  background: var(--doc-highlight-bg);
+  border-left: 3px solid var(--doc-highlight-edge);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin: 8px 0;
+}
+
+/* ===== LynX (la matrice est la scène) ========================================== */
+
+/* Contrôles React Flow accordés au thème. */
+.req-graph .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.req-graph .react-flow__controls-button {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  fill: var(--foreground-muted);
+}
+.req-graph .react-flow__controls-button:hover {
+  background: var(--muted);
+}
+
+/* Bannière de verdict : liseré coloré à gauche, respiration. */
+.verdict-banner {
+  border-left: 3px solid var(--fg, var(--accent));
+  padding-left: 0.9rem;
+}
+
+/* ===== Chat ==================================================================== */
+
+/* Blocs repliés (sources, passages) : progressive disclosure sobre. */
+.chat-details {
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  padding: 0.5rem 0.75rem;
+}
+.chat-details > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--foreground-muted);
+  list-style: none;
+}
+.chat-details > summary::before {
+  content: "▸";
+  color: var(--foreground-faint);
+  transition: transform 150ms ease;
+}
+.chat-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.chat-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Rendu markdown des réponses : espacements discrets, listes lisibles. */
+.chat-md p {
+  margin: 0.5rem 0;
+}
+.chat-md p:first-child {
+  margin-top: 0;
+}
+.chat-md p:last-child {
+  margin-bottom: 0;
+}
+.chat-md ul,
+.chat-md ol {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+.chat-md ul {
+  list-style: disc;
+}
+.chat-md ol {
+  list-style: decimal;
+}
+.chat-md li {
+  margin: 0.2rem 0;
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.95em;
+  font-weight: 600;
+}
+.chat-md code {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.9em;
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.chat-md pre {
+  overflow-x: auto;
+  background: var(--muted);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+}
+.chat-md pre code {
+  background: none;
+  padding: 0;
+}
+.chat-md table {
+  margin: 0.5rem 0;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.chat-md th,
+.chat-md td {
+  border: 1px solid var(--border-strong);
+  padding: 0.3rem 0.6rem;
+}
+.chat-md blockquote {
+  border-left: 2px solid var(--border-strong);
+  padding-left: 0.75rem;
+  color: var(--foreground-muted);
+  margin: 0.5rem 0;
+}
+
+/* ── Attribution par affirmation (marqueurs [n] + non sourcé) ──────────────── */
+/* Puce discrète d'un marqueur de citation [n] : cliquable quand la réponse est
+   finalisée (bouton), simple exposant pendant le streaming. */
+.cite-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  margin: 0 0.12em;
+  padding: 0 0.25em;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-bright);
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.68em;
+  line-height: 1;
+  vertical-align: 0.18em;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+button.cite-marker:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: var(--accent);
+}
+sup.cite-marker {
+  cursor: default;
+}
+
+/* Affirmation non sourcée dans les documents : fond ambre discret + info-bulle. */
+.chat-md mark.unsourced {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: inherit;
+  border-bottom: 1px dotted color-mix(in srgb, var(--warn) 60%, transparent);
+  border-radius: 3px;
+  padding: 0 0.15em;
+  cursor: help;
+}
+
+/* Surlignage temporaire du passage ciblé par un clic sur un marqueur [n]. */
+.chunk-flash {
+  animation: chunk-flash 1.8s ease-out;
+}
+@keyframes chunk-flash {
+  0%, 55% { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { background: transparent; }
+}

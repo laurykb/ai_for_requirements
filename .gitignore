@@ -1,0 +1,66 @@
+# ── Environnement Python ──────────────────────────────────────────────────────
+rag_venv/
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Données volumineuses (non versionnées) ────────────────────────────────────
+# Index vectoriel ChromaDB (régénérable via ingest) — partout dans l'arbo
+**/chroma_db/
+# Index BM25 sérialisé (régénérable via ingest)
+**/bm25_index.pkl
+# Cache d'enrichissement LLM (keywords/questions par chunk)
+**/enhancement_cache/
+# Cache graphe d'entités (régénérable via build_graph)
+**/graph_cache/
+# Vocabulaire (régénérable)
+**/vocab_save/
+# PDFs source (trop lourds)
+data/*.pdf
+app/data/*.pdf
+Doc_Test_Pdf/
+# Tous les pickles de données
+**/*.pkl
+
+# ── Modèles ML locaux (plusieurs Go — utiliser Ollama ou HuggingFace hub) ─────
+models/
+
+# ── Fichiers de sortie / temporaires ─────────────────────────────────────────
+out_clean_md/
+data/out_clean_md/
+*.log
+*.tmp
+*.bak
+ask.py.bak
+
+# ── Dossiers inutiles / archives ──────────────────────────────────────────────
+useless_src/
+__pycache__/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ── Secrets / config locale ───────────────────────────────────────────────────
+.env
+.env.local
+secrets.toml
+
+# Outillage éditeur / IDE / agents
+.claude/
+.vscode/
+.idea/
