@@ -85,8 +85,8 @@ python -m spacy download fr_core_news_sm
 ### 3.4 Docling (PDF → Markdown)
 
 Docling + EasyOCR **téléchargent leurs modèles de layout/OCR au 1er usage**
-(cache `~/.cache`). Prévoir un accès réseau à la première ingestion, ou copier le
-cache pour une machine hors-ligne.
+(caches `~/.cache/docling` et `~/.EasyOCR`). Prévoir un accès réseau à la première ingestion, ou copier les
+deux dossiers pour une machine hors-ligne.
 
 ---
 
@@ -215,7 +215,7 @@ cd lynx && python -m pytest tests    # 121 tests LynX
   machine actuelle tourne en **CUDA 13** (`+cu130`) — sur un autre GPU, réinstaller
   les wheels torch correspondant à la version de CUDA disponible.
 - **Docling / EasyOCR hors-ligne** : modèles téléchargés au 1er usage → pour une
-  machine sans réseau, copier le cache `~/.cache` (Docling + easyocr).
+  machine sans réseau, copier `~/.cache/docling` et `~/.EasyOCR`.
 - **Tailles à prévoir** : Ollama (mistral 15 Go + llama3.1 4.9 Go + bge-m3 1.2 Go)
   + reranker 2.2 Go ⇒ **~24 Go de modèles** hors dépendances Python (torch+CUDA
   pèsent aussi plusieurs Go).

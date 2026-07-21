@@ -107,7 +107,7 @@ télécharge se **prépare sur une machine connectée**, puis se **copie** :
 
 | Artefact | Côté connecté | Côté restreint |
 |---|---|---|
-| Paquets Python | `pip download -r requirements.txt -d wheels/` (+ `-r requirements-gpu.txt` si GPU) | `pip install --no-index --find-links wheels/ -r requirements.txt` |
+| Paquets Python | `pip download -r requirements.txt -d wheels/` (+ `-r requirements-gpu.txt` si GPU) | `pip install --no-index --find-links wheels/ -r requirements.txt` ; puis si GPU : `pip install --no-index --find-links wheels/ -r requirements-gpu.txt` |
 | Modèle spaCy | `pip download fr-core-news-sm -d wheels/` (roue pip standard) | installée avec les autres roues |
 | Reranker | déjà un dossier local | copier `models/bge-reranker-v2-m3/` tel quel |
 | Modèles Ollama | `ollama pull …` puis récupérer `~/.ollama/models` | copier `~/.ollama/models` (blobs + manifests) |
