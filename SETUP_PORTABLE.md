@@ -12,6 +12,7 @@ multi-OS ; la base s'installe sans GPU. L'accélération NVIDIA est optionnelle.
 | **Python 3.11+** | runtime | python.org, `pyenv`, `brew install python@3.11`, `apt install python3.11` |
 | **Ollama** | LLM + embeddings (local) | <https://ollama.com/download> (Linux/macOS/Windows) |
 | **MongoDB** | chunks, BM25, traces | service local ou `docker run -p 27017:27017 mongo` |
+| **Node.js ≥ 20** | front Next.js (`web/`) | <https://nodejs.org> ou `nvm install 20` |
 
 > Sans GPU NVIDIA, tout tourne en **CPU** (plus lent). Sur **macOS**, PyTorch utilise
 > automatiquement le backend **MPS** (Apple Silicon) si disponible.
@@ -108,11 +109,12 @@ télécharge se **prépare sur une machine connectée**, puis se **copie** :
 | Artefact | Côté connecté | Côté restreint |
 |---|---|---|
 | Paquets Python | `pip download -r requirements.txt -d wheels/` (+ `-r requirements-gpu.txt` si GPU) | `pip install --no-index --find-links wheels/ -r requirements.txt` ; puis si GPU : `pip install --no-index --find-links wheels/ -r requirements-gpu.txt` |
-| Modèle spaCy | `pip download fr-core-news-sm -d wheels/` (roue pip standard) | installée avec les autres roues |
+| Modèle spaCy | `pip download "https://github.com/explosion/spacy-models/releases/download/fr_core_news_sm-3.8.0/fr_core_news_sm-3.8.0-py3-none-any.whl" -d wheels/` (roue GitHub Releases, URL épinglée dans requirements.lock.txt) | installée avec les autres roues |
 | Reranker | déjà un dossier local | copier `models/bge-reranker-v2-m3/` tel quel |
 | Modèles Ollama | `ollama pull …` puis récupérer `~/.ollama/models` | copier `~/.ollama/models` (blobs + manifests) |
 | Front Next.js | `npm install` dans `web/` | copier `web/node_modules/` (`dev.sh` saute `npm install` s'il est présent) |
-| Caches Docling / EasyOCR | 1re ingestion d'un PDF (peuple `~/.cache`) | copier `~/.cache/docling` et `~/.EasyOCR` |
+| Binaire Node.js ≥ 20 | télécharger l'archive <https://nodejs.org/dist/> (ou installeur) | dézipper et mettre `node`/`npm` dans le PATH (ou installeur hors-ligne) |
+| Caches Docling / EasyOCR | 1re ingestion d'un PDF (peuple `~/.cache/docling` et `~/.EasyOCR`) | copier `~/.cache/docling` et `~/.EasyOCR` |
 | Binaires MongoDB / Ollama | télécharger les installeurs | install hors-ligne ; renseigner `MONGO_BIN` / `OLLAMA_BIN` dans `.env` |
 
 Volumes à prévoir : ~24 Go de modèles (détail : MIGRATION.md §8) + les roues
