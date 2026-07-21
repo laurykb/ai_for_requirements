@@ -34,13 +34,17 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 ```
 
-Installer les dépendances :
+Installer les dépendances (**une seule commande** — RAG + LynX + dev inclus) :
 
 ```bash
 pip install -r requirements.txt            # base CROSS-PLATFORM (CPU)
 pip install -r requirements-gpu.txt        # OPTIONNEL : GPU NVIDIA (CUDA 12.x)
 python -m spacy download fr_core_news_sm   # modèle NER français
 ```
+
+> Au premier `python serve.py`, un **pre-flight** liste ce qui manque encore
+> (modèle spaCy, reranker, modèles Ollama, Node) avec la commande exacte à
+> lancer — inutile de mémoriser les étapes ci-dessous.
 
 ---
 
@@ -93,6 +97,26 @@ python -m evals.run_eval --mode retrieval      # évaluation retrieval (rapide)
 python -m core.agent "Quel est le niveau EAL de la TOE ?"   # agent en CLI
 python rag_mcp_server.py                        # serveur MCP (stdio)
 ```
+
+---
+
+## Réseau restreint (hors-ligne)
+
+Le projet tourne à 100 % en local — l'installation aussi. Tout ce qui se
+télécharge se **prépare sur une machine connectée**, puis se **copie** :
+
+| Artefact | Côté connecté | Côté restreint |
+|---|---|---|
+| Paquets Python | `pip download -r requirements.txt -d wheels/` (+ `-r requirements-gpu.txt` si GPU) | `pip install --no-index --find-links wheels/ -r requirements.txt` |
+| Modèle spaCy | `pip download fr-core-news-sm -d wheels/` (roue pip standard) | installée avec les autres roues |
+| Reranker | déjà un dossier local | copier `models/bge-reranker-v2-m3/` tel quel |
+| Modèles Ollama | `ollama pull …` puis récupérer `~/.ollama/models` | copier `~/.ollama/models` (blobs + manifests) |
+| Front Next.js | `npm install` dans `web/` | copier `web/node_modules/` (`dev.sh` saute `npm install` s'il est présent) |
+| Caches Docling / EasyOCR | 1re ingestion d'un PDF (peuple `~/.cache`) | copier `~/.cache/docling` et `~/.EasyOCR` |
+| Binaires MongoDB / Ollama | télécharger les installeurs | install hors-ligne ; renseigner `MONGO_BIN` / `OLLAMA_BIN` dans `.env` |
+
+Volumes à prévoir : ~24 Go de modèles (détail : MIGRATION.md §8) + les roues
+Python (torch et CUDA pèsent plusieurs Go).
 
 ---
 

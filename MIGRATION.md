@@ -92,72 +92,16 @@ cache pour une machine hors-ligne.
 
 ## 4. Dépendances Python
 
-Quatre manifestes. **`requirements.txt`** est la base cross-platform ; les autres
-sont additionnels.
+**Trois fichiers** (installation détaillée : [SETUP_PORTABLE.md](SETUP_PORTABLE.md)) :
 
-### 4.1 Base — `requirements.txt` (s'installe partout, CPU inclus)
-
-| Paquet | Contrainte déclarée | Épingle `requirements.lock.txt` | Domaine |
-|---|---|---|---|
-| torch | `>=2.2` | `2.5.1+cu121` | Deep learning |
-| torchvision | `>=0.17` | `0.20.1+cu121` | Deep learning |
-| transformers | `>=4.45.0` | `5.12.1` | Modèles HF |
-| sentence-transformers | `>=5.0.0` | `5.6.0` | Embeddings / cross-encoder |
-| accelerate | `>=1.0.0` | `1.14.0` | Deep learning |
-| onnxruntime | `>=1.18.0` | `1.27.0` | Runtime ONNX (Chroma/Docling) |
-| requests | `>=2.31.0` | — | HTTP (Ollama) |
-| numpy | `>=2.0` | `2.4.6` | vecteurs / dédup |
-| chromadb | `>=1.0.0` | `1.5.9` | **base vectorielle** |
-| rank-bm25 | `>=0.2.2` | `0.2.2` | recherche BM25 |
-| docling | `>=2.40.0` | `2.107.0` | PDF → Markdown |
-| docling-core | `>=2.40.0` | — | Docling |
-| easyocr | `>=1.7.0` | `1.7.2` | OCR (Docling) |
-| spacy | `>=3.8.0` | `3.8.14` | NLP / NER |
-| semantic-text-splitter | `>=0.27.0` | — | chunking |
-| pymongo | `>=4.10.0` | `4.17.0` | **MongoDB** |
-| mcp | `>=1.0.0` | — | serveur MCP (stdio) |
-| streamlit | `>=1.40.0` | `1.58.0` | UI legacy |
-| streamlit-autorefresh | `>=1.0.1` | — | UI legacy |
-| markdown2 | `>=2.5.0` | — | rendu markdown |
-| fastapi | `>=0.115` | — | **API cible** |
-| uvicorn | `>=0.30` | `0.49.0` | serveur ASGI |
-| python-multipart | `>=0.0.9` | — | upload FastAPI |
-| joblib | `>=1.3.0` | — | sérialisation (BM25) |
-| pillow | `>=10.0.0` | — | images |
-| python-dotenv | `>=1.0.0` | — | config `.env` |
-| pytest | `>=8.0` | — | tests |
-
-> Le **lock complet** (`requirements.lock.txt`, 214 lignes) épingle aussi toutes
-> les dépendances transitives — c'est la référence pour une reproduction exacte.
-
-### 4.2 GPU NVIDIA (optionnel) — `requirements-gpu.txt`
-
-À installer **après** la base, sur machine NVIDIA (CUDA 12.x). Remplace les builds
-CPU par les builds CUDA.
-
-```
---extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121
-onnxruntime-gpu>=1.24.0
-cupy-cuda12x>=14.0.0     # spaCy GPU (NER)
-```
-
-### 4.3 LynX — `lynx/requirements.txt`
-
-Cœur léger, in-process (LLM via endpoint OpenAI-compatible = Ollama `/v1`).
-
-| Paquet | Contrainte |
+| Fichier | Rôle |
 |---|---|
-| streamlit | `==1.28.0` ⚠️ (voir §7) |
-| streamlit-agraph | `==0.0.45` |
-| pydantic | `>=2.9,<3.0.0` (lock `2.13.4`) |
-| httpx | `>=0.27` |
-| pytest | `>=8.0` |
+| `requirements.txt` | **unique et cross-platform** — base RAG + LynX (`streamlit-agraph`) + dev (pytest, notebooks). Une commande : `pip install -r requirements.txt` |
+| `requirements-gpu.txt` | optionnel — builds CUDA 12.x de torch/onnxruntime + CuPy |
+| `requirements.lock.txt` | photographie `pip freeze` de la **machine de référence** (Linux/NVIDIA, roues `nvidia-*-cu13`) — pour la reproduire à l'identique |
 
-### 4.4 Dev (optionnel) — `requirements-dev.txt`
-
-`pytest>=8.0`, `nbformat>=5.9`, `nbconvert>=7.0`, `ipykernel>=6.0`, `jupyterlab>=4.0`.
+> Historique : `lynx/requirements.txt` (épingle morte `streamlit==1.28.0`) et
+> `requirements-dev.txt` ont été absorbés dans `requirements.txt` le 2026-07-21.
 
 ---
 
@@ -219,7 +163,6 @@ python -m venv .venv
 source .venv/bin/activate            # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 pip install -r requirements-gpu.txt  # si GPU NVIDIA CUDA 12.x
-pip install -r lynx/requirements.txt
 python -m spacy download fr_core_news_sm
 
 # 3. Modèles Ollama
@@ -261,14 +204,10 @@ cd lynx && python -m pytest tests    # 121 tests LynX
 
 ## 8. Pièges connus & points de vigilance migration
 
-- **Venv partagé avec `rag_project`** : sur cette machine, `.venv/bin/python` est
-  lié au venv du projet standalone `rag_project`. Conséquence mesurée : `torch`
-  installé = **`2.12.1+cu130`** (et non l'épingle `2.5.1+cu121` du lock). Pour un
-  export **propre et reproductible**, créer un **venv dédié** depuis
-  `requirements.txt` (+ `-gpu`) au lieu de copier `.venv/`.
-- **Conflit Streamlit** : `lynx/requirements.txt` épingle `streamlit==1.28.0`
-  alors que la base demande `>=1.40.0` (lock `1.58.0`). En pratique l'app tourne
-  sur la version de la base ; ne pas laisser pip downgrader Streamlit après coup.
+- **Venv partagé avec `rag_project`** : sur cette machine, `.venv/` est commun
+  aux deux projets. Pour un export propre, créer un venv dédié depuis
+  `requirements.txt` (+ `-gpu`) au lieu de copier `.venv/` ; le lock reflète
+  cette machine (voir §4).
 - **`mongod` hors PATH** : ici MongoDB est en install portable → renseigner
   `MONGO_BIN` (et éventuellement `MONGO_DBPATH`) dans `.env` pour que `serve.py`
   le démarre. Sinon installer MongoDB en service et laisser `MONGO_URI` par défaut.
