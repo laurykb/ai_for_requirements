@@ -76,8 +76,3 @@ gravité, badges de rôle, flèches typographiques). Voir mémoire `lynx-ux-prin
 - [ ] Exploiter le **feedback** (`corpus/feedback.jsonl`) : `feedback.export_dataset()`
       -> jeu d'entraînement -> **fine-tuning d'un petit modèle** spécialisé
       (meilleur + moins cher que le généraliste à terme).
-
-## Prochain pas recommandé
-Soit **(3)** réactiver la couverture à la déclinaison (cœur de la consigne), soit
-**(4)** l'import ReqIF/Excel (cœur de l'usabilité). Les deux transforment le
-démonstrateur en outil réel.

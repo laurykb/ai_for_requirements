@@ -152,8 +152,7 @@ Couches agentiques au-dessus : `tools/rag_tool.py` (RAG-comme-outil) → `rag_mc
 ```bash
 git clone https://github.com/laurykb/ai_for_requirements.git && cd ai_for_requirements
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\Activate.ps1
-pip install -r requirements.txt                      # + requirements-gpu.txt si GPU NVIDIA
-pip install -r lynx/requirements.txt                 # dépendances du module AI for Requirements
+pip install -r requirements.txt                      # TOUT (RAG + LynX + dev) ; + requirements-gpu.txt si GPU NVIDIA
 python -m spacy download fr_core_news_sm
 ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.2:3b en option pour le mode rapide)
 cp .env.example .env
@@ -161,7 +160,8 @@ python serve.py            # démarre MongoDB + Ollama + le front Next.js + l'AP
 # (ancienne UI Streamlit, le temps de la parité : python serve.py --streamlit)
 ```
 
-Guide complet (modèles, GPU, gotchas par OS) : **[SETUP_PORTABLE.md](SETUP_PORTABLE.md)**.
+Guide complet (modèles, GPU, gotchas par OS, **install hors-ligne / réseau
+restreint**) : **[SETUP_PORTABLE.md](SETUP_PORTABLE.md)**.
 Prérequis runtime : **Ollama** + **MongoDB**.
 
 ## Points d'entrée

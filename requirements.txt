@@ -1,7 +1,7 @@
 # ===================================================================
-# Requirements — base CROSS-PLATFORM (Linux / macOS / Windows, CPU)
+# Requirements — UNIQUE et CROSS-PLATFORM (Linux / macOS / Windows, CPU)
 # ===================================================================
-# Cette base s'installe PARTOUT, y compris sans GPU et sur macOS :
+# UNE seule commande installe tout (RAG + LynX + dev), partout, sans GPU :
 #
 #     python -m venv .venv
 #     # Linux/macOS :  source .venv/bin/activate
@@ -10,9 +10,11 @@
 #     python -m spacy download fr_core_news_sm   # modèle NER français
 #
 # ACCÉLÉRATION GPU NVIDIA (optionnelle, ~10× sur la génération/rerank) :
-#     pip install -r requirements-gpu.txt        # remplace torch/onnxruntime par les builds CUDA
+#     pip install -r requirements-gpu.txt        # builds CUDA de torch/onnxruntime
 #
-# Python 3.11+ recommandé. Services requis au runtime : Ollama + MongoDB (voir README).
+# Python 3.11+ recommandé. Services requis au runtime : Ollama + MongoDB.
+# Guide complet (dont install HORS-LIGNE / réseau restreint) : SETUP_PORTABLE.md.
+# Reproduction exacte de la machine de référence : requirements.lock.txt.
 # ===================================================================
 
 # ─────────────── Deep Learning (CPU par défaut ; GPU via requirements-gpu.txt) ───────────────
@@ -62,5 +64,14 @@ joblib>=1.3.0
 pillow>=10.0.0
 python-dotenv>=1.0.0  # configuration portable via .env
 
-# ─────────────── Tests (dev) ───────────────
+# ─────────────── LynX / AI for Requirements (module lynx/) ───────────────
+# pydantic et httpx sont déjà tirés transitivement (fastapi, mcp) ;
+# streamlit-agraph sert au graphe DAG de l'UI Streamlit legacy.
+streamlit-agraph>=0.0.45
+
+# ─────────────── Dev : tests & notebooks ───────────────
 pytest>=8.0
+nbformat>=5.9
+nbconvert>=7.0
+ipykernel>=6.0
+jupyterlab>=4.0
