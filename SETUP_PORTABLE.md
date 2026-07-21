@@ -1,6 +1,8 @@
 # Setup portable (Linux / macOS / Windows)
 
-Guide pour cloner et lancer le projet sur **n'importe quelle machine**. Le code est
+Guide pour installer et lancer le projet sur **n'importe quelle machine** — par
+`git clone` (machine connectée) ou par **copie du dossier** (clé USB, machine sans
+réseau : voir [Réseau restreint](#réseau-restreint-hors-ligne)). Le code est
 multi-OS ; la base s'installe sans GPU. L'accélération NVIDIA est optionnelle.
 
 ---
@@ -19,12 +21,16 @@ multi-OS ; la base s'installe sans GPU. L'accélération NVIDIA est optionnelle.
 
 ---
 
-## 2) Cloner, environnement virtuel, dépendances
+## 2) Récupérer le code, environnement virtuel, dépendances
 
 ```bash
 git clone https://github.com/laurykb/ai_for_requirements.git && cd ai_for_requirements
 python -m venv .venv
 ```
+
+> **Sans réseau** : copier le dossier du projet depuis la clé USB (voir la
+> check-list de l'annexe), **sans `.venv/`** — le venv se recrée sur place,
+> il n'est pas portable d'une machine à l'autre.
 
 Activer le venv :
 
@@ -119,6 +125,30 @@ télécharge se **prépare sur une machine connectée**, puis se **copie** :
 
 Volumes à prévoir : ~24 Go de modèles (détail : MIGRATION.md §8) + les roues
 Python (torch et CUDA pèsent plusieurs Go).
+
+### Check-list clé USB
+
+> ⚠️ Formater la clé en **exFAT / NTFS / ext4** — le FAT32 refuse les fichiers
+> de plus de 4 Go, et certains blobs Ollama (mistral-small3.2) font ~15 Go.
+
+Contenu à préparer côté connecté :
+
+1. **Le dossier du projet** — sans `.venv/` (non portable), avec
+   `web/node_modules/` et `models/bge-reranker-v2-m3/` déjà en place ;
+2. **`wheels/`** — toutes les roues Python (base, GPU éventuel, spaCy) ;
+3. **`~/.ollama/models`** — blobs + manifests des modèles Ollama ;
+4. **Caches** — `~/.cache/docling` et `~/.EasyOCR` (si des PDF seront ingérés) ;
+5. **Installeurs** — Node.js ≥ 20, MongoDB, Ollama (+ Python 3.11+ si absent).
+
+Ordre d'installation côté restreint :
+
+1. Installeurs (Python, Node, MongoDB, Ollama) — renseigner `MONGO_BIN` /
+   `OLLAMA_BIN` dans `.env` si les binaires ne sont pas dans le PATH ;
+2. Copier le dossier du projet, puis `python -m venv .venv` + activation ;
+3. `pip install --no-index --find-links wheels/ -r requirements.txt`
+   (+ `-r requirements-gpu.txt` si GPU) ;
+4. Copier `~/.ollama/models` et les caches ;
+5. `python serve.py` — le pre-flight confirme que rien ne manque.
 
 ---
 
