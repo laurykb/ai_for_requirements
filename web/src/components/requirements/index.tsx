@@ -58,6 +58,10 @@ export function Requirements({ focusReq }: {
 
   const [running, setRunning] = useState(false);
   const [agents, setAgents] = useState<{ label: string; done: boolean }[]>([]);
+  // Barre de progression de l'analyse (même geste que l'audit) : total
+  // d'agents annoncé par le backend, avancement = agents terminés.
+  const [agentsTotal, setAgentsTotal] = useState<number | null>(null);
+  const [applying, setApplying] = useState(false);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [pendingAction, setPendingAction] = useState<Record<string, unknown> | null>(null);
   const [rationale, setRationale] = useState("");
@@ -164,6 +168,7 @@ export function Requirements({ focusReq }: {
     if (running) return;
     setRunning(true);
     setAgents([]);
+    setAgentsTotal(null);
     setVerdict(null);
     setPendingAction(action);
     setRationale("");
@@ -172,7 +177,9 @@ export function Requirements({ focusReq }: {
     const v: Verdict = { verdict: "", message: "", findings: [], impacted: [], exchanges: [] };
     try {
       await streamPost("/api/lynx/analyze", { action, semantic }, (ev) => {
-        if (ev.type === "agent") {
+        if (ev.type === "agents_total") {
+          setAgentsTotal(Number(ev.n) || null);
+        } else if (ev.type === "agent") {
           const label = String(ev.label);
           setAgents((a) => ev.kind === "start"
             ? [...a, { label, done: false }]
@@ -199,7 +206,8 @@ export function Requirements({ focusReq }: {
   }, [running, semantic]);
 
   const apply = async () => {
-    if (!pendingAction) return;
+    if (!pendingAction || applying) return;
+    setApplying(true);
     await fetch(`${API_BASE}/api/lynx/apply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -210,6 +218,7 @@ export function Requirements({ focusReq }: {
     setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
     setFixRecap(null);
     await refresh();
+    setApplying(false);
   };
 
   const sendFeedback = async (correct: boolean) => {
@@ -615,6 +624,12 @@ export function Requirements({ focusReq }: {
               ))}
               {running && !agents.length && <><Spinner /> Analyse…</>}
             </div>
+            {running && agentsTotal != null && agentsTotal > 0 && (
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-accent transition-[width] duration-500"
+                     style={{ width: `${(100 * agents.filter((a) => a.done).length) / agentsTotal}%` }} />
+              </div>
+            )}
             {verdict?.verdict && (
               <div className="verdict-banner mt-3 space-y-2.5"
                    style={{ "--fg": VERDICT_COLOR[verdict.verdict] } as React.CSSProperties}>
@@ -702,14 +717,17 @@ export function Requirements({ focusReq }: {
                         className={`${inputCls} flex-1 border-bad/40`}
                       />
                     )}
-                    <button onClick={apply} disabled={blocked && !rationale.trim()}
+                    <button onClick={apply}
+                            disabled={applying || (blocked && !rationale.trim())}
                             className={btnPrimary}>
-                      {blocked ? "Appliquer malgré le blocage" : "Appliquer à la matrice"}
+                      {applying ? "Application…"
+                        : blocked ? "Appliquer malgré le blocage" : "Appliquer à la matrice"}
                     </button>
                     <button onClick={() => { setVerdict(null); setPendingAction(null); }}
-                            className={btnGhost}>
+                            disabled={applying} className={btnGhost}>
                       Annuler
                     </button>
+                    {applying && <Spinner />}
                   </div>
                 )}
               </div>

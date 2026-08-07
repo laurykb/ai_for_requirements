@@ -252,6 +252,17 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
 
     def run(emit, cancelled):
         with _LLM_LOCK:
+            # Total d'agents prévus (déterministes + sémantiques si activés) :
+            # permet à l'UI d'afficher une barre de progression, comme l'audit.
+            try:
+                from src import orchestration_config as oc
+                cfg = oc.load_config()
+                total = sum(1 for e in cfg["deterministic"] if e.get("enabled", True))
+                if body.semantic:
+                    total += sum(1 for e in cfg["semantic"] if e.get("enabled", True))
+                emit({"type": "agents_total", "n": total})
+            except Exception:
+                pass  # sans total, l'UI garde les pastilles par agent
             llm.start_trace()
             report = run_impact_analysis(
                 corpus, action, semantic=body.semantic,

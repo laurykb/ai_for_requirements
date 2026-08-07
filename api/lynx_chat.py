@@ -41,6 +41,30 @@ def _fingerprint(corpus: list[dict]) -> str:
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
+def _req_hashes(corpus: list[dict]) -> dict[str, str]:
+    """Empreinte PAR exigence — permet au status de dire QUOI a changé
+    (ajoutées / modifiées / supprimées) depuis la dernière synchronisation."""
+    return {str(r.get("id")): hashlib.sha256(
+                json.dumps(r, sort_keys=True, ensure_ascii=False, default=str)
+                .encode("utf-8")).hexdigest()[:16]
+            for r in corpus}
+
+
+def _baseline_diff(indexed: dict[str, str] | None, current: list[dict]) -> dict | None:
+    """Diff baseline indexée -> baseline courante (listes d'ids, plafonnées)."""
+    if not indexed:
+        return None
+    now = _req_hashes(current)
+    added = sorted(i for i in now if i not in indexed)
+    removed = sorted(i for i in indexed if i not in now)
+    changed = sorted(i for i in now if i in indexed and now[i] != indexed[i])
+    if not (added or removed or changed):
+        return None
+    cap = 20
+    return {"added": added[:cap], "removed": removed[:cap], "changed": changed[:cap],
+            "n_added": len(added), "n_removed": len(removed), "n_changed": len(changed)}
+
+
 def _render_markdown(corpus: list[dict]) -> str:
     """Sérialise la baseline en Markdown pour le pipeline d'ingestion.
 
@@ -122,11 +146,87 @@ def sync_baseline() -> dict:
         get_db()[_META_COLLECTION].replace_one(
             {"_id": "baseline"},
             {"_id": "baseline", "fingerprint": _fingerprint(snapshot),
+             "req_hashes": _req_hashes(snapshot),
              "n_exigences": len(snapshot), "synced_at": time.time()},
             upsert=True)
     except Exception:
         pass  # métadonnées de fraîcheur en mode meilleur-effort
     return {"queued": True, "n_exigences": len(snapshot), "source": BASELINE_SOURCE}
+
+
+@router.get("/examples")
+def chat_examples(n: int = 3) -> dict:
+    """Suggestions de questions VIVANTES : échantillon aléatoire des questions
+    HyPE indexées — générées depuis la baseline elle-même, elles montrent ce
+    que la baseline sait répondre. Vide si HyPE coupé (le front garde alors
+    ses exemples statiques)."""
+    import random
+    n = max(1, min(n, 10))
+    try:
+        rows = list(get_db()["chunks"].aggregate([
+            {"$match": {"source": BASELINE_SOURCE, "questions.0": {"$exists": True}}},
+            {"$sample": {"size": n * 2}},   # marge pour la déduplication
+            {"$project": {"questions": 1}},
+        ]))
+    except Exception:
+        return {"examples": []}
+    seen: set[str] = set()
+    examples: list[str] = []
+    for row in rows:
+        options = [q.strip() for q in row.get("questions", []) if q and q.strip()]
+        if not options:
+            continue
+        pick = random.choice(options)
+        if pick not in seen:
+            seen.add(pick)
+            examples.append(pick)
+        if len(examples) >= n:
+            break
+    return {"examples": examples}
+
+
+@router.get("/coverage")
+def baseline_coverage() -> dict:
+    """Couverture de la baseline par les conversations : quelles exigences ont
+    déjà fondé une réponse (citées dans les passages), lesquelles jamais —
+    détecte les angles morts (de la baseline comme des questions posées)."""
+    from api.lynx_api import _get_corpus
+    corpus = _get_corpus()
+    try:
+        rows = get_db()["chat_sessions"].aggregate([
+            {"$match": {"source_filter": BASELINE_SOURCE}},
+            {"$unwind": "$messages"},
+            {"$unwind": "$messages.chunks"},
+            {"$group": {"_id": "$messages.chunks.meta.req_id", "n": {"$sum": 1}}},
+        ])
+        counts = {r["_id"]: r["n"] for r in rows if r.get("_id")}
+    except Exception:
+        return {"available": False, "n_exigences": len(corpus), "n_cited": 0,
+                "domains": [], "never_cited": [], "top": []}
+
+    domains: dict[str, dict] = {}
+    never: list[dict] = []
+    for req in sorted(corpus, key=lambda r: (str(r.get("domaine") or "Général"),
+                                             int(r.get("niveau") or 0), str(r.get("id")))):
+        rid = str(req.get("id"))
+        dom = str(req.get("domaine") or "Général")
+        entry = domains.setdefault(dom, {"domaine": dom, "total": 0, "cited": 0})
+        entry["total"] += 1
+        if counts.get(rid):
+            entry["cited"] += 1
+        else:
+            never.append({"id": rid, "domaine": dom, "niveau": req.get("niveau", 0)})
+
+    top = sorted(((rid, n) for rid, n in counts.items()), key=lambda t: -t[1])[:5]
+    return {
+        "available": True,
+        "n_exigences": len(corpus),
+        "n_cited": sum(d["cited"] for d in domains.values()),
+        "domains": sorted(domains.values(), key=lambda d: d["domaine"]),
+        "never_cited": never[:50],
+        "n_never": len(never),
+        "top": [{"id": rid, "n": n} for rid, n in top],
+    }
 
 
 @router.get("/status")
@@ -152,6 +252,8 @@ def baseline_status() -> dict:
     syncing = bool(job and job.get("status") in ("queued", "running"))
     sync_error = (job.get("result") or {}).get("message") if job and job.get("status") == "error" else None
 
+    in_sync = bool(indexed_chunks) and bool(meta) \
+        and meta.get("fingerprint") == _fingerprint(corpus)
     return {
         "available": available,
         "source": BASELINE_SOURCE,
@@ -159,8 +261,9 @@ def baseline_status() -> dict:
         "indexed_chunks": indexed_chunks,
         "indexed_n_exigences": (meta or {}).get("n_exigences"),
         "synced_at": (meta or {}).get("synced_at"),
-        "in_sync": bool(indexed_chunks) and bool(meta)
-                   and meta.get("fingerprint") == _fingerprint(corpus),
+        "in_sync": in_sync,
+        # Quoi a bougé depuis la dernière synchronisation (bandeau UI).
+        "diff": None if in_sync else _baseline_diff((meta or {}).get("req_hashes"), corpus),
         "syncing": syncing,
         "sync_pct": job.get("pct") if syncing and job else None,
         "sync_error": sync_error,

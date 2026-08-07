@@ -24,6 +24,12 @@ export function displaySourceName(source?: string | null): string {
   return source === LYNX_BASELINE_SOURCE ? "Baseline d'exigences" : source;
 }
 
+/** Diff baseline indexée -> courante (ids plafonnés à 20 par liste). */
+export type LynxBaselineDiff = {
+  added: string[]; removed: string[]; changed: string[];
+  n_added: number; n_removed: number; n_changed: number;
+};
+
 /** Fraîcheur de l'index baseline (GET /api/lynx/chat/status). */
 export type LynxChatStatus = {
   available: boolean;
@@ -33,6 +39,7 @@ export type LynxChatStatus = {
   indexed_n_exigences: number | null;
   synced_at: number | null;
   in_sync: boolean;
+  diff: LynxBaselineDiff | null;
   syncing: boolean;
   sync_pct: number | null;
   sync_error: string | null;

@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, LYNX_BASELINE_SOURCE, getJSON, type SourcesResponse } from "@/lib/api";
+import { API_BASE, LYNX_BASELINE_SOURCE, displaySourceName, getJSON,
+         type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
 import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
@@ -118,7 +119,21 @@ export function Chat({ scope }: { scope?: ChatScope } = {}) {
       refreshDocs();
       refreshSessions();
       getJSON<{ models: string[]; routing: Record<string, string> }>("/api/models")
-        .then((m) => { setModels(m.models); setGenModel(m.routing?.generate ?? m.models[0] ?? ""); })
+        .then((m) => {
+          const gen = m.routing?.generate ?? m.models[0] ?? "";
+          setModels(m.models);
+          setGenModel(gen);
+          // Préchauffage : épingle le modèle de génération en VRAM dès
+          // l'ouverture du chat — le premier token n'attend plus le
+          // chargement du modèle (la génération domine la latence).
+          if (gen) {
+            fetch(`${API_BASE}/api/models/generate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: gen, action: "load" }),
+            }).catch(() => null);
+          }
+        })
         .catch(() => setModels([]));
     }, 0);
     return () => clearTimeout(t);
@@ -345,6 +360,44 @@ export function Chat({ scope }: { scope?: ChatScope } = {}) {
   const lastUserIndex = messages.reduce(
     (acc, m, i) => (m.role === "user" ? i : acc), -1);
 
+  /** Export de la conversation en rapport Markdown : questions, réponses
+   * (marqueurs [n] conservés), sources et identifiants d'exigences — le
+   * chaînon vers le livrable (dossier de sécurité). */
+  const exportConversation = () => {
+    const title = scope ? "Chat baseline d'exigences (LynX)" : "Outil RAG";
+    const lines: string[] = [
+      `# ${title} — conversation`,
+      `_Exportée le ${new Date().toLocaleString("fr-FR")} · AI for SSH (100 % local)_`,
+      "",
+    ];
+    messages.forEach((m) => {
+      if (m.role === "user") {
+        lines.push(`## ${m.content}`, "");
+        return;
+      }
+      lines.push(m.content.trim(), "");
+      const reqs = [...new Set((m.chunks ?? [])
+        .map((c) => c.meta.req_id).filter(Boolean))];
+      if (reqs.length) lines.push(`**Exigences citées** : ${reqs.join(", ")}`, "");
+      if (m.citations?.length) {
+        lines.push("**Sources**", "");
+        m.citations.forEach((c) => lines.push(
+          `- [${c.idx}] ${displaySourceName(c.source)}` +
+          (c.heading ?? c.breadcrumb ? ` – ${c.heading ?? c.breadcrumb}` : "") +
+          (c.page ? ` – p. ${c.page}` : "")));
+        lines.push("");
+      }
+      lines.push("---", "");
+    });
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `conversation-${scope ? "baseline" : "rag"}-${stamp}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   /** Envoi : en mode édition, l'échange précédent (question + réponse) est
    * retiré du fil ET de la session persistée avant de re-poser la question. */
   const send = useCallback(async (q: string) => {
@@ -479,6 +532,17 @@ export function Chat({ scope }: { scope?: ChatScope } = {}) {
 
       {/* Fil de conversation. */}
       <section className="flex min-w-0 flex-1 flex-col">
+        {messages.length > 0 && (
+          <div className="mb-1 flex justify-end">
+            <button
+              onClick={exportConversation}
+              title="Télécharge la conversation en rapport Markdown : questions, réponses, sources et identifiants d'exigences."
+              className="cursor-pointer text-[11px] text-fg-faint transition-colors hover:text-foreground"
+            >
+              Exporter la conversation (.md)
+            </button>
+          </div>
+        )}
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-3 pr-1">
           {messages.length === 0 && !busy && (
             <div className="rise-in flex h-full flex-col items-center justify-center text-center">

@@ -270,6 +270,11 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
    * surligne le passage n (ts : re-déclenche l'effet à chaque clic). */
   const [focus, setFocus] = useState<CiteFocus | null>(null);
   const nPassages = m.chunks?.length ?? m.citations?.length ?? 0;
+  // Chat baseline : les identifiants d'exigences des passages, cités dans le
+  // texte de la réponse, deviennent des liens vers la Matrice.
+  const lynxNav = useLynxNav();
+  const reqIds = [...new Set((m.chunks ?? [])
+    .map((c) => c.meta.req_id).filter((id): id is string => !!id))];
   return (
     <div className="min-w-0">
       {m.route && expert && (
@@ -292,6 +297,8 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
           maxCite={nPassages}
           affirmations={m.attribution?.ok ? m.attribution.affirmations : undefined}
           onCiteClick={(n) => setFocus({ idx: n, ts: Date.now() })}
+          reqIds={reqIds}
+          onReqClick={lynxNav ? lynxNav.openRequirement : undefined}
         />
       </div>
       {m.stopped && (

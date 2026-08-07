@@ -342,6 +342,25 @@ sup.cite-marker {
   cursor: default;
 }
 
+/* Identifiant d'exigence cité dans une réponse (chat baseline) : lien vers
+   la Matrice — même famille visuelle que les marqueurs [n], en version texte. */
+.req-link {
+  padding: 0 0.15em;
+  border: 0;
+  background: none;
+  color: var(--accent-bright);
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.92em;
+  text-decoration: underline dotted color-mix(in srgb, var(--accent) 60%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.req-link:hover {
+  text-decoration-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 4px;
+}
+
 /* Affirmation non sourcée dans les documents : fond ambre discret + info-bulle. */
 .chat-md mark.unsourced {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
