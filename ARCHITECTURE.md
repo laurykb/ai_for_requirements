@@ -50,7 +50,7 @@ Tant que la parité n'est pas atteinte, l'UI Streamlit reste le filet fonctionne
 | Entrée | Rôle |
 |---|---|
 | `serve.py` | Démarre Mongo + Ollama, puis l'UI (cible par défaut, `--streamlit` pour la legacy) |
-| `api/main.py` | Assemble les routeurs FastAPI (rag, sessions, documents, system, lynx_api) |
+| `api/main.py` | Assemble les routeurs FastAPI (rag, sessions, documents, system, prompts, lynx_api, lynx_chat) |
 | `rag_mcp_server.py` | Serveur MCP (stdio) exposant le RAG comme outil |
 | `core/agent.py` | Agent ReAct en CLI (`python -m core.agent "…"`) |
 | `evals/`, `lynx/eval/` | Harnais d'évaluation chiffrée (RAG ; LynX) |
@@ -77,6 +77,18 @@ Tant que la parité n'est pas atteinte, l'UI Streamlit reste le filet fonctionne
 en `ImpactReport`, puis synthétise un verdict (VALIDE / ATTENTION / BLOQUANT). Les
 « agents » sont des **prompts** (`lynx/skills/*.md`) associés à des schémas Pydantic
 (`schemas.py`). Audit global : `audit.py`. Boîte de verre : `trace.py`.
+
+### Chat sur la baseline (`api/lynx_chat.py`)
+
+L'onglet Chat d'AI for Requirements réutilise **tout** le flux RAG ci-dessus,
+mais son périmètre documentaire est verrouillé sur un document réservé
+(`baseline-exigences-lynx.md`) : la matrice de l'arbre est sérialisée en
+Markdown (une section par domaine, un titre par exigence → les citations
+pointent des identifiants d'exigences) puis ingérée par le pipeline standard.
+`/api/lynx/chat/sync` réindexe à la demande ; `/api/lynx/chat/status` compare
+l'empreinte de l'arbre à celle de l'index (bandeau « à jour / désynchronisé »
+de l'UI). Le document réservé est exclu de `/api/sources` : chaque monde ne
+voit que ses documents et ses conversations.
 
 ## Stockage
 

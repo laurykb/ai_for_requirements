@@ -10,7 +10,7 @@ défaut) ; l'ancienne **UI Streamlit** reste disponible en secours dans
 | Outil | Rôle | Documentation |
 |---|---|---|
 | **Outil RAG** (RAG documentaire) | Questions/réponses **sourcées** sur des cibles de sécurité : retrieval hybride, agent ReAct, serveur MCP, observabilité, **évaluation chiffrée**. | ce README |
-| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). | [`lynx/README.md`](lynx/README.md) |
+| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). Onglet **Chat** : interroger la baseline d'exigences en langage naturel (moteur RAG complet, périmètre verrouillé sur l'arbre, réponses citant les identifiants d'exigences). | [`lynx/README.md`](lynx/README.md) |
 
 Les deux outils partagent la même pile locale (Ollama : `mistral-small3.2` + `bge-m3`,
 MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par outil**.
