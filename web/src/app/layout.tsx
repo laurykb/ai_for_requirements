@@ -38,9 +38,6 @@ export default function RootLayout({
               className="group flex items-center gap-3">
               <BrandLogo />
               <span className="text-sm font-semibold tracking-wide">AI for SSH</span>
-              <span className="hidden text-xs text-fg-faint transition-colors group-hover:text-fg-muted sm:inline">
-                RAG documentaire · vérification d&apos;exigences
-              </span>
             </Link>
             {/* Suspense : la nav lit les query params (onglets LynX). */}
             <Suspense fallback={null}>

@@ -49,11 +49,9 @@ export function HeaderNav() {
     : [];
   const activeTab = inLynx ? (params.get("tab") ?? "matrice") : null;
 
+  // Un SEUL chemin vers l'accueil : le logo AI for SSH (à gauche du header).
   return (
     <nav className="flex items-center gap-5 text-sm text-fg-muted">
-      <Link href="/" className="text-fg-faint transition-colors hover:text-foreground">
-        ← Accueil
-      </Link>
       {inLynx && LYNX_TABS.map((t) => (
         <Link
           key={t.tab}
