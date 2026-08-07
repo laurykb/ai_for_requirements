@@ -19,6 +19,7 @@ type Job = {
   elapsed: number | null;
   num_chunks: number | null;
   message: string | null;
+  quality?: { accepted: number; degraded: number; quarantined: number; reasons?: Record<string, number> };
 };
 
 type IngestDefaults = {
@@ -36,6 +37,9 @@ type ChunkRow = {
   keywords_str?: string | null;
   questions_str?: string | null;
   entities_str?: string | null;
+  quality_status?: "accepted" | "degraded" | "quarantined";
+  quality_reasons?: string[];
+  content_provenance?: "raw" | "derived" | "generated";
 };
 
 const JOB_TONE: Record<Job["status"], Tone> = {
@@ -80,6 +84,7 @@ function JobBar({ j }: { j: Job }) {
         {j.status === "error" && (j.message ?? "Erreur d'ingestion.")}
         {j.status === "queued" && "En file d'attente…"}
       </p>
+      {j.status === "success" && j.quality && <p className="mt-1 text-[11px] text-fg-faint">Qualité · {j.quality.accepted} accepté(s) · {j.quality.degraded} dégradé(s) · {j.quality.quarantined} isolé(s)</p>}
     </div>
   );
 }
@@ -156,7 +161,9 @@ function DocExplorer({ name, onView }: { name: string; onView: (content: string)
                     {tag}
                     {loc.slice(0, 70)}
                     {c.page_number ? ` — p. ${c.page_number}` : ""}
+                    {c.quality_status && c.quality_status !== "accepted" ? " — " + (c.quality_status === "quarantined" ? "isolé" : "dégradé") : ""}
                   </summary>
+                  {(c.quality_reasons?.length || c.content_provenance !== "raw") && <p className="mt-2 text-[11px] text-warn">Qualité : {c.quality_reasons?.join(", ") || "contenu " + c.content_provenance}</p>}
                   <div className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-fg-muted">
                     {c.content}
                   </div>
@@ -283,7 +290,7 @@ function DocViewer({ name, highlight, onClose }: {
   );
 }
 
-function DocRow({ d, onDeleted }: { d: { name: string; chunks: number }; onDeleted: () => void }) {
+function DocRow({ d, onDeleted }: { d: SourcesResponse["sources"][number]; onDeleted: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [viewer, setViewer] = useState<null | { highlight: string | null }>(null);
@@ -351,7 +358,7 @@ export function Documents() {
                                          raptor: true, enh_model: "" });
   const [jobs, setJobs] = useState<Job[]>([]);
   const [active, setActive] = useState(false);
-  const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
+  const [docs, setDocs] = useState<SourcesResponse["sources"]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);

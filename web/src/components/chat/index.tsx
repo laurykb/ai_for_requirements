@@ -17,10 +17,10 @@ import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
 import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
-import type { ChatMessage, ChunkView, PlanStep, SessionInfo } from "@/lib/types";
+import type { ChatMessage, ChunkView, PlanStep, SessionInfo, TaskProgress } from "@/lib/types";
 import { useExpert } from "@/components/expert-toggle";
 import { Dot, Spinner } from "@/components/ui";
-import { AssistantMessage, NOT_FOUND_MESSAGE } from "@/components/chat/blocks";
+import { AssistantMessage, NOT_FOUND_MESSAGE, ProcessingTraceBlock } from "@/components/chat/blocks";
 import { AnswerMarkdown } from "@/components/chat/markdown";
 import { SessionsSidebar } from "@/components/chat/sessions-sidebar";
 import { Composer, type Mode } from "@/components/chat/composer";
@@ -50,6 +50,7 @@ export function Chat() {
   const [nChunks, setNChunks] = useState<number | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [agentTrace, setAgentTrace] = useState<string[]>([]);
+  const [processingTrace, setProcessingTrace] = useState<TaskProgress[]>([]);
   const [plan, setPlan] = useState<PlanView | null>(null);
   const [route, setRoute] = useState<string>("");
   const [mode, setMode] = useState<Mode>("auto");
@@ -150,6 +151,7 @@ export function Chat() {
     setNChunks(null);
     setPartial("");
     setAgentTrace([]);
+    setProcessingTrace([]);
     setPlan(null);
     setRoute("");
 
@@ -158,6 +160,9 @@ export function Chat() {
     let gotDone = false;
     let pushed = false; // le message a-t-il déjà été ajouté au fil ?
     const trace: string[] = [];
+    // Copie locale : le callback SSE doit disposer immédiatement de chaque
+    // étape, sans attendre le prochain rendu React.
+    const progressTrace: TaskProgress[] = [];
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -173,6 +178,16 @@ export function Chat() {
           draft.route = `${ev.mode.toUpperCase()} — ${ev.reason}`;
           setRoute(draft.route);
           if (ev.mode === "agent") setPhase("agent");
+        } else if (ev.type === "strategy") {
+          const options = [
+            ev.retrieval.profile,
+            ev.retrieval.parent_child ? "Parent-Child" : null,
+            ev.retrieval.self_rag ? "Self-RAG" : null,
+            ev.verify ? "contrôle renforcé" : null,
+          ].filter(Boolean).join(" · ");
+          const origin = ev.mode_source === "expert_override" ? "expert" : "auto";
+          draft.route = `${ev.mode.toUpperCase()} [${origin}] — ${ev.query_type} · ${options}`;
+          setRoute(draft.route);
         } else if (ev.type === "stage" && ev.stage === "generate") setPhase("generate");
         else if (ev.type === "retrieved") {
           chunks = ev.chunks;
@@ -236,6 +251,23 @@ export function Chat() {
             }
             return ms;
           });
+        } else if (ev.type === "task_progress") {
+          const { type: _type, ...progress } = ev;
+          void _type;
+          progressTrace.push(progress);
+          setProcessingTrace([...progressTrace]);
+        } else if (ev.type === "answer_contract") {
+          draft.evidenceDossier = ev.dossier;
+        } else if (ev.type === "answer_validation") {
+          draft.answerValidation = ev.validation;
+        } else if (ev.type === "analysis_artifact") {
+          draft.analysisArtifact = ev.artifact;
+        } else if (ev.type === "task_metrics") {
+          draft.taskMetrics = ev.metrics;
+          setMessages((ms) => {
+            const last = ms[ms.length - 1];
+            return last?.role === "assistant" ? [...ms.slice(0, -1), { ...last, taskMetrics: ev.metrics }] : ms;
+          });
         } else if (ev.type === "eval") {
           draft.eval = ev;
           setMessages((ms) => {
@@ -251,11 +283,13 @@ export function Chat() {
           pushed = true;
           if (!ev.found && !draft.content) draft.content = NOT_FOUND_MESSAGE;
           if (trace.length) draft.reasoning = trace.join("\n\n");
+          draft.processingTrace = [...progressTrace];
           if (chunks.length) draft.chunks = chunks;
           setMessages((ms) => [...ms, { ...draft }]);
           setPartial("");
           setAgentTrace([]);
           setPlan(null);
+          setProcessingTrace([]);
           setPhase("idle");
           refreshSessions(); // le titre/updated_at ont pu changer
         } else if (ev.type === "error") {
@@ -275,10 +309,12 @@ export function Chat() {
     if (!pushed) {
       if (chunks.length) draft.chunks = chunks;
       if (trace.length) draft.reasoning = trace.join("\n\n");
+      if (progressTrace.length) draft.processingTrace = [...progressTrace];
       setMessages((ms) => [...ms, { ...draft }]);
     }
     setPartial("");
     setAgentTrace([]);
+    setProcessingTrace([]);
     setPlan(null);
     setPhase("idle");
   }, [busy, messages, selected, mode, sessionId, refreshSessions]);
@@ -322,7 +358,7 @@ export function Chat() {
         // d.chunks = la sélection APRÈS affinage pré-génération : c'est la
         // liste numérotée [1..n] du contexte (contrat marqueur↔passage).
         next[i] = { ...next[i], content: d.answer, citations: d.citations,
-                    chunks: d.chunks ?? selectedChunks, eval: undefined,
+                    chunks: d.chunks ?? selectedChunks, eval: d.eval ?? undefined,
                     attribution: undefined };
         return next;
       });
@@ -395,12 +431,10 @@ export function Chat() {
       const ok = jobs.filter((j) => j.status === "success");
       const failed = jobs.filter((j) => j.status === "error");
       if (ok.length) {
+        // L'ingestion n'impose PAS le périmètre : on rafraîchit la liste des
+        // documents, mais on laisse le périmètre courant (« Tous » par défaut)
+        // pour que l'utilisateur ne reste jamais « collé » au dernier document.
         refreshDocs();
-        // Le prompt suivant porte sur LE document ajouté (source réelle) —
-        // seulement si le lot n'en contient qu'un (sinon : tous les documents).
-        if (ok.length === 1 && !failed.length) {
-          setSelected(ok[0].source_name ?? ok[0].name);
-        }
       }
       if (failed.length) {
         setAttachError(failed
@@ -538,6 +572,9 @@ export function Chat() {
                     })}
                   </ul>
                 </div>
+              )}
+              {processingTrace.length > 0 && (
+                <ProcessingTraceBlock trace={processingTrace} route={route} live />
               )}
               {agentTrace.length > 0 && (
                 <div className="chat-md mb-2 border-l-2 border-edge pl-3 text-xs text-fg-muted">

@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 import { fmt } from "@/lib/format";
-import type { Attribution, ChatMessage, ChunkView, Citation, EvalResult } from "@/lib/types";
+import type { AnalysisArtifact, AnswerValidation, Attribution, ChatMessage, ChunkView, Citation, EvalResult, TaskProgress } from "@/lib/types";
 import { Banner, Dot, Hint } from "@/components/ui";
 import { AnswerMarkdown } from "@/components/chat/markdown";
 
@@ -141,11 +141,16 @@ export function EvalBlock({ e, attribution }: { e: EvalResult; attribution?: Att
   // depuis la trame `eval` enrichie (rechargement de session).
   const nAff = attribution?.ok ? attribution.n_affirmations : e.n_affirmations;
   const nNon = (attribution?.ok ? attribution.n_non_sourcees : e.n_non_sourcees) ?? 0;
+  const axes = [e.faithfulness, e.answer_relevance, e.context_relevance]
+    .filter((v): v is number => typeof v === "number");
+  const overall = axes.length ? axes.reduce((a, b) => a + b, 0) / axes.length : 0;
+  const verdict = overall >= 0.8 ? "Bonne" : overall >= 0.6 ? "À vérifier" : "Fragile";
+  const verdictCls = overall >= 0.8 ? "text-good" : overall >= 0.6 ? "text-warn" : "text-bad";
   return (
     <div className="mt-2 rounded-lg border border-edge bg-surface-2 px-3 py-2 text-xs">
       <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-fg-faint">
-        Vérification automatique
-        <Hint text="Question à enjeu détectée : fidélité aux sources contrôlée par LLM-as-judge (0 → 1), et attribution de chaque affirmation à son passage source." />
+        Qualité estimée · <span className={verdictCls}>{verdict} {Math.round(overall * 100)} %</span>
+        <Hint text="Évaluation locale sans réponse de référence : fidélité aux preuves, pertinence de la réponse et pertinence du contexte (0 → 1). Ce score est un indicateur, pas une garantie de vérité." />
       </p>
       <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 font-mono tabular-nums text-fg-muted">
         <span>Fidélité {fmt(e.faithfulness ?? 0)}</span>
@@ -167,6 +172,81 @@ export function EvalBlock({ e, attribution }: { e: EvalResult; attribution?: Att
   );
 }
 
+export function AnswerValidationBlock({ validation }: { validation: AnswerValidation }) {
+  const complete = validation.completion === "complete";
+  const shadow = validation.enforcement === "shadow";
+  return (
+    <details className="chat-details mt-2">
+      <summary className="flex items-center gap-2">
+        <Dot tone={complete ? "good" : "warn"} />
+        Format détecté : {validation.contract_label} · {validation.citation_count} citation(s)
+      </summary>
+      <div className="mt-2 grid gap-2 text-xs text-fg-muted sm:grid-cols-2">
+        <span>{shadow ? "Format observé, non imposé" : validation.structure_complete ? "Structure complète" : "Sections manquantes : " + validation.missing_sections.join(", ")}</span>
+        <span>Couverture citationnelle observable : {Math.round(validation.citation_coverage * 100)} %</span>
+        {validation.invalid_citations.length > 0 && (
+          <span className="text-warn">Marqueurs invalides : {validation.invalid_citations.join(", ")}</span>
+        )}
+        <span>Preuves disponibles : {validation.evidence_count}</span>
+      </div>
+    </details>
+  );
+}
+
+export function AnalysisResultsBlock({ artifact }: { artifact: AnalysisArtifact }) {
+  if (!artifact.rows.length) return null;
+  const downloadCsv = () => {
+    const cells = (values: string[]) => values.map((v) => "\"" + v.replaceAll("\"", "\"\"") + "\"").join(",");
+    const header = ["Axe", "Catégorie", "Élément", "Caractérisation", "Objectif visé", "Sources", "Statut"];
+    const rows = artifact.rows.map((r) => [r.axis, r.category, r.element, r.characterization, r.target_objective, r.sources.join("; "), r.status === "validated" ? "Validé" : "À revoir"]);
+    const csv = [header, ...rows].map(cells).join("\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = "resultats-analyse.csv"; link.click(); URL.revokeObjectURL(url);
+  };
+  return <details className="chat-details mt-2"><summary>Résultats détaillés · {artifact.consolidated} élément(s) · {artifact.validated} validé(s) · {artifact.to_review} à revoir</summary><div className="mt-2 flex justify-end"><button onClick={downloadCsv} className="cursor-pointer rounded-md border border-edge px-2 py-1 text-[11px] text-fg-muted">Exporter en CSV</button></div><div className="mt-2 max-h-96 overflow-auto rounded-lg border border-edge"><table className="min-w-full text-left text-xs"><thead className="sticky top-0 bg-surface-2 text-fg-faint"><tr>{["Axe", "Catégorie", "Élément", "Caractérisation", "Objectif visé", "Sources", "Statut"].map((h) => <th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody className="divide-y divide-edge">{artifact.rows.map((r, i) => <tr key={i} className="align-top text-fg-muted"><td className="px-2 py-2">{r.axis}</td><td className="px-2 py-2">{r.category}</td><td className="px-2 py-2 text-foreground">{r.element}</td><td className="px-2 py-2">{r.characterization}</td><td className="px-2 py-2">{r.target_objective}</td><td className="px-2 py-2">{r.sources.join(", ")}</td><td className={r.status === "validated" ? "px-2 py-2 text-good" : "px-2 py-2 text-warn"}>{r.status === "validated" ? "Validé" : "À revoir"}</td></tr>)}</tbody></table></div><p className="mt-2 text-[11px] text-fg-faint">Validé signifie qu’une citation exacte a été retrouvée dans le document source.</p></details>;
+}
+
+export function ProcessingTraceBlock({ trace, route, live = false }: {
+  trace: TaskProgress[]; route?: string; live?: boolean;
+}) {
+  if (!trace.length) return null;
+  const agent = route?.toLowerCase().includes("agent") ??
+    trace.some((step) => step.phase === "agent_step" || step.phase === "plan");
+  const synth = route?.toLowerCase().includes("synth") ??
+    trace.some((step) => ["prefilter", "map_complete", "reduce", "coverage", "repair"].includes(step.phase));
+  const title = agent ? "Progression de l’agent"
+    : synth ? "Progression de la synthèse" : "Traitement de la réponse";
+  const content = (
+    <ol className="mt-2 space-y-1 text-xs text-fg-muted">
+      {trace.map((step, i) => (
+        <li key={`${step.phase}-${i}`} className="flex items-baseline gap-2">
+          <Dot
+            tone={step.status === "failed" ? "bad" : step.status === "partial" ? "warn"
+              : step.status === "completed" ? "good" : "accent"}
+            pulse={live && step.status === "running" && i === trace.length - 1}
+          />
+          <span>
+            {step.label}
+            {typeof step.detail === "string" ? " · " + step.detail : ""}
+            {step.current != null && step.total ? ` · ${step.current}/${step.total}` : ""}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+  return live ? (
+    <div className="mb-2 rounded-lg border border-edge bg-surface-2 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-fg-faint">{title}</p>
+      {content}
+    </div>
+  ) : (
+    <details className="chat-details mb-2">
+      <summary>{title}</summary>
+      {content}
+    </details>
+  );
+}
+
 export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
   m: ChatMessage; expert: boolean;
   canRegenerate?: boolean;
@@ -180,6 +260,9 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
     <div className="min-w-0">
       {m.route && expert && (
         <p className="mb-1 text-[11px] text-fg-faint">Routage : {m.route}</p>
+      )}
+      {m.processingTrace && (
+        <ProcessingTraceBlock trace={m.processingTrace} route={m.route ?? undefined} />
       )}
       {m.reasoning && (
         <details className="chat-details mb-2">
@@ -207,6 +290,8 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
           <Banner tone="bad">{m.error}</Banner>
         </div>
       )}
+      {m.answerValidation && <AnswerValidationBlock validation={m.answerValidation} />}
+      {m.analysisArtifact && <AnalysisResultsBlock artifact={m.analysisArtifact} />}
       {m.citations && <SourcesBlock citations={m.citations} />}
       {/* Passages récupérés : boîte de verre pour TOUS les modes (cocher/
           décocher + régénérer sur la dernière réponse). key : remonte le bloc
@@ -217,6 +302,7 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
                      focus={focus} />
       )}
       {m.eval && <EvalBlock e={m.eval} attribution={m.attribution} />}
+      {m.taskMetrics && <details className="chat-details mt-2"><summary>Exécution {m.taskMetrics.status === "completed" ? "terminée" : m.taskMetrics.status === "budget_exceeded" ? "arrêtée par le budget" : m.taskMetrics.status} · {m.taskMetrics.trajectory.llm_calls} appel(s) LLM · {m.taskMetrics.latency_s}s</summary><div className="mt-2 grid gap-2 text-xs text-fg-muted sm:grid-cols-3"><span>Trajectoire : {m.taskMetrics.trajectory.steps} étape(s), {m.taskMetrics.trajectory.tool_calls} outil(s), {m.taskMetrics.trajectory.replans} replan</span><span>Calcul : {m.taskMetrics.efficiency.total_tokens} tokens, {m.taskMetrics.trajectory.llm_time_s}s LLM</span><span>Charge LLM relative : {Math.round((m.taskMetrics.trajectory.llm_share ?? 0) * 100)} % du temps mur (peut dépasser 100 % en parallèle)</span></div></details>}
     </div>
   );
 }

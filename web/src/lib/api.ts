@@ -10,7 +10,7 @@ export type Health = {
 
 export type SourcesResponse = {
   available: boolean;
-  sources: { name: string; chunks: number }[];
+  sources: { name: string; chunks: number; quality?: { accepted: number; degraded: number; quarantined: number } }[];
 };
 
 /** GET JSON — lève sur statut non-2xx ; à attraper côté appelant. */

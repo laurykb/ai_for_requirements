@@ -31,6 +31,18 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 const inputCls =
   "rounded-lg border border-edge bg-surface px-2 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none";
 
+const MODEL_ROLES = [
+  ["EMBED_MODEL", "Embedding", "Vectorisation multilingue. Changer ce modèle impose de réindexer le corpus."],
+  ["REWRITER_MODEL", "Réécriture", "Reformulation des requêtes et Self-RAG."],
+  ["AGENT_MODEL", "Agent maître", "Orchestration ReAct et appels outils."],
+  ["PLANNER_MODEL", "Planification / sous-agents", "Plans JSON et découpage multi-hop."],
+  ["EXTRACTION_MODEL", "Extraction documentaire", "Passe MAP : extraction factuelle document par document."],
+  ["SYNTHESIS_MODEL", "Synthèse multi-documents", "Passe REDUCE : croisement et fusion sur gros corpus."],
+  ["GEN_MODEL", "Rédaction finale", "Réponse RAG finale en français."],
+  ["JUDGE_MODEL", "Juge / attribution", "Évaluation et attribution des affirmations."],
+  ["ENHANCEMENT_MODEL", "Enrichissement ingestion", "Mots-clés, questions et résumés RAPTOR."],
+] as const;
+
 /** Toggle trois états pour les options par requête : défaut (.env) / oui / non. */
 function TriToggle({ value, onChange }: { value: boolean | null;
                                           onChange: (v: boolean | null) => void }) {
@@ -105,6 +117,8 @@ export function SettingsView() {
     );
 
   const genModel = env.GEN_MODEL ?? "";
+  const optionsFor = (selected: string) =>
+    Array.from(new Set([selected, ...models.models].filter(Boolean)));
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -134,7 +148,20 @@ export function SettingsView() {
 
       {/* Modèles : à chaud. */}
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Modèles</h3>
+        <h3 className="text-sm font-semibold text-foreground">Arsenal Ollama par tâche</h3>
+        <p className="text-[11px] text-fg-faint">Chaque étape peut utiliser un modèle différent. Enregistrez ensuite dans .env et redémarrez l API.</p>
+        <Row label="Hôte Ollama"><input value={env.OLLAMA_HOST ?? ""} onChange={(e) => setEnv({ ...env, OLLAMA_HOST: e.target.value })} className={inputCls + " w-56 font-mono"} /></Row>
+        <Row label="Fenêtre de contexte"><input type="number" min={2048} step={1024} value={env.LLM_NUM_CTX ?? ""} onChange={(e) => setEnv({ ...env, LLM_NUM_CTX: e.target.value })} className={inputCls + " w-28"} /></Row>
+        <div className="space-y-2 rounded-xl border border-edge bg-surface/40 p-3">
+          {MODEL_ROLES.filter(([key]) => key !== "GEN_MODEL").map(([key, label, hint]) => (
+            <Row key={key} label={label} hint={hint}>
+              <select value={env[key] ?? ""} onChange={(e) => setEnv({ ...env, [key]: e.target.value })} className={inputCls + " max-w-64"}>
+                {!env[key] && <option value="">Modèle hérité (défaut)</option>}
+                {optionsFor(env[key] ?? "").map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Row>
+          ))}
+        </div>
         <Row label="Modèle de génération"
              hint="Sert aux prochaines réponses. « Charger » l'épingle en VRAM et l'active à chaud.">
           <select value={genModel} onChange={(e) => setEnv({ ...env, GEN_MODEL: e.target.value })}

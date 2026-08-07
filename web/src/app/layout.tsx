@@ -33,7 +33,8 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <header className="sticky top-0 z-40 border-b border-edge bg-background/80 backdrop-blur">
           <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-6">
-            <Link href="/" className="group flex items-center gap-3">
+            <Link href="/" aria-label="Ouvrir l’accueil AI for SSH"
+              className="group flex items-center gap-3">
               <BrandLogo />
               <span className="text-sm font-semibold tracking-wide">AI for SSH</span>
               <span className="hidden text-xs text-fg-faint transition-colors group-hover:text-fg-muted sm:inline">

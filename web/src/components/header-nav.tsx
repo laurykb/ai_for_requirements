@@ -4,21 +4,29 @@
  * deux applications SÉPARÉES, choisies sur l'accueil (comme dans le
  * Streamlit). Une fois dans un outil, on ne voit que la navigation de cet
  * outil — et « ← Accueil » pour changer d'outil.
- * Observabilité : réservée au mode Expert (monde RAG). */
+ * Prompts métier et Suivi technique : réservés au mode Expert (monde RAG). */
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ExpertToggle, useExpert } from "@/components/expert-toggle";
 
-// Monde RAG : le chat et ses vues d'opérateur (mêmes onglets que le Streamlit).
+// Monde RAG : le chat et ses vues d'opérateur.
 const RAG_LINKS = [
   { href: "/rag", label: "Chat" },
   { href: "/documents", label: "Documents" },
 ];
-const RAG_EXPERT = [{ href: "/observability", label: "Observabilité" }];
-const RAG_TAIL = [{ href: "/settings", label: "Paramètres" }];
-const RAG_PREFIXES = ["/rag", "/documents", "/observability", "/settings"];
+const RAG_TAIL = [
+  { href: "/informations", label: "Aide" },
+  { href: "/settings", label: "Réglages" },
+];
+const RAG_EXPERT = [
+  { href: "/agents", label: "Prompts métier" },
+  { href: "/observability", label: "Suivi technique" },
+];
+const RAG_PREFIXES = [
+  "/rag", "/documents", "/agents", "/informations", "/observability", "/settings",
+];
 
 export function HeaderNav() {
   const pathname = usePathname();
@@ -28,7 +36,7 @@ export function HeaderNav() {
   const inLynx = pathname.startsWith("/requirements");
   const inRag = RAG_PREFIXES.some((p) => pathname.startsWith(p));
   const links = inRag
-    ? [...RAG_LINKS, ...(expert ? RAG_EXPERT : []), ...RAG_TAIL]
+    ? [...RAG_LINKS, ...RAG_TAIL, ...(expert ? RAG_EXPERT : [])]
     : [];
 
   return (

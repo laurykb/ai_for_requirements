@@ -7,9 +7,9 @@
 
 import type { RefObject } from "react";
 
-import { Dot } from "@/components/ui";
+import { Dot, Hint } from "@/components/ui";
 
-export type Mode = "auto" | "rag" | "agent";
+export type Mode = "auto" | "rag" | "agent" | "deep";
 
 /** Indexation d'une pièce jointe en cours : { name, pct, step }. */
 export type AttachState = { name: string; pct: number; step: string };
@@ -122,19 +122,36 @@ export function Composer({
                 <option key={d.name} value={d.name}>{d.name}</option>
               ))}
             </select>
-            {models.length > 0 && (
-              <select
-                value={genModel}
-                onChange={(e) => onLoadModel(e.target.value)}
+            {selected !== "" && (
+              <button
+                type="button"
+                onClick={() => setSelected("")}
                 disabled={busy}
-                aria-label="Modèle de génération"
-                title="Modèle de génération : changé à chaud et épinglé en VRAM. Sert aux prochaines réponses."
-                className="max-w-44 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted focus:outline-none"
+                title="Périmètre restreint à ce document — cliquer pour revenir à tous les documents"
+                aria-label={`Périmètre : ${selected} — revenir à tous les documents`}
+                className="inline-flex max-w-56 cursor-pointer items-center gap-1 truncate rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] text-fg-muted transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
               >
-                {(models.includes(genModel) ? models : [genModel, ...models]).map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+                <span className="truncate">Périmètre : {selected}</span>
+                <span aria-hidden>✕</span>
+              </button>
+            )}
+            {models.length > 0 && (
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-fg-faint">Réponse finale</span>
+                <Hint text="Choisit uniquement le modèle qui rédige la réponse finale. Les modèles d’orchestration, de recherche, d’extraction, de synthèse et d’évaluation restent ceux définis dans Réglages du chat." />
+                <select
+                  value={genModel}
+                  onChange={(e) => onLoadModel(e.target.value)}
+                  disabled={busy}
+                  aria-label="Modèle de génération de la réponse finale"
+                  title="Modèle de génération de la réponse finale : changé à chaud et épinglé en VRAM."
+                  className="max-w-44 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-fg-muted focus:outline-none"
+                >
+                  {(models.includes(genModel) ? models : [genModel, ...models]).map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
             )}
             {modelStatus && (
               <span className={`text-[11px] ${modelStatus === "chargé" ? "text-good"
@@ -142,18 +159,19 @@ export function Composer({
                 {modelStatus}
               </span>
             )}
-            {expert && (
+            {(
               <select
                 value={mode}
                 onChange={(e) => setMode(e.target.value as Mode)}
                 disabled={busy}
                 aria-label="Mode de traitement"
-                title="Auto : un routeur choisit RAG ou Agent selon la question. Agent : raisonnement multi-étapes (plus lent)."
+                title="Auto : stratégie équilibrée. Analyse profonde : couverture exhaustive et raisonnement long, potentiellement plusieurs minutes."
                 className="cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 text-[11px] text-fg-muted focus:outline-none"
               >
                 <option value="auto">Auto</option>
-                <option value="rag">RAG</option>
-                <option value="agent">Agent</option>
+                <option value="deep">Analyse profonde</option>
+                {expert && <option value="rag">RAG</option>}
+                {expert && <option value="agent">Agent</option>}
               </select>
             )}
             {busy ? (
