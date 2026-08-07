@@ -44,9 +44,11 @@ from api.documents import router as documents_router  # noqa: E402
 from api.system import router as system_router  # noqa: E402
 from api.prompts import router as prompts_router  # noqa: E402
 from api.lynx_chat import router as lynx_chat_router  # noqa: E402
+from api.workspace import router as workspace_router  # noqa: E402
 
 app.include_router(lynx_router)
 app.include_router(lynx_chat_router)
+app.include_router(workspace_router)
 app.include_router(rag_router)
 app.include_router(sessions_router)
 app.include_router(documents_router)

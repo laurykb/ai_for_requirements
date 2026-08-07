@@ -4,7 +4,7 @@
  * (changement à chaud + VRAM), réglages .env (retrieval, enrichissement,
  * Self-RAG), system prompt, zone dangereuse (reset corpus). */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_BASE, getJSON } from "@/lib/api";
 import { loadPrefs, savePrefs, type Prefs } from "@/lib/prefs";
@@ -61,6 +61,71 @@ function TriToggle({ value, onChange }: { value: boolean | null;
         </button>
       ))}
     </span>
+  );
+}
+
+/** Sauvegarde / restauration de l'espace de travail : baseline d'exigences de
+ * travail + historique + conversations, dans un seul zip local (souverain).
+ * L'import sauvegarde d'abord l'état courant en .bak côté serveur. */
+function WorkspaceSection() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const doImport = async (files: FileList | null) => {
+    const f = files?.[0];
+    if (!f || busy) return;
+    setBusy(true);
+    setMsg(null);
+    const fd = new FormData();
+    fd.append("file", f);
+    const res = await fetch(`${API_BASE}/api/workspace/import`, { method: "POST", body: fd })
+      .catch(() => null);
+    if (fileRef.current) fileRef.current.value = "";
+    if (!res?.ok) {
+      const body = await res?.json().catch(() => ({}));
+      setMsg(`Import impossible : ${body?.detail ?? "API indisponible"}`);
+    } else {
+      const r = await res.json();
+      setMsg(`Espace de travail restauré : ${r.n_exigences} exigence(s), ` +
+             `${r.n_sessions} conversation(s)` +
+             (r.backup ? ` — état précédent sauvegardé (${r.backup})` : "") +
+             ". Pensez à resynchroniser la baseline dans l'onglet Chat.");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-foreground">
+        Espace de travail{" "}
+        <Hint text="Baseline d'exigences de travail (l'arbre), son historique et toutes les conversations, dans un seul fichier zip local. L'index de chat n'est pas embarqué : il se reconstruit d'un clic (Synchroniser)." />
+      </h3>
+      <p className="text-xs text-fg-muted">
+        Sauvegardez votre travail (baseline + historique + conversations) ou restaurez
+        un export précédent. À l&apos;import, l&apos;état courant est d&apos;abord sauvegardé en
+        <span className="font-mono"> .bak</span> côté serveur.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <a
+          href={`${API_BASE}/api/workspace/export`}
+          download
+          className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-background transition-colors hover:bg-accent-bright"
+        >
+          Exporter l&apos;espace de travail (.zip)
+        </a>
+        <input ref={fileRef} type="file" accept=".zip" hidden
+               onChange={(e) => void doImport(e.target.files)} />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs text-fg-muted transition-colors hover:text-foreground disabled:opacity-50"
+        >
+          {busy ? "Restauration…" : "Restaurer depuis un export…"}
+        </button>
+      </div>
+      {msg && <p className="text-xs text-fg-muted">{msg}</p>}
+    </section>
   );
 }
 
@@ -287,6 +352,9 @@ export function SettingsView() {
           Réinitialiser le prompt
         </button>
       </section>
+
+      {/* Espace de travail : sauvegarde / restauration souveraine. */}
+      <WorkspaceSection />
 
       {/* Zone dangereuse. */}
       <section className="space-y-2">
