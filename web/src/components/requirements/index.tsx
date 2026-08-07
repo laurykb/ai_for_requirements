@@ -41,7 +41,11 @@ const EMPTY_IDS = new Set<string>();
 const VERDICT_COLOR: Record<string, string> = {
   VALIDE: "var(--good)", ATTENTION: "var(--warn)", BLOQUANT: "var(--bad)" };
 
-export function Requirements() {
+export function Requirements({ focusReq }: {
+  /** Exigence à ouvrir depuis l'extérieur (citation du chat baseline) —
+   * objet recréé à chaque demande : son identité déclenche la sélection. */
+  focusReq?: { id: string } | null;
+} = {}) {
   const [corpus, setCorpus] = useState<Req[] | null>(null);
   const [niveaux, setNiveaux] = useState<NiveauCat[]>([]);
   const [llmOk, setLlmOk] = useState(false);
@@ -121,6 +125,18 @@ export function Requirements() {
     setEditText(r?.texte ?? "");
     setSuggestion(null);
   }, []);
+
+  // Ouverture externe (citation du chat baseline -> arbre) : consommée une
+  // seule fois par objet focusReq, dès que le corpus est chargé. Sélection
+  // différée d'un tick (règle set-state-in-effect).
+  const consumedFocus = useRef<object | null>(null);
+  useEffect(() => {
+    if (!focusReq || consumedFocus.current === focusReq || !corpus) return;
+    if (!corpus.some((r) => r.id === focusReq.id)) return;
+    consumedFocus.current = focusReq;
+    const t = setTimeout(() => select(focusReq.id), 0);
+    return () => clearTimeout(t);
+  }, [focusReq, corpus, select]);
 
   // Identités STABLES pendant le streaming (sinon le graphe se reconstruit à
   // chaque token et React Flow devient instable).

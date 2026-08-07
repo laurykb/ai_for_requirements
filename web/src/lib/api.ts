@@ -17,6 +17,13 @@ export type SourcesResponse = {
  * Doit rester identique à `BASELINE_SOURCE` (api/lynx_chat.py). */
 export const LYNX_BASELINE_SOURCE = "baseline-exigences-lynx.md";
 
+/** Nom de source pour l'affichage : la source réservée de la baseline
+ * apparaît sous son étiquette produit, jamais son nom de fichier interne. */
+export function displaySourceName(source?: string | null): string {
+  if (!source) return "document";
+  return source === LYNX_BASELINE_SOURCE ? "Baseline d'exigences" : source;
+}
+
 /** Fraîcheur de l'index baseline (GET /api/lynx/chat/status). */
 export type LynxChatStatus = {
   available: boolean;

@@ -10,7 +10,7 @@
  * La baseline est indexée à la demande (bouton Synchroniser) : l'empreinte
  * de l'arbre est comparée à celle de l'index pour signaler toute dérive. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API_BASE, getJSON, type LynxChatStatus } from "@/lib/api";
 import { Chat, type ChatScope } from "@/components/chat";
@@ -45,12 +45,25 @@ export function LynxChat() {
   // cours ne doit pas être démonté (perte du fil affiché) pendant ce laps.
   const [everReady, setEverReady] = useState(false);
 
+  // Auto-resynchronisation : dérive confirmée sur 2 polls consécutifs (~8 s,
+  // laisse passer une rafale d'éditions de l'arbre) -> resync déclenchée
+  // seule. Jamais après une erreur de sync (sync_error) : là, on laisse la
+  // main à l'utilisateur (bouton) plutôt que de boucler sur un échec.
+  const driftPolls = useRef(0);
+
   const refresh = useCallback(() => {
     getJSON<LynxChatStatus>("/api/lynx/chat/status")
       .then((s) => {
         setStatus(s);
         setError(null);
         if (s.indexed_chunks > 0) setEverReady(true);
+        const drifting = s.available && s.n_exigences > 0 && s.indexed_chunks > 0
+          && !s.in_sync && !s.syncing && !s.sync_error;
+        driftPolls.current = drifting ? driftPolls.current + 1 : 0;
+        if (driftPolls.current === 2) {
+          driftPolls.current = 0;
+          void fetch(`${API_BASE}/api/lynx/chat/sync`, { method: "POST" }).catch(() => null);
+        }
       })
       .catch(() => setError("API locale injoignable — lancer : python serve.py"));
   }, []);
@@ -96,7 +109,11 @@ export function LynxChat() {
         </span>
         {ready && !status.syncing && (status.in_sync
           ? <span className="text-good">index à jour</span>
-          : <span className="text-warn">baseline modifiée depuis la dernière synchronisation</span>)}
+          : <span className="text-warn">
+              {status.sync_error
+                ? "baseline modifiée — resynchronisation manuelle requise"
+                : "baseline modifiée — resynchronisation automatique…"}
+            </span>)}
         {status.syncing && (
           <span className="flex items-center gap-2 text-fg-muted">
             <Spinner /> Synchronisation… {status.sync_pct != null ? `${status.sync_pct} %` : ""}

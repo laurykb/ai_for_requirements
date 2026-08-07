@@ -6,6 +6,29 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
+# Complément métier du chat baseline LynX : le contexte n'est pas un corpus
+# documentaire mais une matrice d'exigences — les identifiants, niveaux et
+# liens de dérivation font partie de la réponse attendue.
+_BASELINE_SUFFIX = """
+
+[CONTEXTE MÉTIER — BASELINE D'EXIGENCES]
+Le CONTEXTE est une baseline d'exigences d'ingénierie système : chaque passage
+est UNE exigence identifiée (ex. REQ-…), avec son niveau (L0…Ln), son domaine,
+et ses liens (« Dérivée de », liens typés). Règles supplémentaires :
+- Cite TOUJOURS l'identifiant d'exigence (REQ-…) quand tu t'y réfères, en plus
+  du marqueur [n].
+- Mentionne le niveau et le domaine quand ils éclairent la réponse ; utilise
+  les liens de dérivation pour expliquer les chaînes parent → dérivées.
+- Le périmètre est LA BASELINE SEULE : si elle ne couvre pas la question,
+  dis-le explicitement — ne complète jamais avec des connaissances externes.
+"""
+
+
+def baseline_system_default() -> str:
+    """Défaut du prompt `baseline.system` (chat LynX sur la baseline)."""
+    from core.llm_answer import DEFAULT_SYSTEM_PROMPT
+    return DEFAULT_SYSTEM_PROMPT + _BASELINE_SUFFIX
+
 
 def _catalog() -> dict[str, dict]:
     from core.corpus_extract import _EXTRACT_PROMPT
@@ -19,6 +42,7 @@ def _catalog() -> dict[str, dict]:
         "agent.behavior": {"role": "Agent ReAct", "description": "Comportement de recherche et de restitution de l agent.", "default": _AGENT_BEHAVIOR_PROMPT, "editable": True},
         "planner.plan": {"role": "Planner multi-hop", "description": "Décomposition des demandes complexes en sous-recherches.", "default": _PLANNER_INSTRUCTIONS, "editable": True},
         "generate.system": {"role": "Génération finale", "description": "Rédaction RAG finale sourcée.", "default": DEFAULT_SYSTEM_PROMPT, "editable": True},
+        "baseline.system": {"role": "Chat baseline (LynX)", "description": "Rédaction finale du chat sur la baseline d'exigences : identifiants REQ, niveaux, liens de dérivation, périmètre baseline seule.", "default": baseline_system_default(), "editable": True},
         "extract.map": {"role": "Extraction documentaire", "description": "Extraction MAP par document.", "default": _EXTRACT_PROMPT, "editable": True},
         "synthesize.reduce": {"role": "Synthèse multi-documents", "description": "Réduction et catégorisation.", "default": _REDUCE_PROMPT, "editable": True},
         "synthesize.merge": {"role": "Fusion de synthèses", "description": "Fusion des réductions partielles.", "default": _REDUCE_MERGE_PROMPT, "editable": True},

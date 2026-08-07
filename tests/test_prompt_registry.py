@@ -35,3 +35,15 @@ def test_catalogue_expose_les_agents_rag_sans_entrees_sra():
     assert expected <= catalog.keys()
     assert not any(key.startswith("sra.") for key in catalog)
     assert catalog["security.boundary"]["editable"] is False
+
+
+def test_baseline_system_prompt_scoped_to_reserved_source():
+    from api.prompts import _catalog, baseline_system_default
+    from api.rag import _baseline_system_prompt
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    assert "baseline.system" in _catalog()
+    assert "BASELINE D'EXIGENCES" in baseline_system_default()
+    assert _baseline_system_prompt(None) is None
+    assert _baseline_system_prompt("rapport.md") is None
+    resolved = _baseline_system_prompt(LYNX_BASELINE_SOURCE)
+    assert resolved and "identifiant d'exigence" in resolved

@@ -195,6 +195,18 @@ def _run_quality(question: str, answer_txt: str, chunks: list,
     return quality
 
 
+def _baseline_system_prompt(source: str | None) -> str | None:
+    """Prompt système dédié quand le périmètre est la baseline LynX
+    (registre `baseline.system`, éditable dans Prompts métier) ; None sinon
+    (le défaut `generate.system` s'applique)."""
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    if source != LYNX_BASELINE_SOURCE:
+        return None
+    from core.prompt_registry import get_prompt
+    from api.prompts import baseline_system_default
+    return get_prompt("baseline.system", baseline_system_default())
+
+
 def scope_arguments(source: str | None, arguments: dict) -> dict:
     """Injecte le périmètre documentaire dans les arguments d'un outil agent.
 
@@ -399,7 +411,7 @@ def ask(body: AskBody) -> StreamingResponse:
                 conversation_history=body.history or [],
                 parent_child_on=strategy["retrieval"]["parent_child"],
                 self_rag_enabled=strategy["retrieval"]["self_rag"],
-                system_prompt=body.system_prompt or None,
+                system_prompt=body.system_prompt or _baseline_system_prompt(body.source),
             )
             yield _sse({"type": "retrieved",
                         "chunks": [_trim_chunk(c) for c in (chunks or [])]})

@@ -8,10 +8,12 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
+import { displaySourceName } from "@/lib/api";
 import { fmt } from "@/lib/format";
 import type { AnalysisArtifact, AnswerValidation, Attribution, ChatMessage, ChunkView, Citation, EvalResult, TaskProgress } from "@/lib/types";
 import { Banner, Dot, Hint } from "@/components/ui";
 import { AnswerMarkdown } from "@/components/chat/markdown";
+import { useLynxNav } from "@/components/lynx-nav";
 
 /** Cible d'un clic sur un marqueur [n] (ts force l'effet à chaque clic). */
 export type CiteFocus = { idx: number; ts: number };
@@ -27,7 +29,7 @@ export function chunkLabel(c: ChunkView, i: number): string {
     m.heading ?? m.breadcrumb ?? (m.section_idx != null ? `section ${m.section_idx}` : "");
   const page = m.page_number ? ` – p. ${m.page_number}` : "";
   const score = typeof c.ce_score === "number" ? ` – score ${fmt(c.ce_score)}` : "";
-  return `[${i + 1}] ${m.source ?? "document"}${loc ? ` – ${loc}` : ""}${page}${score}`;
+  return `[${i + 1}] ${displaySourceName(m.source)}${loc ? ` – ${loc}` : ""}${page}${score}`;
 }
 
 export function SourcesBlock({ citations }: { citations: Citation[] }) {
@@ -38,7 +40,7 @@ export function SourcesBlock({ citations }: { citations: Citation[] }) {
       <ul className="mt-2 space-y-1 text-xs text-fg-muted">
         {citations.map((c) => (
           <li key={c.idx}>
-            <span className="font-mono text-fg-faint">[{c.idx}]</span> {c.source}
+            <span className="font-mono text-fg-faint">[{c.idx}]</span> {displaySourceName(c.source)}
             {" – "}
             {c.heading ?? c.breadcrumb ?? `section ${c.section ?? "?"}`}
             {c.page ? ` – p. ${c.page}` : ""}
@@ -59,6 +61,9 @@ export function ChunksBlock({ chunks, canRegenerate, onRegenerate, focus }: {
   onRegenerate?: (selected: ChunkView[]) => void;
   focus?: CiteFocus | null;
 }) {
+  // Chat baseline (espace LynX) : un passage-exigence peut s'ouvrir dans
+  // l'arbre de la Matrice. Contexte absent dans le monde RAG -> pas de bouton.
+  const lynxNav = useLynxNav();
   const [checked, setChecked] = useState<boolean[]>(() => chunks.map(() => true));
   const rootRef = useRef<HTMLDetailsElement>(null);
   const itemRefs = useRef<(HTMLDetailsElement | null)[]>([]);
@@ -119,6 +124,15 @@ export function ChunksBlock({ chunks, canRegenerate, onRegenerate, focus }: {
                   {c.meta.keywords_str && c.meta.entities_str && <br />}
                   {c.meta.entities_str && <>Entités – {c.meta.entities_str}</>}
                 </p>
+              )}
+              {lynxNav && c.meta.req_id && (
+                <button
+                  onClick={() => lynxNav.openRequirement(c.meta.req_id!)}
+                  title="Bascule sur l'onglet Matrice et sélectionne cette exigence dans l'arbre."
+                  className="mt-2 cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10"
+                >
+                  Ouvrir {c.meta.req_id} dans la Matrice →
+                </button>
               )}
             </details>
           </div>
