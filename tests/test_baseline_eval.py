@@ -51,3 +51,26 @@ def test_looks_like_refusal_markers():
     assert looks_like_refusal("Je ne sais pas sur la base du contexte fourni.")
     assert looks_like_refusal("La baseline ne couvre pas ce point.")
     assert not looks_like_refusal("CYB-001 impose le chiffrement AES-256 [1].")
+
+
+def test_extract_req_ids_known_vs_invented():
+    from evals.run_baseline_eval import extract_req_ids
+    known = {"CYB-001", "ALM-002"}
+    cited, invented = extract_req_ids(
+        "CYB-001 impose le chiffrement [1] ; voir aussi CYB-999 et ALM-002. CYB-001 encore.",
+        known)
+    assert cited == ["CYB-001", "ALM-002"]     # dédupliqués, ordre d'apparition
+    assert invented == ["CYB-999"]              # forme REQ mais absent de la baseline
+
+
+def test_score_generation_case_grounding():
+    from evals.run_baseline_eval import score_generation_case
+    case = {"question": "q", "expected_req_ids": ["CYB-001"]}
+    known = {"CYB-001", "CYB-002"}
+    ok = score_generation_case(case, "CYB-001 exige AES-256 [1].", known,
+                               retrieved_ids=["CYB-001"], quality={"faithfulness": 0.9})
+    assert ok["ok"] and ok["id_grounded"] and ok["id_recall"] == 1.0
+    bad = score_generation_case(case, "CYB-002 répond à la question.", known,
+                                retrieved_ids=["CYB-001"], quality=None)
+    assert not bad["ok"]                        # l'attendu n'est pas nommé
+    assert bad["off_context"] == ["CYB-002"]    # cité mais pas dans les passages

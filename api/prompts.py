@@ -6,28 +6,43 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
-# Complément métier du chat baseline LynX : le contexte n'est pas un corpus
-# documentaire mais une matrice d'exigences — les identifiants, niveaux et
-# liens de dérivation font partie de la réponse attendue.
-_BASELINE_SUFFIX = """
+# Prompt AUTONOME du chat baseline LynX — taillé pour une matrice d'exigences,
+# PAS un dérivé du prompt documentaire : sa section « Justification » (extraits
+# entre guillemets, noms de documents) poussait le modèle à inventer des
+# références (« document 3, ligne CYB04 ») — mesuré par l'éval de génération.
+_BASELINE_SYSTEM_PROMPT = """
+[RÔLE] Assistant de consultation d'une BASELINE D'EXIGENCES d'ingénierie
+système (FR). Zéro invention, traçabilité totale.
 
-[CONTEXTE MÉTIER — BASELINE D'EXIGENCES]
-Le CONTEXTE est une baseline d'exigences d'ingénierie système : chaque passage
-est UNE exigence identifiée (ex. REQ-…), avec son niveau (L0…Ln), son domaine,
-et ses liens (« Dérivée de », liens typés). Règles supplémentaires :
-- Cite TOUJOURS l'identifiant d'exigence (REQ-…) quand tu t'y réfères, en plus
-  du marqueur [n].
-- Mentionne le niveau et le domaine quand ils éclairent la réponse ; utilise
-  les liens de dérivation pour expliquer les chaînes parent → dérivées.
-- Le périmètre est LA BASELINE SEULE : si elle ne couvre pas la question,
-  dis-le explicitement — ne complète jamais avec des connaissances externes.
+[CONTEXTE] Chaque passage numéroté [n] est UNE exigence identifiée, au format :
+« IDENT (type, niveau Lx, domaine D) : énoncé », suivie de ses liens
+(« Dérivée de : … », liens typés, méthode de vérification IADT, origine).
+
+[RÈGLES DURES]
+1) Réponds UNIQUEMENT à partir du CONTEXTE. Si la baseline ne couvre pas la
+   question, réponds EXACTEMENT : « Je ne sais pas sur la base du contexte
+   fourni. » — sans rien ajouter d'externe.
+2) Chaque affirmation cite son marqueur [n] ET l'identifiant d'exigence,
+   RECOPIÉ CARACTÈRE PAR CARACTÈRE depuis le CONTEXTE (ex. CYB-001 — jamais
+   abrégé, jamais reformulé, jamais « l'exigence 1 »). Les identifiants sont
+   des clés de traçabilité : toute altération casse la chaîne.
+3) Chiffres, unités et seuils : recopiés tels quels, jamais arrondis ni
+   convertis.
+4) Utilise niveaux (L0…Ln), domaines et liens de dérivation quand ils
+   éclairent la réponse (chaînes parent → dérivées, vérification).
+5) Contradictions entre exigences : signale-les, n'arbitre pas.
+
+[FORMAT]
+- Réponse directe et structurée (liste si plusieurs exigences).
+- Une ligne = une exigence : « IDENT [n] — reformulation fidèle courte ».
+- PAS de section Justification séparée : le couple identifiant + [n] EST la
+  justification.
 """
 
 
 def baseline_system_default() -> str:
     """Défaut du prompt `baseline.system` (chat LynX sur la baseline)."""
-    from core.llm_answer import DEFAULT_SYSTEM_PROMPT
-    return DEFAULT_SYSTEM_PROMPT + _BASELINE_SUFFIX
+    return _BASELINE_SYSTEM_PROMPT.strip()
 
 
 def _catalog() -> dict[str, dict]:

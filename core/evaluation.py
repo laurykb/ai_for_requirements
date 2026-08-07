@@ -485,16 +485,21 @@ def _parse_verify_json(raw: str) -> dict:
     return out
 
 
-def verify_answer(question: str, generated: str, chunks: list, llm=None) -> dict:
+def verify_answer(question: str, generated: str, chunks: list, llm=None,
+                  max_chunks: int = 5) -> dict:
     """Vérificateur fusionné : UN appel LLM-as-judge -> les 3 axes + des « issues » qui citent
     les extraits problématiques. ~3x moins de latence que les 3 appels séparés, et plus
     actionnable. Retourne {faithfulness, answer_relevance, context_relevance, issues:[...]}.
-    Le LLM (rôle 'judge') est injectable pour les tests / la réutilisation batch."""
+    Le LLM (rôle 'judge') est injectable pour les tests / la réutilisation batch.
+
+    `max_chunks` : passages montrés au juge. ATTENTION : s'il en voit moins que
+    la génération, il compte « hors contexte » ce qu'il ne voit pas (fidélité
+    écrasée) — les évals passent la liste COMPLÈTE utilisée par la génération."""
     base = {ax: 0.0 for ax in _VERIFY_AXES}
     base["issues"] = []
     if not generated or not chunks:
         return base
-    context = "\n\n".join(c.get("doc", "")[:500] for c in chunks[:5])
+    context = "\n\n".join(c.get("doc", "")[:500] for c in chunks[:max_chunks])
     prompt = _VERIFY_PROMPT.format(question=question[:400], context=context, answer=generated[:1200])
     if llm is None:
         llm = _get_judge_llm()
