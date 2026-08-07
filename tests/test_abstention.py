@@ -25,3 +25,15 @@ def test_no_abstention_above_threshold(monkeypatch):
 def test_no_abstention_when_ce_off(monkeypatch):
     monkeypatch.setattr(ask, "USE_CROSS_ENCODER", False)
     assert ask._should_abstain(None, "Quelle valeur ?") is False
+
+
+def test_reserved_scope_never_abstains_at_retrieval_level():
+    """Périmètre épinglé sur une source réservée (baseline LynX) : la porte
+    hors-scope ne coupe jamais — le refus appartient à la génération."""
+    from core.ask import _should_abstain
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    assert _should_abstain(0.4, "Question quelconque très pointue ?") is True
+    assert _should_abstain(0.4, "Question quelconque très pointue ?",
+                           source_filter=LYNX_BASELINE_SOURCE) is False
+    assert _should_abstain(0.4, "Question quelconque très pointue ?",
+                           source_filter="rapport.md") is True

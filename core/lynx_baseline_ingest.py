@@ -62,8 +62,11 @@ def _requirement_text(req: dict) -> str:
     return "\n".join(lines)
 
 
-def build_requirement_documents(corpus: list[dict]) -> list[Document]:
-    """Un Document par exigence, trié (domaine, niveau, id) — ordre stable."""
+def build_requirement_documents(corpus: list[dict],
+                                source: str = LYNX_BASELINE_SOURCE) -> list[Document]:
+    """Un Document par exigence, trié (domaine, niveau, id) — ordre stable.
+    `source` : source réservée cible (baseline vivante par défaut ; les
+    harnais d'éval/stress utilisent leur propre source réservée)."""
     domains = sorted({str(r.get("domaine") or "Général") for r in corpus})
     section_of = {d: i for i, d in enumerate(domains)}
     ordered = sorted(corpus, key=lambda r: (str(r.get("domaine") or "Général"),
@@ -75,8 +78,8 @@ def build_requirement_documents(corpus: list[dict]) -> list[Document]:
         docs.append(Document(
             page_content=_requirement_text(req),
             metadata={
-                "id": f"{LYNX_BASELINE_SOURCE}::{req_id}",
-                "source": LYNX_BASELINE_SOURCE,
+                "id": f"{source}::{req_id}",
+                "source": source,
                 "chunk_idx": idx,
                 "section_idx": section_of[domaine],
                 "chunk_type": "requirement",
@@ -91,7 +94,8 @@ def build_requirement_documents(corpus: list[dict]) -> list[Document]:
     return docs
 
 
-def ingest_baseline(corpus: list[dict], progress_callback=None) -> dict:
+def ingest_baseline(corpus: list[dict], progress_callback=None,
+                    source: str = LYNX_BASELINE_SOURCE) -> dict:
     """Pipeline complet baseline -> index (embeddings + HyPE + BM25 + Mongo).
 
     Même contrat de stats que `core.ingest.ingest_markdown` (status/message/
@@ -107,7 +111,7 @@ def ingest_baseline(corpus: list[dict], progress_callback=None) -> dict:
     stats: dict = {"n_exigences": len(corpus)}
     try:
         _notify("Construction des chunks d'exigences...", 5)
-        docs = build_requirement_documents(corpus)
+        docs = build_requirement_documents(corpus, source=source)
         if not docs:
             raise ValueError("Baseline vide : aucune exigence à indexer.")
         stats["num_chunks"] = len(docs)
@@ -156,7 +160,7 @@ def ingest_baseline(corpus: list[dict], progress_callback=None) -> dict:
 
         _notify("Indexation vector store...", 82)
         index_chroma(ids, texts, metadatas, vecs, collection_name=COLLECTION_NAME,
-                     clean_collection=False, replace_source=LYNX_BASELINE_SOURCE)
+                     clean_collection=False, replace_source=source)
 
         _notify("Sauvegarde MongoDB...", 90)
         from indexing.store_mongo import save_chunks_to_mongo
@@ -164,7 +168,7 @@ def ingest_baseline(corpus: list[dict], progress_callback=None) -> dict:
 
         _notify("Index BM25 de la baseline...", 95)
         from indexing.keyword_index import build_bm25_index, save_bm25_to_mongo
-        save_bm25_to_mongo(build_bm25_index(indexable), source_doc=LYNX_BASELINE_SOURCE)
+        save_bm25_to_mongo(build_bm25_index(indexable), source_doc=source)
 
         _notify("Terminé", 100)
         stats["status"] = "success"

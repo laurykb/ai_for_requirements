@@ -32,6 +32,7 @@ _vector_store = None  # magasin vectoriel (Chroma)
 _bm25_cache: dict = {}  # source_filter -> bm25_tuple (ou None si indisponible)
 
 
+
 def clear_retrieval_caches() -> None:
     """Vide les caches process-level (vector store + BM25, y compris le cache
     BM25 fusionné de keyword_index). À appeler après une (ré)ingestion pour que
@@ -91,12 +92,22 @@ def _load_bm25(source_filter=None) -> Optional[Tuple]:
     _bm25_cache["__all__"] = bm25_tuple
     return bm25_tuple
 
-def _should_abstain(max_ce_score, question: str) -> bool:
+def _should_abstain(max_ce_score, question: str, source_filter=None) -> bool:
     """Décide de l'abstention hors-scope. On s'abstient si le meilleur score CE
     est sous le seuil — SAUF sur les questions exploratoires (génériques/
-    définitionnelles) où l'on veut retourner le meilleur contexte disponible."""
+    définitionnelles) où l'on veut retourner le meilleur contexte disponible,
+    et SAUF quand le périmètre est épinglé sur une source RÉSERVÉE (baseline
+    d'exigences LynX) : corpus maîtrisé, sans bruit, dont le cross-encoder —
+    calibré sur de la prose documentaire — score les énoncés au plancher. Là,
+    on retourne toujours le meilleur contexte ; le refus éventuel appartient à
+    la génération (prompt `baseline.system` : « la baseline ne couvre pas »).
+    Mesuré par evals/run_baseline_eval (abstention au niveau génération)."""
     if not USE_CROSS_ENCODER or max_ce_score is None:
         return False
+    if source_filter:
+        from core.reserved_sources import RESERVED_SOURCES
+        if source_filter in RESERVED_SOURCES:
+            return False
     from retrieval.intent import is_exploratory
     if is_exploratory(question):
         return False
@@ -157,7 +168,7 @@ def process_query(user_q: str, selected_chunks=None, system_prompt=None, source_
             _rs.set("num_chunks", len(final_chunks))
 
         # -- Détection hors-scope ----------------------------------------------
-        if _should_abstain(max_ce_score, user_q):
+        if _should_abstain(max_ce_score, user_q, source_filter):
             logger.debug("[scope] Hors-scope détecté (max CE=%.3f)", max_ce_score)
             _tr.set("hors_scope", True)
             return OUT_OF_SCOPE_MESSAGE, [], []
@@ -220,7 +231,7 @@ def _prepare_retrieval(user_q: str, source_filter: str = None,
     # -- Détection hors-scope --------------------------------------------------
     # Si le cross-encoder a tourné et que son meilleur score est sous le seuil,
     # aucun chunk n'est pertinent -> on retourne un signal out_of_scope.
-    if _should_abstain(max_ce_score, user_q):
+    if _should_abstain(max_ce_score, user_q, source_filter):
         logger.debug("[scope] Hors-scope détecté (max CE=%.3f)", max_ce_score)
         return q_main, [], max_ce_score  # final_chunks vide + score pour l'appelant
 

@@ -177,7 +177,10 @@ export function Composer({
                 {modelStatus}
               </span>
             )}
-            {(
+            {/* Périmètre baseline : pas de sélecteur de mode — le routeur
+                décide (les modes agent/profond sont taillés pour les corpus
+                documentaires, pas pour une matrice d'exigences atomiques). */}
+            {!pinnedScope && (
               <select
                 value={mode}
                 onChange={(e) => setMode(e.target.value as Mode)}

@@ -15,4 +15,14 @@ from __future__ import annotations
 # identiques.
 LYNX_BASELINE_SOURCE = "baseline-exigences-lynx.md"
 
-RESERVED_SOURCES: tuple[str, ...] = (LYNX_BASELINE_SOURCE,)
+# Sources techniques éphémères : harnais d'évaluation du chat baseline
+# (evals/run_baseline_eval.py) et stress corpus XL (scripts/). Réservées pour
+# ne jamais surgir dans le monde RAG, purgées par leurs harnais respectifs.
+LYNX_BASELINE_EVAL_SOURCE = "baseline-eval-lynx.md"
+LYNX_BASELINE_STRESS_SOURCE = "baseline-stress-lynx.md"
+
+RESERVED_SOURCES: tuple[str, ...] = (
+    LYNX_BASELINE_SOURCE,
+    LYNX_BASELINE_EVAL_SOURCE,
+    LYNX_BASELINE_STRESS_SOURCE,
+)

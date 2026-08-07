@@ -132,9 +132,11 @@ def hybrid_retrieve(
     logger.debug("parallel search : %.0fms  (sem=%d bm25=%d)",
                  (_t_retrieval - _t_start) * 1000, len(sem_ids), len(bm_ids))
 
-    # Résolution HyPE : les hits sur des vecteurs-question remontent vers leur chunk parent
-    if HYPE_ENABLED:
-        sem_ids, sem_lookup = resolve_hype_hits(sem_ids, sem_lookup)
+    # Résolution HyPE : les hits sur des vecteurs-question remontent vers leur
+    # chunk parent. Inconditionnelle (no-op sans vecteurs-question) : des unités
+    # HyPE peuvent exister même si le flag global est éteint — la baseline LynX
+    # les génère avec sa propre politique élastique.
+    sem_ids, sem_lookup = resolve_hype_hits(sem_ids, sem_lookup)
 
     # 1) Post-processing sémantique
     for i in sem_ids:

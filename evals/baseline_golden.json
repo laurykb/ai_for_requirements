@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "role": "Golden set du chat baseline LynX : questions en langage courant -> exigences attendues (ou abstention).",
+    "note": "Les formulations divergent volontairement du vocabulaire contractuel des énoncés (test HyPE / décalage de vocabulaire)."
+  },
+  "cases": [
+    {"question": "Comment les communications sont-elles protégées ?", "expected_req_ids": ["CYB-001"], "expect_abstain": false},
+    {"question": "À quelle fréquence change-t-on les clés de chiffrement ?", "expected_req_ids": ["CYB-002"], "expect_abstain": false},
+    {"question": "Que se passe-t-il si quelqu'un essaie de pirater le drone ?", "expected_req_ids": ["CYB-003"], "expect_abstain": false},
+    {"question": "Le drone résiste-t-il au brouillage ?", "expected_req_ids": ["CYB-004"], "expect_abstain": false},
+    {"question": "Combien de temps le drone peut-il voler ?", "expected_req_ids": ["ALM-001"], "expect_abstain": false},
+    {"question": "Est-ce facile de changer la batterie ?", "expected_req_ids": ["ALM-002"], "expect_abstain": false},
+    {"question": "Que fait l'appareil quand la batterie est presque vide ?", "expected_req_ids": ["ALM-003"], "expect_abstain": false},
+    {"question": "Peut-on reconnaître une voiture à distance avec la caméra ?", "expected_req_ids": ["OPT-001"], "expect_abstain": false},
+    {"question": "Et la nuit, on voit quoi ?", "expected_req_ids": ["OPT-002"], "expect_abstain": false},
+    {"question": "Les images sont-elles datées et localisées ?", "expected_req_ids": ["OPT-003"], "expect_abstain": false},
+    {"question": "Quelles sont toutes les exigences de cybersécurité ?", "expected_req_ids": ["CYB-001", "CYB-002", "CYB-003", "CYB-004"], "expect_abstain": false},
+    {"question": "Quelles exigences découlent de la surveillance à 50 km ?", "expected_req_ids": ["CYB-001", "CYB-003", "ALM-001", "OPT-001"], "expect_abstain": false},
+    {"question": "Quel est le prix du drone et les conditions de garantie ?", "expected_req_ids": [], "expect_abstain": true},
+    {"question": "Quelle est la recette de la tarte tatin ?", "expected_req_ids": [], "expect_abstain": true},
+    {"question": "Quelles sont les performances du moteur diesel du navire ?", "expected_req_ids": [], "expect_abstain": true}
+  ]
+}
