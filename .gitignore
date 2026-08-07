@@ -64,3 +64,6 @@ secrets.toml
 .claude/
 .vscode/
 .idea/
+
+# Baseline LynX sérialisée pour le chat (régénérée à chaque synchronisation)
+docs/out/baseline-exigences-lynx.md
