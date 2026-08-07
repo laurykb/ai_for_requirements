@@ -17,11 +17,17 @@ import { PanelTitle } from "@/components/ui";
 
 export default function RequirementsPage() {
   const [tab, setTab] = useState<"matrice" | "chat" | "infos">("matrice");
-  // Objet recréé à chaque clic (même exigence comprise) : c'est l'identité de
-  // l'objet qui déclenche la re-sélection côté Matrice.
-  const [focusReq, setFocusReq] = useState<{ id: string } | null>(null);
+  // Objets recréés à chaque clic (même exigence comprise) : c'est l'identité
+  // de l'objet qui déclenche la re-sélection / le pré-remplissage.
+  const [focusReq, setFocusReq] = useState<{ id: string; edit?: boolean } | null>(null);
+  const [chatPrefill, setChatPrefill] = useState<{ text: string } | null>(null);
   const nav = useMemo(() => ({
     openRequirement: (id: string) => { setFocusReq({ id }); setTab("matrice"); },
+    editRequirement: (id: string) => { setFocusReq({ id, edit: true }); setTab("matrice"); },
+    askAboutRequirement: (id: string) => {
+      setChatPrefill({ text: `Explique l'exigence ${id} : son rôle, ses liens de dérivation et ce qui la vérifie.` });
+      setTab("chat");
+    },
   }), []);
   return (
     <div className="rise-in py-4">
@@ -49,7 +55,7 @@ export default function RequirementsPage() {
           <Requirements focusReq={focusReq} />
         </div>
         <div className={tab === "chat" ? "" : "hidden"}>
-          <LynxChat />
+          <LynxChat prefill={chatPrefill} />
         </div>
         {tab === "infos" && <LynxInfo />}
       </LynxNavContext.Provider>

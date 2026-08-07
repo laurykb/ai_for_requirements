@@ -126,13 +126,22 @@ export function ChunksBlock({ chunks, canRegenerate, onRegenerate, focus }: {
                 </p>
               )}
               {lynxNav && c.meta.req_id && (
-                <button
-                  onClick={() => lynxNav.openRequirement(c.meta.req_id!)}
-                  title="Bascule sur l'onglet Matrice et sélectionne cette exigence dans l'arbre."
-                  className="mt-2 cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10"
-                >
-                  Ouvrir {c.meta.req_id} dans la Matrice →
-                </button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => lynxNav.openRequirement(c.meta.req_id!)}
+                    title="Bascule sur l'onglet Matrice et sélectionne cette exigence dans l'arbre."
+                    className="cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10"
+                  >
+                    Ouvrir {c.meta.req_id} dans la Matrice →
+                  </button>
+                  <button
+                    onClick={() => lynxNav.editRequirement(c.meta.req_id!)}
+                    title="Prépare une modification : la Matrice s'ouvre sur cette exigence, éditeur focalisé — l'analyse d'impact se lance après édition."
+                    className="cursor-pointer rounded-md border border-edge px-2 py-1 text-[11px] text-fg-muted transition-colors hover:border-accent/50 hover:text-foreground"
+                  >
+                    Modifier…
+                  </button>
+                </div>
               )}
             </details>
           </div>

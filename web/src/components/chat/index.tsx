@@ -53,7 +53,12 @@ type StepStatus = "pending" | "active" | "done" | "vide";
 /** Plan de recherche de l'agent, suivi en direct (événements plan/step/replan). */
 type PlanView = { steps: PlanStep[]; statuts: StepStatus[]; replanned: boolean };
 
-export function Chat({ scope }: { scope?: ChatScope } = {}) {
+export function Chat({ scope, prefill }: {
+  scope?: ChatScope;
+  /** Question pré-remplie de l'extérieur (pont Matrice -> Chat) : posée dans
+   * le champ, pas envoyée — l'utilisateur garde la main. */
+  prefill?: { text: string } | null;
+} = {}) {
   const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
   const [selected, setSelected] = useState<string>(scope?.source ?? "");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -94,6 +99,16 @@ export function Chat({ scope }: { scope?: ChatScope } = {}) {
 
   // Nettoyage du poll d'ingestion au démontage.
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  // Pré-remplissage externe (pont Matrice -> Chat) : consommé une fois par
+  // objet, différé d'un tick (règle set-state-in-effect).
+  const consumedPrefill = useRef<object | null>(null);
+  useEffect(() => {
+    if (!prefill || consumedPrefill.current === prefill) return;
+    consumedPrefill.current = prefill;
+    const t = setTimeout(() => setInput(prefill.text), 0);
+    return () => clearTimeout(t);
+  }, [prefill]);
 
   // Dépendances sur la SEULE clé stable du périmètre (scope.source) : l'objet
   // scope est recréé à chaque poll de statut du parent (LynxChat), et une

@@ -14,6 +14,7 @@ import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 
 import { API_BASE, getJSON } from "@/lib/api";
+import { useLynxNav } from "@/components/lynx-nav";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 import { type Req } from "@/components/req-graph";
 import { couleurNiveau, maxNiveau, type NiveauCat } from "@/components/req-levels";
@@ -43,8 +44,9 @@ const VERDICT_COLOR: Record<string, string> = {
 
 export function Requirements({ focusReq }: {
   /** Exigence à ouvrir depuis l'extérieur (citation du chat baseline) —
-   * objet recréé à chaque demande : son identité déclenche la sélection. */
-  focusReq?: { id: string } | null;
+   * objet recréé à chaque demande : son identité déclenche la sélection.
+   * `edit` : focalise aussi l'éditeur (préparer une modification). */
+  focusReq?: { id: string; edit?: boolean } | null;
 } = {}) {
   const [corpus, setCorpus] = useState<Req[] | null>(null);
   const [niveaux, setNiveaux] = useState<NiveauCat[]>([]);
@@ -133,12 +135,21 @@ export function Requirements({ focusReq }: {
   // Ouverture externe (citation du chat baseline -> arbre) : consommée une
   // seule fois par objet focusReq, dès que le corpus est chargé. Sélection
   // différée d'un tick (règle set-state-in-effect).
+  // Ponts Matrice ↔ Chat (contexte fourni par la page requirements).
+  const lynxNav = useLynxNav();
   const consumedFocus = useRef<object | null>(null);
+  const editRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!focusReq || consumedFocus.current === focusReq || !corpus) return;
     if (!corpus.some((r) => r.id === focusReq.id)) return;
     consumedFocus.current = focusReq;
-    const t = setTimeout(() => select(focusReq.id), 0);
+    const t = setTimeout(() => {
+      select(focusReq.id);
+      if (focusReq.edit) {
+        // Après le rendu du panneau de la sélection : éditeur prêt à taper.
+        setTimeout(() => editRef.current?.focus(), 80);
+      }
+    }, 0);
     return () => clearTimeout(t);
   }, [focusReq, corpus, select]);
 
@@ -500,6 +511,7 @@ export function Requirements({ focusReq }: {
                 </p>
               </div>
               <textarea
+                ref={editRef}
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 rows={4}
@@ -531,6 +543,15 @@ export function Requirements({ focusReq }: {
                   {suggesting ? "Suggestion…" : "Corriger"}
                 </button>
               </div>
+              {lynxNav && (
+                <button
+                  onClick={() => lynxNav.askAboutRequirement(sel.id)}
+                  title="Ouvre le Chat avec une question pré-remplie sur cette exigence (rôle, dérivations, vérification)."
+                  className={`${btnGhost} w-full`}
+                >
+                  Interroger la baseline sur {sel.id} →
+                </button>
+              )}
 
               {suggestion && (
                 <div className="rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-xs">

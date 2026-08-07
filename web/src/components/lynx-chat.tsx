@@ -117,7 +117,10 @@ function scopeFor(status: LynxChatStatus, examples: string[]): ChatScope {
   };
 }
 
-export function LynxChat() {
+export function LynxChat({ prefill }: {
+  /** Question pré-remplie (pont Matrice -> Chat) — identité d'objet = déclencheur. */
+  prefill?: { text: string } | null;
+} = {}) {
   const [status, setStatus] = useState<LynxChatStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [examples, setExamples] = useState<string[]>([]);
@@ -271,7 +274,7 @@ export function LynxChat() {
           )}
         </div>
       ) : (
-        <Chat scope={scopeFor(status, examples)} />
+        <Chat scope={scopeFor(status, examples)} prefill={prefill} />
       )}
     </div>
   );
