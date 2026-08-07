@@ -17,7 +17,7 @@ export type AttachState = { name: string; pct: number; step: string };
 export function Composer({
   input, setInput, disabled, busy, attaching, attach, attachError, onDismissError,
   onAsk, onStop, fileRef, onAttachFiles, selected, setSelected, docs,
-  models, genModel, onLoadModel, modelStatus, mode, setMode, expert,
+  models, genModel, onLoadModel, modelStatus, mode, setMode, expert, pinnedScope,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -42,6 +42,9 @@ export function Composer({
   mode: Mode;
   setMode: (m: Mode) => void;
   expert: boolean;
+  /** Périmètre verrouillé (chat LynX sur la baseline) : remplace la pièce
+   * jointe et le sélecteur de document par un indicateur non retirable. */
+  pinnedScope?: { label: string; hint: string };
 }) {
   return (
     <>
@@ -88,52 +91,67 @@ export function Composer({
             }}
             disabled={busy || disabled}
             rows={1}
-            placeholder="Posez une question sur vos documents…"
+            placeholder={pinnedScope
+              ? "Posez une question sur la baseline d'exigences…"
+              : "Posez une question sur vos documents…"}
             aria-label="Question"
             className="max-h-40 w-full resize-none bg-transparent px-2 py-1.5 text-sm text-foreground [field-sizing:content] placeholder:text-fg-faint focus:outline-none disabled:opacity-60"
           />
           <div className="mt-1 flex items-center gap-2">
-            <input ref={fileRef} type="file" multiple hidden
-                   accept=".pdf,.docx,.pptx,.xlsx,.html,.md"
-                   onChange={(e) => onAttachFiles(e.target.files)} />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={attaching}
-              title="Joindre un document : indexé avec les réglages par défaut (réglages fins dans l'onglet Documents). L'envoi attend la fin de l'indexation."
-              className="cursor-pointer rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
-              aria-label="Joindre un document"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M21 12.5 12.6 21a5.6 5.6 0 0 1-8-8L13 4.5a3.7 3.7 0 0 1 5.3 5.3L10 18a1.9 1.9 0 0 1-2.7-2.7l7.6-7.5"
-                      stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-              </svg>
-            </button>
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-              disabled={busy}
-              aria-label="Document interrogé"
-              title="Périmètre : un document, ou tous."
-              className="max-w-56 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 text-[11px] text-fg-muted focus:outline-none"
-            >
-              <option value="">Tous les documents</option>
-              {docs.map((d) => (
-                <option key={d.name} value={d.name}>{d.name}</option>
-              ))}
-            </select>
-            {selected !== "" && (
-              <button
-                type="button"
-                onClick={() => setSelected("")}
-                disabled={busy}
-                title="Périmètre restreint à ce document — cliquer pour revenir à tous les documents"
-                aria-label={`Périmètre : ${selected} — revenir à tous les documents`}
-                className="inline-flex max-w-56 cursor-pointer items-center gap-1 truncate rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] text-fg-muted transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
+            {pinnedScope ? (
+              <span
+                title={pinnedScope.hint}
+                className="inline-flex max-w-64 items-center gap-1.5 truncate rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] text-fg-muted"
               >
-                <span className="truncate">Périmètre : {selected}</span>
-                <span aria-hidden>✕</span>
-              </button>
+                <Dot tone="accent" />
+                <span className="truncate">{pinnedScope.label}</span>
+                <Hint text={pinnedScope.hint} />
+              </span>
+            ) : (
+              <>
+                <input ref={fileRef} type="file" multiple hidden
+                       accept=".pdf,.docx,.pptx,.xlsx,.html,.md"
+                       onChange={(e) => onAttachFiles(e.target.files)} />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={attaching}
+                  title="Joindre un document : indexé avec les réglages par défaut (réglages fins dans l'onglet Documents). L'envoi attend la fin de l'indexation."
+                  className="cursor-pointer rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40"
+                  aria-label="Joindre un document"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path d="M21 12.5 12.6 21a5.6 5.6 0 0 1-8-8L13 4.5a3.7 3.7 0 0 1 5.3 5.3L10 18a1.9 1.9 0 0 1-2.7-2.7l7.6-7.5"
+                          stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <select
+                  value={selected}
+                  onChange={(e) => setSelected(e.target.value)}
+                  disabled={busy}
+                  aria-label="Document interrogé"
+                  title="Périmètre : un document, ou tous."
+                  className="max-w-56 cursor-pointer rounded-lg border border-edge bg-surface px-2 py-1 text-[11px] text-fg-muted focus:outline-none"
+                >
+                  <option value="">Tous les documents</option>
+                  {docs.map((d) => (
+                    <option key={d.name} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+                {selected !== "" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected("")}
+                    disabled={busy}
+                    title="Périmètre restreint à ce document — cliquer pour revenir à tous les documents"
+                    aria-label={`Périmètre : ${selected} — revenir à tous les documents`}
+                    className="inline-flex max-w-56 cursor-pointer items-center gap-1 truncate rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] text-fg-muted transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
+                  >
+                    <span className="truncate">Périmètre : {selected}</span>
+                    <span aria-hidden>✕</span>
+                  </button>
+                )}
+              </>
             )}
             {models.length > 0 && (
               <div className="flex items-center gap-1">

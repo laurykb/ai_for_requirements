@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
+import { API_BASE, LYNX_BASELINE_SOURCE, getJSON, type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
 import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
@@ -31,6 +31,18 @@ const EXAMPLES = [
   "Résume les principales fonctions de sécurité.",
 ];
 
+/** Périmètre verrouillé du chat (chat LynX sur la baseline d'exigences) :
+ * la source est épinglée, la pièce jointe et le sélecteur de document
+ * disparaissent, et seules les conversations de ce périmètre sont listées. */
+export type ChatScope = {
+  source: string;
+  label: string;
+  hint: string;
+  emptyTitle: string;
+  emptyText: string;
+  examples: string[];
+};
+
 type Phase = "idle" | "retrieve" | "agent" | "generate";
 
 /** Statut d'une étape du plan de l'agent : à venir, en cours, faite, ou sans
@@ -40,9 +52,9 @@ type StepStatus = "pending" | "active" | "done" | "vide";
 /** Plan de recherche de l'agent, suivi en direct (événements plan/step/replan). */
 type PlanView = { steps: PlanStep[]; statuts: StepStatus[]; replanned: boolean };
 
-export function Chat() {
+export function Chat({ scope }: { scope?: ChatScope } = {}) {
   const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
-  const [selected, setSelected] = useState<string>("");
+  const [selected, setSelected] = useState<string>(scope?.source ?? "");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -83,13 +95,19 @@ export function Chat() {
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const refreshDocs = useCallback(() => {
+    if (scope) return; // périmètre verrouillé : pas de sélection de document
     getJSON<SourcesResponse>("/api/sources")
       .then((s) => setDocs(s.sources)).catch(() => setDocs([]));
-  }, []);
+  }, [scope]);
+  // Chaque monde ne liste que SES conversations : celles de la baseline LynX
+  // (source réservée) restent invisibles du chat RAG, et réciproquement.
   const refreshSessions = useCallback(() => {
     getJSON<{ sessions: SessionInfo[] }>("/api/sessions")
-      .then((s) => setSessions(s.sessions)).catch(() => setSessions([]));
-  }, []);
+      .then((s) => setSessions(s.sessions.filter((sess) => scope
+        ? sess.source_filter === scope.source
+        : sess.source_filter !== LYNX_BASELINE_SOURCE)))
+      .catch(() => setSessions([]));
+  }, [scope]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -121,7 +139,7 @@ export function Chat() {
   const newConversation = () => {
     setSessionId(null);
     setMessages([]);
-    setSelected("");
+    setSelected(scope?.source ?? "");
   };
 
   const openSession = async (s: SessionInfo) => {
@@ -130,7 +148,7 @@ export function Chat() {
       const d = await getJSON<{ source_filter: string | null; messages: ChatMessage[] }>(
         `/api/sessions/${s.id}/messages`);
       setSessionId(s.id);
-      setSelected(d.source_filter ?? "");
+      setSelected(scope ? scope.source : (d.source_filter ?? ""));
       setMessages(d.messages.map((m) => ({ ...m })));
     } catch { /* session disparue */ }
   };
@@ -372,7 +390,7 @@ export function Chat() {
    * en base (un PDF devient <nom>-clean.md). Réglages fins : onglet
    * Documents. Suit TOUT le lot déposé ; abandon propre si l'API redémarre. */
   const attachFiles = async (files: FileList | null) => {
-    if (!files?.length || attaching) return;
+    if (scope || !files?.length || attaching) return; // pas d'upload en périmètre verrouillé
     const names = Array.from(files).map((f) => f.name);
     const label = names.length > 1 ? `${names[0]} (+${names.length - 1})` : names[0];
     setAttachError(null);
@@ -461,14 +479,13 @@ export function Chat() {
           {messages.length === 0 && !busy && (
             <div className="rise-in flex h-full flex-col items-center justify-center text-center">
               <p className="text-base font-medium text-foreground">
-                Posez une question sur vos documents
+                {scope?.emptyTitle ?? "Posez une question sur vos documents"}
               </p>
               <p className="mt-1 text-xs text-fg-muted">
-                Réponses sourcées, citant les passages de vos documents — tout reste sur
-                cette machine.
+                {scope?.emptyText ?? "Réponses sourcées, citant les passages de vos documents — tout reste sur cette machine."}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {EXAMPLES.map((ex) => (
+                {(scope?.examples ?? EXAMPLES).map((ex) => (
                   <button
                     key={ex}
                     onClick={() => ask(ex)}
@@ -632,6 +649,7 @@ export function Chat() {
           onStop={() => abortRef.current?.abort()}
           fileRef={fileRef} onAttachFiles={attachFiles}
           selected={selected} setSelected={setSelected} docs={docs}
+          pinnedScope={scope ? { label: scope.label, hint: scope.hint } : undefined}
           models={models} genModel={genModel} onLoadModel={loadModel}
           modelStatus={modelStatus}
           mode={mode} setMode={setMode} expert={expert}

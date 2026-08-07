@@ -21,9 +21,12 @@ def sources() -> dict:
     Renvoie `available: false` si Mongo est injoignable — le front affiche
     alors un état dégradé au lieu d'une erreur.
     """
+    # La baseline LynX est un document réservé : interrogeable uniquement
+    # depuis le chat AI for Requirements, invisible du monde RAG.
+    from api.lynx_chat import BASELINE_SOURCE
     try:
         rows = list(_chunks_col().aggregate([
-            {"$match": {"source": {"$ne": None}}},
+            {"$match": {"source": {"$nin": [None, BASELINE_SOURCE]}}},
             {"$group": {"_id": "$source", "chunks": {"$sum": 1},
                     "accepted": {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$quality_status", "accepted"]}, "accepted"]}, 1, 0]}},
                     "degraded": {"$sum": {"$cond": [{"$eq": ["$quality_status", "degraded"]}, 1, 0]}},

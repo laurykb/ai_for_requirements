@@ -295,6 +295,12 @@ def ask(body: AskBody) -> StreamingResponse:
                 documents: list = []
                 chunks: list = []
                 synth_kwargs = {}
+                if body.source:
+                    # La synthèse corpus respecte le périmètre documentaire du
+                    # chat (un document épinglé, ou la baseline LynX) au lieu
+                    # de balayer tout l'index.
+                    scoped = body.source
+                    synth_kwargs["prefilter"] = lambda _aspect: [scoped]
                 if body.mode == "deep":
                     from core.model_router import build_llm
                     from env_config import DEEP_RESEARCH_MODEL

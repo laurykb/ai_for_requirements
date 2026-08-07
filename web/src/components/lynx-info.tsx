@@ -270,6 +270,21 @@ export function LynxInfo() {
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <section>
         <h3 className="text-sm font-semibold text-foreground">
+          Chat sur la baseline{" "}
+          <Hint text="Onglet Chat : un assistant conversationnel dont le périmètre est verrouillé sur la matrice d'exigences de l'arbre. Il réutilise le moteur de l'Outil RAG (routage auto, agent multi-étapes, synthèse, réponses sourcées) mais n'accède à AUCUN document du monde RAG." />
+        </h3>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          L&apos;onglet Chat interroge la baseline d&apos;exigences en langage naturel :
+          chaque réponse cite les exigences (identifiants et passages) qui la
+          fondent, avec le même raisonnement visible que l&apos;Outil RAG. La
+          baseline est indexée à la demande (bouton Synchroniser) ; un bandeau
+          d&apos;état signale toute dérive entre l&apos;arbre et l&apos;index. Les prompts de
+          ce moteur se règlent dans l&apos;espace RAG (mode Expert → Prompts métier).
+        </p>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-semibold text-foreground">
           Orchestration des agents{" "}
           <Hint text="Déterministes : exécutés l'un après l'autre, dans cet ordre. Sémantiques (IA) : lancés en parallèle, l'ordre = ordre de lancement. Décocher = retirer du pipeline." />
         </h3>
