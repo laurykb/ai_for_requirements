@@ -17,7 +17,7 @@ const PROMPT_GROUPS: Array<{ id: PromptGroup; label: string; description: string
   { id: "chat", label: "Chat / RAG", description: "Prompts de conversation, recherche, planification et synthèse." },
 ];
 
-function promptGroup(_key: string): PromptGroup {
+function promptGroup(): PromptGroup {
   return "chat";
 }
 
@@ -79,7 +79,7 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
   if (!items) return <p className="flex gap-2 text-xs text-fg-muted"><Spinner /> Chargement…</p>;
   if (!expert) return <Banner tone="neutral">Activez le mode Expert pour inspecter et modifier les prompts.</Banner>;
   if (!items.length) return <Banner tone="bad">API des prompts indisponible.</Banner>;
-  const visibleItems = items.filter((item) => groups.includes(promptGroup(item.key)) && promptGroup(item.key) === activeGroup);
+  const visibleItems = items.filter(() => groups.includes(promptGroup()) && promptGroup() === activeGroup);
   const group = PROMPT_GROUPS.find((item) => item.id === activeGroup) ?? PROMPT_GROUPS[0];
 
   return (
@@ -91,7 +91,7 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
       </Banner>
       {groups.length > 1 && <nav className="flex flex-wrap gap-2 rounded-xl border border-edge bg-surface/50 p-2" aria-label="Familles d’agents">
         {PROMPT_GROUPS.filter((item) => groups.includes(item.id)).map((item) => {
-          const count = items.filter((prompt) => promptGroup(prompt.key) === item.id).length;
+          const count = items.filter(() => promptGroup() === item.id).length;
           return <button key={item.id} onClick={() => setActiveGroup(item.id)}
             className={"cursor-pointer rounded-lg border px-3 py-2 text-sm " + (activeGroup === item.id ? "border-accent bg-surface-2 text-foreground" : "border-edge text-fg-muted")}>
             {item.label} <span className="ml-1 text-[10px] text-fg-faint">{count}</span>

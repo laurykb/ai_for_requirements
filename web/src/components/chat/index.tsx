@@ -94,20 +94,24 @@ export function Chat({ scope }: { scope?: ChatScope } = {}) {
   // Nettoyage du poll d'ingestion au démontage.
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  // Dépendances sur la SEULE clé stable du périmètre (scope.source) : l'objet
+  // scope est recréé à chaque poll de statut du parent (LynxChat), et une
+  // dépendance sur l'objet relancerait ces fetchs toutes les 4 s.
+  const scopeSource = scope?.source;
   const refreshDocs = useCallback(() => {
-    if (scope) return; // périmètre verrouillé : pas de sélection de document
+    if (scopeSource) return; // périmètre verrouillé : pas de sélection de document
     getJSON<SourcesResponse>("/api/sources")
       .then((s) => setDocs(s.sources)).catch(() => setDocs([]));
-  }, [scope]);
+  }, [scopeSource]);
   // Chaque monde ne liste que SES conversations : celles de la baseline LynX
   // (source réservée) restent invisibles du chat RAG, et réciproquement.
   const refreshSessions = useCallback(() => {
     getJSON<{ sessions: SessionInfo[] }>("/api/sessions")
-      .then((s) => setSessions(s.sessions.filter((sess) => scope
-        ? sess.source_filter === scope.source
+      .then((s) => setSessions(s.sessions.filter((sess) => scopeSource
+        ? sess.source_filter === scopeSource
         : sess.source_filter !== LYNX_BASELINE_SOURCE)))
       .catch(() => setSessions([]));
-  }, [scope]);
+  }, [scopeSource]);
 
   useEffect(() => {
     const t = setTimeout(() => {

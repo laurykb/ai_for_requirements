@@ -65,10 +65,13 @@ def test_query_with_multi_document_source_filter():
     assert fake.last_kwargs["where"] == {"source": {"$in": ["a.md", "b.md"]}}
 
 
-def test_query_without_source_filter_has_no_where():
+def test_query_without_source_filter_excludes_reserved_sources():
+    """Sans filtre, la recherche balaie tout SAUF les sources réservées
+    (baseline LynX) : elles n'appartiennent pas au monde RAG."""
+    from core.reserved_sources import RESERVED_SOURCES
     fake = FakeChromaCollection(_CHROMA_RES)
     ChromaVectorStore(collection_name="t", collection=fake).query([0.1], n_results=5)
-    assert "where" not in fake.last_kwargs
+    assert fake.last_kwargs["where"] == {"source": {"$nin": list(RESERVED_SOURCES)}}
 
 
 def test_hits_to_lookup_shape():

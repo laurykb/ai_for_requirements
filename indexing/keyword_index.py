@@ -84,6 +84,13 @@ def bm25_search(bm25, ids, texts, metadatas, query, topn=10, source_filter=None)
     if allowed:
         allowed = set(allowed)
         candidates = [i for i in candidates if (metadatas[i] or {}).get("source") in allowed]
+    else:
+        # Recherche non scopée : les sources réservées (baseline LynX) ne
+        # doivent jamais surgir dans le monde RAG.
+        from core.reserved_sources import RESERVED_SOURCES
+        excluded = set(RESERVED_SOURCES)
+        candidates = [i for i in candidates
+                      if (metadatas[i] or {}).get("source") not in excluded]
     order = sorted(candidates, key=lambda i: scores[i], reverse=True)[:topn]
     return {
         "ids": [[ids[i] for i in order]],

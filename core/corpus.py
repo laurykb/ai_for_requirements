@@ -3,12 +3,16 @@ from __future__ import annotations
 
 
 def list_indexed_sources(db=None) -> list[str]:
-    """Noms de documents distincts du corpus, triés. `db` injectable (tests)."""
+    """Noms de documents distincts du corpus, triés. `db` injectable (tests).
+
+    Les sources réservées (baseline LynX) sont exclues : elles appartiennent
+    à leur chat dédié, jamais au monde RAG ni à la synthèse corpus."""
+    from core.reserved_sources import RESERVED_SOURCES
     if db is None:
         from utils.mongo import get_db
         db = get_db()
     rows = db["chunks"].aggregate([
-        {"$match": {"source": {"$ne": None}}},
+        {"$match": {"source": {"$nin": [None, *RESERVED_SOURCES]}}},
         {"$group": {"_id": "$source"}},
     ])
     return sorted(r["_id"] for r in rows)

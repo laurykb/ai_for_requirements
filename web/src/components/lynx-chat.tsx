@@ -40,10 +40,18 @@ function scopeFor(status: LynxChatStatus): ChatScope {
 export function LynxChat() {
   const [status, setStatus] = useState<LynxChatStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Verrou « déjà prêt » : une resynchronisation purge l'index avant de le
+  // reconstruire (indexed_chunks retombe à 0 quelques secondes) — le chat en
+  // cours ne doit pas être démonté (perte du fil affiché) pendant ce laps.
+  const [everReady, setEverReady] = useState(false);
 
   const refresh = useCallback(() => {
     getJSON<LynxChatStatus>("/api/lynx/chat/status")
-      .then((s) => { setStatus(s); setError(null); })
+      .then((s) => {
+        setStatus(s);
+        setError(null);
+        if (s.indexed_chunks > 0) setEverReady(true);
+      })
       .catch(() => setError("API locale injoignable — lancer : python serve.py"));
   }, []);
 
@@ -74,7 +82,7 @@ export function LynxChat() {
     </p>;
   }
 
-  const ready = status.indexed_chunks > 0;
+  const ready = status.indexed_chunks > 0 || (everReady && status.syncing);
 
   return (
     <div className="mt-4">

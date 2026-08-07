@@ -122,6 +122,11 @@ class ChromaVectorStore(VectorStore):
         if srcs:
             # `$in` couvre 1 ou N documents de façon uniforme.
             kwargs["where"] = {"source": {"$in": srcs}}
+        else:
+            # Recherche non scopée : les sources réservées (baseline LynX)
+            # ne doivent jamais surgir dans le monde RAG.
+            from core.reserved_sources import RESERVED_SOURCES
+            kwargs["where"] = {"source": {"$nin": list(RESERVED_SOURCES)}}
         res = self._coll().query(**kwargs)
         return _hits_from_chroma(res)
 

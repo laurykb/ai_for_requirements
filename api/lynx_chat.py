@@ -24,12 +24,8 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from core import ingest_queue
+from core.reserved_sources import LYNX_BASELINE_SOURCE as BASELINE_SOURCE
 from utils.mongo import get_db
-
-# Nom de source RÉSERVÉ du document baseline dans l'index documentaire.
-# Dupliqué côté front (web/src/lib/api.ts, LYNX_BASELINE_SOURCE) : les deux
-# valeurs doivent rester identiques.
-BASELINE_SOURCE = "baseline-exigences-lynx.md"
 
 # Métadonnées de synchronisation (fingerprint de la baseline indexée).
 _META_COLLECTION = "lynx_chat_meta"
