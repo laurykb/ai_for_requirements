@@ -26,6 +26,8 @@ Le routage = « quel modèle/quels paramètres pour quel rôle », indépendamme
 """
 from __future__ import annotations
 
+import os
+
 from utils.logging_config import get_logger
 from env_config import (
     REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, SYNTHESIS_MODEL,
@@ -92,8 +94,17 @@ _ROLE_PARAMS = {
     # Réduction riche mais bornée afin de réserver du budget à la fusion finale.
     "synthesize": {"temperature": 0.15, "num_ctx": LLM_NUM_CTX,
                    "num_predict": 4096, "think": False},
-    "generate": {"temperature": 0.3, "top_k": NUM_CHUNKS, "top_p": 0.8,
-                 "repeat_penalty": 1.5, "num_ctx": LLM_NUM_CTX},
+    # repeat_penalty : 1.5 (héritage anti-boucle) MUTILAIT les identifiants
+    # d'exigences — CYB-001 répète « CYB- », « 00 »… que la pénalité force à
+    # éviter (CYB-OO1, SRT pour STR). Mesuré par evals/run_baseline_eval
+    # --generation. L'anti-boucle est déjà assuré par la coupe de flux
+    # (api/rag._degenerate). top_k était lié par erreur à NUM_CHUNKS
+    # (constante de retrieval). Knobs élastiques (.env) :
+    "generate": {"temperature": float(os.environ.get("GEN_TEMPERATURE", "0.2")),
+                 "top_k": int(os.environ.get("GEN_TOP_K", "40")),
+                 "top_p": 0.8,
+                 "repeat_penalty": float(os.environ.get("GEN_REPEAT_PENALTY", "1.1")),
+                 "num_ctx": LLM_NUM_CTX},
     "judge":    {"temperature": 0.0, "num_ctx": 8192, "num_predict": 32, "think": False},
     # Enrichissement : très factuel, réponse courte plafonnée (anciennement codé en
     # dur dans nlp/chunk_enhancer._call_ollama). Consommé par ollama_options().

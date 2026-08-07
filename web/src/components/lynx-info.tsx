@@ -278,8 +278,12 @@ export function LynxInfo() {
           chaque réponse cite les exigences (identifiants et passages) qui la
           fondent, avec le même raisonnement visible que l&apos;Outil RAG. La
           baseline est indexée à la demande (bouton Synchroniser) ; un bandeau
-          d&apos;état signale toute dérive entre l&apos;arbre et l&apos;index. Les prompts de
-          ce moteur se règlent dans l&apos;espace RAG (mode Expert → Prompts métier).
+          d&apos;état signale toute dérive entre l&apos;arbre et l&apos;index. Pour les
+          questions structurelles (dérivations, chaînes, orphelines), l&apos;agent
+          dispose d&apos;un outil déterministe d&apos;interrogation de l&apos;arbre
+          (<span className="font-mono">baseline_tree</span>) : réponses exactes,
+          sans recherche sémantique. Les prompts de ce moteur se règlent dans
+          l&apos;espace RAG (mode Expert → Prompts métier).
         </p>
       </section>
 

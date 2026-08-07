@@ -223,18 +223,46 @@ def _agent_events(question: str, source: str | None, history: list[dict]):
     """Mode Agent : traduit les événements du planificateur-exécuteur multi-hop en
     trames SSE (plan/étapes en direct = boîte de verre, puis réponse streamée).
     Si la planification échoue, l'agent retombe sur le ReAct historique dont les
-    pensées/actions/observations sont relayées à l'identique."""
-    from core.planner import PlannerAgent
-    from tools.rag_tool import run_tool as _rt
+    pensées/actions/observations sont relayées à l'identique.
 
-    def _scoped_runner(name, arguments):
-        # L'agent respecte le périmètre documentaire choisi dans le chat.
-        return _rt(name, scope_arguments(source, arguments))
+    Périmètre baseline LynX : l'agent reçoit EN PLUS l'outil `baseline_tree`
+    (interrogation déterministe de l'arbre de traçabilité — dérivations,
+    chaînes, orphelines, filtres) : les questions structurelles obtiennent des
+    réponses exactes au lieu de dépendre du retrieval."""
+    from core.planner import PlannerAgent
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    from tools.rag_tool import run_tool as _rt, tool_spec as _rag_spec
+
+    if source == LYNX_BASELINE_SOURCE:
+        # Baseline : agent ReAct OUTILLÉ en direct (rag_search + baseline_tree).
+        # Le planificateur multi-hop décompose en sous-recherches documentaires
+        # et n'appellerait jamais l'outil structurel — c'est le choix d'outil
+        # par étape (cœur du ReAct) qui fait la valeur ici.
+        from core.agent import ReActAgent
+        from tools import baseline_tree_tool
+
+        def _baseline_runner(name, arguments):
+            if name == baseline_tree_tool.TOOL_NAME:
+                return baseline_tree_tool.run_tool(arguments)
+            return _rt(name, scope_arguments(source, arguments))
+
+        # Budget d'étapes dédié : les appels arbre sont déterministes et quasi
+        # gratuits (aucun LLM), contrairement aux recherches documentaires pour
+        # lesquelles AGENT_MAX_ITERATIONS=4 est calibré.
+        import os as _os
+        engine = ReActAgent(tool_runner=_baseline_runner,
+                            tool_specs=[_rag_spec(), baseline_tree_tool.tool_spec()],
+                            max_iterations=int(_os.environ.get("LYNX_AGENT_MAX_ITERATIONS", "8")))
+    else:
+        def _scoped_runner(name, arguments):
+            # L'agent respecte le périmètre documentaire choisi dans le chat.
+            return _rt(name, scope_arguments(source, arguments))
+
+        engine = PlannerAgent(tool_runner=_scoped_runner)
 
     trace: list[str] = []
     result: dict = {}
-    for ev in PlannerAgent(tool_runner=_scoped_runner).run_stream(
-            question, conversation_history=history):
+    for ev in engine.run_stream(question, conversation_history=history):
         kind = ev.get("type")
         if kind == "plan":
             steps = ev.get("steps") or []
@@ -258,9 +286,16 @@ def _agent_events(question: str, source: str | None, history: list[dict]):
             trace.append(f"**Pensée** — {ev['text']}")
             yield {"type": "thought", "text": ev["text"]}, trace, result
         elif kind == "action":
-            q = ev["input"].get("query", "")
-            trace.append(f"→ **Recherche** `{q}`")
-            yield {"type": "action", "text": q}, trace, result
+            inp = ev.get("input") or {}
+            if ev.get("tool") == "baseline_tree":
+                label = str(inp.get("operation", ""))
+                if inp.get("req_id"):
+                    label += f" {inp['req_id']}"
+                trace.append(f"→ **Arbre** `{label}`")
+            else:
+                label = inp.get("query", "")
+                trace.append(f"→ **Recherche** `{label}`")
+            yield {"type": "action", "text": label}, trace, result
         elif kind == "observation":
             trace.append(f"_{ev['text']}_")
             yield {"type": "observation", "text": ev["text"]}, trace, result

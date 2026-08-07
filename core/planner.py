@@ -178,12 +178,14 @@ class PlannerAgent:
     repli silencieux sur l'agent ReAct. Mêmes injections que ReActAgent."""
 
     def __init__(self, llm=None, tool_runner=None, max_steps: int = MAX_TOTAL_STEPS,
-                 synthesizer=None, stream_synthesizer=None, fallback=None):
+                 synthesizer=None, stream_synthesizer=None, fallback=None,
+                 tool_specs: list[dict] | None = None):
         if tool_runner is None:
             from tools.rag_tool import run_tool
             tool_runner = run_tool
         self._llm = llm
         self.tool_runner = tool_runner
+        self.tool_specs = tool_specs  # None = spec rag_search seule (défaut ReAct)
         self.max_steps = max(1, int(max_steps))
         self.synthesizer = synthesizer or _synthesize
         self.stream_synthesizer = stream_synthesizer or _synthesize_stream
@@ -202,6 +204,7 @@ class PlannerAgent:
         if self._fallback is None:
             self._fallback = ReActAgent(
                 tool_runner=self.tool_runner,
+                tool_specs=self.tool_specs,
                 synthesizer=self.synthesizer if self.synthesizer is not _synthesize else None,
                 stream_synthesizer=(self.stream_synthesizer
                                     if self.stream_synthesizer is not _synthesize_stream else None),

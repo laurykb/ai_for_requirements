@@ -56,13 +56,17 @@ def test_model_for_unknown_role_raises():
         model_for("does_not_exist")
 
 
-def test_generate_params_match_legacy_tuning():
+def test_generate_params_verbatim_safe_tuning():
+    """repeat_penalty 1.5 (héritage anti-boucle) mutilait les identifiants
+    d'exigences (CYB-OO1, SRT pour STR) — mesuré par run_baseline_eval
+    --generation : 5/12 -> 12/12 en repassant à 1.1. L'anti-boucle vit dans
+    api/rag._degenerate (coupe de flux), pas dans l'échantillonnage."""
     kw = llm_kwargs("generate")
     assert kw["model"] == GEN_MODEL
-    assert kw["temperature"] == 0.3
-    assert kw["top_k"] == NUM_CHUNKS
+    assert kw["temperature"] == 0.2
+    assert kw["top_k"] == 40          # plus jamais lié à NUM_CHUNKS (retrieval)
     assert kw["top_p"] == 0.8
-    assert kw["repeat_penalty"] == 1.5
+    assert kw["repeat_penalty"] == 1.1
     assert kw["num_ctx"] == LLM_NUM_CTX
     # Non-streaming : pas de keep_alive (= défaut Ollama), comme avant.
     assert "keep_alive" not in kw
