@@ -24,6 +24,10 @@ export type ChunkView = {
     keywords_str?: string;
     questions_str?: string;
     entities_str?: string;
+    /** Baseline LynX : identité de l'exigence (citations -> arbre). */
+    req_id?: string;
+    req_niveau?: number;
+    req_domaine?: string;
     summary_num_chunks?: number;
   };
 };

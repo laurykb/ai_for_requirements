@@ -93,11 +93,11 @@ def _baseline_job() -> dict | None:
 def sync_baseline() -> dict:
     """(Ré)indexe la baseline de travail courante pour le chat.
 
-    Sérialise l'arbre en Markdown, purge l'index précédent puis met le
-    document réservé en file d'ingestion standard. Ingestion légère par
-    défaut (pas d'enrichissement LLM : les exigences sont courtes et
-    atomiques) — la synchronisation reste rapide après chaque évolution
-    de la baseline."""
+    Ingestion dédiée « requirement-aware » (core/lynx_baseline_ingest) :
+    1 chunk = 1 exigence avec ses attributs en métadonnées, questions HyPE
+    élastiques (couvre le décalage de vocabulaire questions ↔ énoncés
+    contractuels). L'arbre est aussi sérialisé en Markdown pour la
+    visionneuse de document."""
     from api.lynx_api import _get_corpus
     corpus = _get_corpus()
     if not corpus:
@@ -112,18 +112,21 @@ def sync_baseline() -> dict:
     path.write_text(_render_markdown(corpus), encoding="utf-8")
 
     _purge_baseline_index()
-    ingest_queue.enqueue([{"name": BASELINE_SOURCE, "path": str(path)}],
-                         {"nkw": 0, "nq": 0, "mode": "technical",
-                          "raptor": False, "enh_model": ""})
+    from core.lynx_baseline_ingest import ingest_baseline
+    snapshot = [dict(r) for r in corpus]  # figé : l'arbre peut bouger pendant l'ingestion
+    ingest_queue.enqueue(
+        [{"name": BASELINE_SOURCE, "path": str(path),
+          "run": lambda cb: ingest_baseline(snapshot, cb)}],
+        {"nkw": 0, "nq": 0, "mode": "technical", "raptor": False, "enh_model": ""})
     try:
         get_db()[_META_COLLECTION].replace_one(
             {"_id": "baseline"},
-            {"_id": "baseline", "fingerprint": _fingerprint(corpus),
-             "n_exigences": len(corpus), "synced_at": time.time()},
+            {"_id": "baseline", "fingerprint": _fingerprint(snapshot),
+             "n_exigences": len(snapshot), "synced_at": time.time()},
             upsert=True)
     except Exception:
         pass  # métadonnées de fraîcheur en mode meilleur-effort
-    return {"queued": True, "n_exigences": len(corpus), "source": BASELINE_SOURCE}
+    return {"queued": True, "n_exigences": len(snapshot), "source": BASELINE_SOURCE}
 
 
 @router.get("/status")

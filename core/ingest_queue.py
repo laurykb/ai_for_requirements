@@ -43,6 +43,17 @@ def _process_job(job: dict) -> None:
         job["step"] = str(msg)
 
     try:
+        if job.get("run") is not None:
+            # Exécuteur personnalisé (ex. baseline LynX : chunks pré-construits,
+            # pas de conversion ni de découpage markdown). Contrat : le callable
+            # reçoit le progress_callback et retourne les stats d'ingestion.
+            job["source_name"] = job["name"]
+            stats = job["run"](cb)
+            job["result"] = stats
+            if stats.get("status") == "success":
+                from core.ask import clear_retrieval_caches
+                clear_retrieval_caches()
+            return
         DOCS_OUT.mkdir(parents=True, exist_ok=True)
         path = job["path"]
         if not str(path).lower().endswith(".md"):
@@ -101,14 +112,16 @@ def _ensure_worker() -> None:
 
 def enqueue(items: list[dict], params: dict) -> int:
     """Met en file un LOT de documents. `items` = liste de {name, path} déjà
-    écrits sur le disque ; `params` = options PARTAGÉES du lot."""
+    écrits sur le disque (+ optionnellement `run`, un exécuteur personnalisé
+    callable(progress_cb) -> stats) ; `params` = options PARTAGÉES du lot."""
     global _SEQ
     added = 0
     with _LOCK:
         for it in items:
             _SEQ += 1
             _JOBS.append({
-                "id": _SEQ, "name": it["name"], "path": it["path"],
+                "id": _SEQ, "name": it["name"], "path": it.get("path"),
+                "run": it.get("run"),
                 "params": dict(params), "status": "queued", "pct": 0,
                 "step": "En file d'attente...", "result": None, "t0": 0.0, "t_end": 0.0,
                 "source_name": None,

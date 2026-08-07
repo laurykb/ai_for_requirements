@@ -22,7 +22,9 @@ def _trim_chunk(c: dict) -> dict:
     meta = c.get("meta", {})
     keep = ("source", "page_number", "heading", "breadcrumb", "section_idx",
             "chunk_type", "keywords_str", "questions_str", "entities_str",
-            "summary_num_chunks")
+            "summary_num_chunks",
+            # Baseline LynX : identité de l'exigence (citations -> arbre).
+            "req_id", "req_niveau", "req_domaine")
     return {"doc": c.get("doc", ""), "ce_score": c.get("ce_score"),
             "meta": {k: meta.get(k) for k in keep if meta.get(k) is not None}}
 

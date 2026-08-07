@@ -48,6 +48,10 @@ def _doc_to_record(doc):
         "entities": doc.metadata.get("entities", {}),
         "entities_flat": doc.metadata.get("entities_flat", []),
         "entities_str": doc.metadata.get("entities_str", ""),
+        # Baseline LynX : identité de l'exigence (citations -> arbre)
+        "req_id": doc.metadata.get("req_id"),
+        "req_niveau": doc.metadata.get("req_niveau"),
+        "req_domaine": doc.metadata.get("req_domaine"),
     }
 
 

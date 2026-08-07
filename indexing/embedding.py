@@ -46,9 +46,16 @@ def _prefix_header(text, breadcrumb):
     return text if tag in text else f"{tag}\n{text}"
 
 
-def build_embedding_units(docs):
+def build_embedding_units(docs, hype_enabled=None, hype_max_questions=None):
     """Unités à indexer : 1 vecteur contenu par chunk (+ vecteurs HyPE par question
-    pointant vers le parent si HYPE_ENABLED). Pur : aucune dépendance Ollama/Mongo."""
+    pointant vers le parent si HyPE actif). Pur : aucune dépendance Ollama/Mongo.
+
+    `hype_enabled`/`hype_max_questions` : None = réglages globaux (.env) ;
+    surcharge locale possible (ex. baseline LynX, HyPE élastique par corpus)."""
+    if hype_enabled is None:
+        hype_enabled = HYPE_ENABLED
+    if hype_max_questions is None:
+        hype_max_questions = HYPE_MAX_QUESTIONS
     units = []
     for d in docs:
         content = d.page_content.strip()
@@ -63,9 +70,9 @@ def build_embedding_units(docs):
             "embed_text": _prefix_header(content, breadcrumb),
             "metadata": meta,
         })
-        if HYPE_ENABLED:
+        if hype_enabled:
             questions = [q for q in (meta.get("questions") or []) if q and q.strip()]
-            for i, q in enumerate(questions[:HYPE_MAX_QUESTIONS]):
+            for i, q in enumerate(questions[:hype_max_questions]):
                 hmeta = dict(meta)
                 hmeta["chunk_type"] = "hype_question"
                 hmeta["parent_id"] = cid
@@ -79,7 +86,7 @@ def build_embedding_units(docs):
     return units
 
 
-def build_embeddings(docs):
+def build_embeddings(docs, hype_enabled=None, hype_max_questions=None):
     """
     Génère les embeddings (vecteurs) pour une liste de Documents à l'aide du modèle OllamaEmbedding.
 
@@ -110,7 +117,8 @@ def build_embeddings(docs):
 
     # Une unité par vecteur à produire : 1 par chunk (contenu) + éventuellement
     # 1 par question HyPE (pointant vers le parent). Voir build_embedding_units.
-    units = build_embedding_units(docs)
+    units = build_embedding_units(docs, hype_enabled=hype_enabled,
+                                  hype_max_questions=hype_max_questions)
     texts = [u["document"] for u in units]
     texts_to_embed = [u["embed_text"] for u in units]
     raw_metadatas = [u["metadata"] for u in units]
