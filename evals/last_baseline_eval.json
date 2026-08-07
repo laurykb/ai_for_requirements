@@ -1,5 +1,5 @@
 {
-  "ran_at": 1786110116.449846,
+  "ran_at": 1786110700.0880418,
   "summary": {
     "cases": 15,
     "retrieval_ok": 12,
@@ -9,18 +9,18 @@
     "false_abstentions": 0,
     "abstention_ok": 3,
     "abstention_total": 3,
-    "ingest_s": 10.2,
+    "ingest_s": 8.1,
     "hype": {
       "enabled": true,
       "questions_per_req": 2
     },
     "generation": {
       "cases": 12,
-      "ok": 4,
-      "mean_id_recall": 0.562,
-      "grounded": 4,
-      "with_inventions": 8,
-      "mean_faithfulness": 0.0
+      "ok": 12,
+      "mean_id_recall": 0.958,
+      "grounded": 12,
+      "with_inventions": 0,
+      "mean_faithfulness": 0.167
     }
   },
   "rows": [
@@ -51,7 +51,7 @@
         "OPT-002",
         "OPT-001"
       ],
-      "latency_s": 6.56,
+      "latency_s": 5.45,
       "best_sim": 0.671,
       "generation": {
         "question": "Comment les communications sont-elles protégées ?",
@@ -61,14 +61,13 @@
         ],
         "cited": [
           "CYB-001",
-          "SYS-001",
-          "OPT-003",
-          "CYB-004"
+          "CYB-002",
+          "CYB-003"
         ],
         "invented": [],
         "off_context": [],
         "id_grounded": true,
-        "faithfulness": 0.0,
+        "faithfulness": 1.0,
         "ok": true
       }
     },
@@ -99,7 +98,7 @@
         "SYS-001",
         "OPT-002"
       ],
-      "latency_s": 0.95,
+      "latency_s": 0.17,
       "best_sim": 0.888,
       "generation": {
         "question": "À quelle fréquence change-t-on les clés de chiffrement ?",
@@ -144,7 +143,7 @@
         "ALM-003",
         "OPT-003"
       ],
-      "latency_s": 1.0,
+      "latency_s": 0.17,
       "best_sim": 0.662,
       "generation": {
         "question": "Que se passe-t-il si quelqu'un essaie de pirater le drone ?",
@@ -154,15 +153,15 @@
         ],
         "cited": [
           "CYB-003",
-          "SYS-001"
+          "SYS-001",
+          "CYB-001",
+          "CYB-004"
         ],
-        "invented": [
-          "CYB-OOI"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -192,20 +191,22 @@
         "OPT-001",
         "OPT-003"
       ],
-      "latency_s": 0.82,
+      "latency_s": 0.18,
       "best_sim": 0.69,
       "generation": {
         "question": "Le drone résiste-t-il au brouillage ?",
-        "id_recall": 0.0,
-        "named": [],
-        "cited": [],
-        "invented": [
-          "CYB-04"
+        "id_recall": 1.0,
+        "named": [
+          "CYB-004"
         ],
+        "cited": [
+          "CYB-004"
+        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -235,7 +236,7 @@
         "ALM-003",
         "OPT-003"
       ],
-      "latency_s": 0.8,
+      "latency_s": 0.17,
       "best_sim": 0.779,
       "generation": {
         "question": "Combien de temps le drone peut-il voler ?",
@@ -280,22 +281,22 @@
         "SYS-001",
         "OPT-003"
       ],
-      "latency_s": 0.81,
+      "latency_s": 0.17,
       "best_sim": 0.763,
       "generation": {
         "question": "Est-ce facile de changer la batterie ?",
-        "id_recall": 0.0,
-        "named": [],
+        "id_recall": 1.0,
+        "named": [
+          "ALM-002"
+        ],
         "cited": [
-          "ALM-003"
+          "ALM-002"
         ],
-        "invented": [
-          "CYB-45678912"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -325,7 +326,7 @@
         "CYB-001",
         "OPT-003"
       ],
-      "latency_s": 0.84,
+      "latency_s": 0.17,
       "best_sim": 0.605,
       "generation": {
         "question": "Que fait l'appareil quand la batterie est presque vide ?",
@@ -370,23 +371,22 @@
         "ALM-002",
         "ALM-003"
       ],
-      "latency_s": 0.83,
+      "latency_s": 0.18,
       "best_sim": 0.692,
       "generation": {
         "question": "Peut-on reconnaître une voiture à distance avec la caméra ?",
-        "id_recall": 0.0,
-        "named": [],
+        "id_recall": 1.0,
+        "named": [
+          "OPT-001"
+        ],
         "cited": [
-          "OPT-003",
-          "CYB-003"
+          "OPT-001"
         ],
-        "invented": [
-          "OPT-OOO1"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -416,22 +416,24 @@
         "ALM-001",
         "ALM-003"
       ],
-      "latency_s": 0.83,
+      "latency_s": 0.17,
       "best_sim": 0.616,
       "generation": {
         "question": "Et la nuit, on voit quoi ?",
-        "id_recall": 0.0,
-        "named": [],
+        "id_recall": 1.0,
+        "named": [
+          "OPT-002"
+        ],
         "cited": [
-          "OPT-003"
+          "OPT-002",
+          "OPT-001",
+          "SYS-001"
         ],
-        "invented": [
-          "CYB-014"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -461,7 +463,7 @@
         "ALM-002",
         "ALM-001"
       ],
-      "latency_s": 0.83,
+      "latency_s": 0.17,
       "best_sim": 0.568,
       "generation": {
         "question": "Les images sont-elles datées et localisées ?",
@@ -470,17 +472,15 @@
           "OPT-003"
         ],
         "cited": [
-          "OPT-003"
+          "OPT-003",
+          "OPT-001",
+          "CYB-001"
         ],
-        "invented": [
-          "SYS-OOO1",
-          "CYB-CYBOOI",
-          "OPT-02"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -516,29 +516,28 @@
         "ALM-001",
         "OPT-001"
       ],
-      "latency_s": 0.83,
+      "latency_s": 0.17,
       "best_sim": 0.698,
       "generation": {
         "question": "Quelles sont toutes les exigences de cybersécurité ?",
-        "id_recall": 0.75,
+        "id_recall": 1.0,
         "named": [
+          "CYB-001",
           "CYB-002",
           "CYB-003",
           "CYB-004"
         ],
         "cited": [
           "CYB-003",
-          "SYS-001",
           "CYB-002",
+          "CYB-001",
           "CYB-004"
         ],
-        "invented": [
-          "SYS-CYB"
-        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
-        "faithfulness": 0.0,
-        "ok": false
+        "id_grounded": true,
+        "faithfulness": 1.0,
+        "ok": true
       }
     },
     {
@@ -574,20 +573,26 @@
         "OPT-003",
         "ALM-003"
       ],
-      "latency_s": 0.85,
+      "latency_s": 0.17,
       "best_sim": 0.682,
       "generation": {
         "question": "Quelles exigences découlent de la surveillance à 50 km ?",
-        "id_recall": 0.0,
-        "named": [],
-        "cited": [],
-        "invented": [
-          "SYS-003"
+        "id_recall": 0.5,
+        "named": [
+          "ALM-001",
+          "OPT-001"
         ],
+        "cited": [
+          "SYS-001",
+          "OPT-001",
+          "OPT-002",
+          "ALM-001"
+        ],
+        "invented": [],
         "off_context": [],
-        "id_grounded": false,
+        "id_grounded": true,
         "faithfulness": 0.0,
-        "ok": false
+        "ok": true
       }
     },
     {
@@ -608,7 +613,7 @@
         "ALM-003",
         "OPT-003"
       ],
-      "latency_s": 5.58,
+      "latency_s": 1.3,
       "best_sim": 0.649,
       "level": "generation"
     },
@@ -630,7 +635,7 @@
         "ALM-003",
         "ALM-001"
       ],
-      "latency_s": 2.6,
+      "latency_s": 1.31,
       "best_sim": 0.351,
       "level": "generation"
     },
@@ -652,7 +657,7 @@
         "OPT-003",
         "OPT-002"
       ],
-      "latency_s": 2.65,
+      "latency_s": 1.35,
       "best_sim": 0.526,
       "level": "generation"
     }

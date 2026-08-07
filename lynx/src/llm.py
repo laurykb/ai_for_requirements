@@ -49,12 +49,44 @@ _json_schema_supported: Optional[bool] = None
 _trace_lock = threading.Lock()
 _trace: Optional[List[dict]] = None
 
+# --- Garde-fous multi-agent : compteur d'appels LLM + budget par analyse ------
+# Doctrine : complétude par agent, NOMBRE D'APPELS LLM, chemin de pensée,
+# coût vs latence — les garde-fous se placent sur ces axes. Le compteur est
+# remis à zéro par start_trace() (une capture = une analyse/un audit) ;
+# LYNX_MAX_LLM_CALLS (défaut 60, 0 = désactivé) coupe proprement l'analyse
+# qui s'emballe au lieu de laisser filer le coût.
+_llm_calls = 0
+
+
+class LynxBudgetExceeded(RuntimeError):
+    """Budget d'appels LLM de l'analyse dépassé (LYNX_MAX_LLM_CALLS)."""
+
+
+def _count_llm_call() -> None:
+    global _llm_calls
+    import os
+    with _trace_lock:
+        _llm_calls += 1
+        calls = _llm_calls
+    cap = int(os.environ.get("LYNX_MAX_LLM_CALLS", "60"))
+    if cap > 0 and calls > cap:
+        raise LynxBudgetExceeded(
+            f"Budget d'appels LLM dépassé ({calls} > {cap}) — analyse interrompue "
+            f"proprement (LYNX_MAX_LLM_CALLS pour ajuster).")
+
+
+def llm_calls_in_trace() -> int:
+    """Appels LLM réels (hors cache) depuis le dernier start_trace()."""
+    with _trace_lock:
+        return _llm_calls
+
 
 def start_trace() -> None:
     """Démarre la capture des échanges (remise à zéro du tampon)."""
-    global _trace
+    global _trace, _llm_calls
     with _trace_lock:
         _trace = []
+        _llm_calls = 0
 
 
 def stop_trace() -> List[dict]:
@@ -112,9 +144,9 @@ def _disk_put(key: str, result: dict) -> None:
         pass  # un cache qui échoue ne doit jamais casser l'appel
 
 
-def _cache_key(system_prompt: str, user_data: Any) -> str:
+def _cache_key(system_prompt: str, user_data: Any, model: Optional[str] = None) -> str:
     h = hashlib.sha256()
-    for part in (_MODEL, system_prompt, _as_text(user_data)):
+    for part in (model or _MODEL, system_prompt, _as_text(user_data)):
         h.update(part.encode("utf-8"))
     return h.hexdigest()
 
@@ -180,7 +212,7 @@ def call_agent(system_prompt: str, user_data: Any, label: Optional[str] = None,
         return {"error": "LLM_DISABLED"}
     if schema is None:
         schema = schema_for(label)
-    key = _cache_key(system_prompt, user_data) if LLM_CACHE else None
+    key = _cache_key(system_prompt, user_data, model_for(label)) if LLM_CACHE else None
     if key is not None and key in _result_cache:
         cached = dict(_result_cache[key])
         _record({"label": label, "input": user_data, "output": cached,
@@ -208,8 +240,21 @@ def _response_format(schema: Optional[Type[BaseModel]]) -> dict:
     return {"type": "json_object"}
 
 
+def model_for(label: Optional[str]) -> str:
+    """Routage multi-modèles par rôle d'agent (à l'image du RAG v3) :
+    LYNX_MODEL_<SKILL> (majuscules, tirets -> underscores) > LYNX_MODEL_DEFAULT
+    > modèle courant. Ex : LYNX_MODEL_COHERENCE=qwen3.5:latest ne change que
+    l'analyseur de cohérence."""
+    import os
+    if label:
+        override = os.environ.get("LYNX_MODEL_" + label.upper().replace("-", "_"))
+        if override:
+            return override
+    return os.environ.get("LYNX_MODEL_DEFAULT") or current_model()
+
+
 def _post_chat(messages: List[dict], temperature: float,
-               schema: Optional[Type[BaseModel]]) -> dict:
+               schema: Optional[Type[BaseModel]], model: Optional[str] = None) -> dict:
     """Un POST /chat/completions, avec repli json_schema -> json_object.
 
     Si le backend rejette ``response_format: json_schema`` (400/404/422), on
@@ -217,7 +262,8 @@ def _post_chat(messages: List[dict], temperature: float,
     """
     global _json_schema_supported
     fmt = _response_format(schema)
-    body = {"model": _MODEL, "messages": messages, "temperature": temperature,
+    _count_llm_call()
+    body = {"model": model or _MODEL, "messages": messages, "temperature": temperature,
             "response_format": fmt}
     try:
         r = httpx.post(f"{LLM_BASE_URL}/chat/completions", headers=_headers(),
@@ -238,12 +284,12 @@ def _post_chat(messages: List[dict], temperature: float,
     return r.json()
 
 
-def _chat_once(messages: List[dict], temperature: float,
-               schema: Optional[Type[BaseModel]]) -> Tuple[Dict[str, Any], str, int]:
+def _chat_once(messages: List[dict], temperature: float, model: Optional[str] = None,
+               schema: Optional[Type[BaseModel]] = None) -> Tuple[Dict[str, Any], str, int]:
     """Un aller-retour LLM : renvoie (dict parsé ou ``{"error":…}``, brut, latence)."""
     t0 = time.time()
     try:
-        data = _post_chat(messages, temperature, schema)
+        data = _post_chat(messages, temperature, schema, model=model)
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {}) or {}
     except Exception as exc:
@@ -294,7 +340,7 @@ def _chat(system_prompt: str, user_data: Any, temperature: float = 0,
         return {"error": "LLM_DISABLED"}
     gen_schema = schema if grammar else None
     messages = _messages(system_prompt, user_data)
-    parsed, content, latency = _chat_once(messages, temperature, gen_schema)
+    parsed, content, latency = _chat_once(messages, temperature, model_for(label), gen_schema)
     rec = {"label": label, "input": user_data, "latency_ms": latency}
     if parsed.get("error"):
         _record({**rec, "output": parsed, "ok": False})
@@ -315,7 +361,7 @@ def _chat(system_prompt: str, user_data: Any, temperature: float = 0,
         retry_messages = messages + [
             {"role": "assistant", "content": content},
             {"role": "user", "content": _RETRY_PROMPT.format(errors=errors)}]
-        parsed2, content2, latency2 = _chat_once(retry_messages, temperature, gen_schema)
+        parsed2, content2, latency2 = _chat_once(retry_messages, temperature, model_for(label), gen_schema)
         rec["latency_ms"] = latency + latency2
         if not parsed2.get("error"):
             try:
@@ -367,8 +413,9 @@ def stream_agent(system_prompt: str, user_data: Any, label: Optional[str] = None
     """Appel texte en streaming : produit les tokens au fil de l'eau (SSE)."""
     if LLM_DISABLED:
         return
+    _count_llm_call()
     body = {
-        "model": _MODEL,
+        "model": model_for(label),
         "messages": _messages(system_prompt, user_data),
         "temperature": 0,
         "stream": True,

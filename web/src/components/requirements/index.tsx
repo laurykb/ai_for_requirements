@@ -63,6 +63,9 @@ export function Requirements({ focusReq }: {
   // Barre de progression de l'analyse (même geste que l'audit) : total
   // d'agents annoncé par le backend, avancement = agents terminés.
   const [agentsTotal, setAgentsTotal] = useState<number | null>(null);
+  // Doctrine multi-agent : complétude, appels LLM, coût vs latence — la ligne
+  // de métriques de chaque analyse rend ces axes visibles en permanence.
+  const [metrics, setMetrics] = useState<{ agents_done: number; llm_calls: number; wall_s: number } | null>(null);
   const [applying, setApplying] = useState(false);
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [pendingAction, setPendingAction] = useState<Record<string, unknown> | null>(null);
@@ -180,6 +183,7 @@ export function Requirements({ focusReq }: {
     setRunning(true);
     setAgents([]);
     setAgentsTotal(null);
+    setMetrics(null);
     setVerdict(null);
     setPendingAction(action);
     setRationale("");
@@ -190,6 +194,9 @@ export function Requirements({ focusReq }: {
       await streamPost("/api/lynx/analyze", { action, semantic }, (ev) => {
         if (ev.type === "agents_total") {
           setAgentsTotal(Number(ev.n) || null);
+        } else if (ev.type === "metrics") {
+          setMetrics({ agents_done: Number(ev.agents_done), llm_calls: Number(ev.llm_calls),
+                       wall_s: Number(ev.wall_s) });
         } else if (ev.type === "agent") {
           const label = String(ev.label);
           setAgents((a) => ev.kind === "start"
@@ -650,6 +657,13 @@ export function Requirements({ focusReq }: {
                 <div className="h-full rounded-full bg-accent transition-[width] duration-500"
                      style={{ width: `${(100 * agents.filter((a) => a.done).length) / agentsTotal}%` }} />
               </div>
+            )}
+            {!running && metrics && (
+              <p className="mt-2 font-mono text-[11px] tabular-nums text-fg-faint"
+                 title="Complétude des agents · appels LLM réels (hors cache) · durée totale — les axes de pilotage du système multi-agent.">
+                {metrics.agents_done}{agentsTotal ? `/${agentsTotal}` : ""} agents ·{" "}
+                {metrics.llm_calls} appel{metrics.llm_calls > 1 ? "s" : ""} LLM · {metrics.wall_s} s
+              </p>
             )}
             {verdict?.verdict && (
               <div className="verdict-banner mt-3 space-y-2.5"

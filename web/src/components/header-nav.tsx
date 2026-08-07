@@ -16,8 +16,8 @@ const RAG_LINKS = [
   { href: "/rag", label: "Chat" },
   { href: "/documents", label: "Documents" },
 ];
+// L'Aide sort de la nav principale (essentiel seulement) : icône « ? » à droite.
 const RAG_TAIL = [
-  { href: "/informations", label: "Aide" },
   { href: "/settings", label: "Réglages" },
 ];
 const RAG_EXPERT = [
@@ -79,6 +79,20 @@ export function HeaderNav() {
           {l.label}
         </Link>
       ))}
+      {inRag && (
+        <Link
+          href="/informations"
+          title="Aide : ce que fait chaque compétence du moteur, et quand."
+          aria-label="Aide"
+          aria-current={pathname.startsWith("/informations") ? "page" : undefined}
+          className={`flex h-5 w-5 items-center justify-center rounded-full border text-[11px] transition-colors hover:border-accent/60 hover:text-foreground ${
+            pathname.startsWith("/informations")
+              ? "border-accent/60 text-accent-bright" : "border-edge text-fg-faint"
+          }`}
+        >
+          ?
+        </Link>
+      )}
       {inRag && <ExpertToggle />}
     </nav>
   );

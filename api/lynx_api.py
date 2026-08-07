@@ -8,6 +8,7 @@ appels LLM sont sérialisés (le buffer de trace de `src.llm` est global).
 from __future__ import annotations
 
 import json
+import time
 import queue
 import sys
 import threading
@@ -264,19 +265,35 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
             except Exception:
                 pass  # sans total, l'UI garde les pastilles par agent
             llm.start_trace()
-            report = run_impact_analysis(
-                corpus, action, semantic=body.semantic,
-                on_event=lambda kind, label: emit(
-                    {"type": "agent", "kind": kind, "label": label}))
-            findings = _ui_findings(report)
-            emit({"type": "report", "verdict": verdict_label(report),
-                  "findings": findings, "impacted": report.impacted_ids,
-                  "narrative": report.narrative})
-            for piece in stream_synthesis(report, action, use_llm=body.semantic):
-                emit({"type": "token", "text": piece})
+            t0 = time.time()
+            agents_done = {"n": 0}
+
+            def _on_agent(kind, label):
+                if kind == "done":
+                    agents_done["n"] += 1
+                emit({"type": "agent", "kind": kind, "label": label})
+
+            try:
+                report = run_impact_analysis(
+                    corpus, action, semantic=body.semantic, on_event=_on_agent)
+                findings = _ui_findings(report)
+                emit({"type": "report", "verdict": verdict_label(report),
+                      "findings": findings, "impacted": report.impacted_ids,
+                      "narrative": report.narrative})
+                for piece in stream_synthesis(report, action, use_llm=body.semantic):
+                    emit({"type": "token", "text": piece})
+            except llm.LynxBudgetExceeded as exc:
+                # Garde-fou coût : abandon PROPRE, boîte de verre conservée.
+                findings = []
+                emit({"type": "error", "message": str(exc)})
             records = llm.stop_trace()
             emit({"type": "exchanges",
                   "exchanges": trace.build_timeline(records, findings)})
+            # Doctrine multi-agent : complétude, appels LLM, coût vs latence.
+            emit({"type": "metrics",
+                  "agents_done": agents_done["n"],
+                  "llm_calls": llm.llm_calls_in_trace(),
+                  "wall_s": round(time.time() - t0, 1)})
             # ROI : défauts captés tôt (shift-left), comme le Streamlit.
             try:
                 roi.record_catches("edition", action.action_type.value,
