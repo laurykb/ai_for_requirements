@@ -1,9 +1,7 @@
 """API FastAPI (backend du nouveau front) — point d'entrée.
 
-L'UI humaine est le front Next.js (`web/`), servi par cette API. L'ancienne UI
-Streamlit (`legacy/app/main.py`) reste disponible en secours le temps d'atteindre
-la parité. Cette API n'importe jamais streamlit : elle parle directement à Mongo
-et Ollama.
+L'UI humaine est le front Next.js (`web/`), servi par cette API. Elle parle
+directement à Mongo et Ollama.
 
 Ce module ne fait QUE l'assemblage ; chaque domaine vit dans son routeur :
   - api/rag.py        couche Q&A : RAG direct + agent ReAct, streaming SSE

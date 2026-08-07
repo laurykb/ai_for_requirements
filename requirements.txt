@@ -51,10 +51,7 @@ pymongo>=4.10.0
 mcp>=1.0.0                # expose le RAG comme outil via Model Context Protocol (stdio)
 
 # ─────────────── Interface Web ───────────────
-streamlit>=1.40.0
-streamlit-autorefresh>=1.0.1
-markdown2>=2.5.0
-# API du nouveau front Next.js (web/) — `python serve.py --web`
+# API du front Next.js (web/) — `python serve.py`
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9   # upload de fichiers (FastAPI Form/File)
@@ -65,9 +62,9 @@ pillow>=10.0.0
 python-dotenv>=1.0.0  # configuration portable via .env
 
 # ─────────────── LynX / AI for Requirements (module lynx/) ───────────────
-# pydantic et httpx sont déjà tirés transitivement (fastapi, mcp) ;
-# streamlit-agraph sert au graphe DAG de l'UI Streamlit legacy.
-streamlit-agraph>=0.0.45
+# pydantic et httpx sont déjà tirés transitivement (fastapi, mcp).
+# L'UI Streamlit standalone de LynX (lynx/app.py) n'est PAS installée par
+# défaut : `pip install streamlit streamlit-agraph` si besoin ponctuel.
 
 # ─────────────── Dev : tests & notebooks ───────────────
 pytest>=8.0

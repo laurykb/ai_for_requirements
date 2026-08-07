@@ -55,7 +55,7 @@ Variante **agent** : `core/agent.py` (boucle ReAct) appelle l'outil
 
 | Rôle | Fichiers |
 |---|---|
-| Entrée / config | `serve.py`, `api/main.py` (+ `web/`), `env_config.py` ; UI legacy : `legacy/app/main.py` |
+| Entrée / config | `serve.py`, `api/main.py` (+ `web/`), `env_config.py` |
 | Ingestion | `core/ingest.py`, `indexing/{chunking,embedding,keyword_index,store_mongo}.py`, `nlp/chunk_enhancer.py`, `preprocessing/pdf_to_markdown.py` |
 | Retrieval hybride | `retrieval/{retrieve,semantic_search,keyword_bm25,rrf,cross_encoder,parent_child,context_refine,vector_store}.py` |
 | Génération | `core/{llm_answer,llm_client,summarize}.py` |
@@ -100,7 +100,7 @@ action ─▶ orchestrator.build_candidate_tree()   (arbre « candidat » après
 | Remédiation | `correction.py` + `redaction.py` (réécriture conforme EN9100) |
 | Prompts des agents | `skills/*.md` (un fichier par agent, éditable sans toucher au code) |
 | Persistance / mesure | `store.py`, `corpus_io.py`, `feedback.py`, `roi.py`, `telemetry.py` |
-| Interfaces | `api/lynx_api.py` (routeur FastAPI → front Next.js `web/`) ; `lynx/app.py` (Streamlit, legacy) |
+| Interfaces | `api/lynx_api.py` + `api/lynx_chat.py` (routeurs FastAPI → front Next.js `web/`) |
 
 Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`.
 
@@ -110,7 +110,7 @@ Détails d'approche : `lynx/METHODOLOGIE.md`. Reste à faire : `lynx/ROADMAP.md`
 
 ```bash
 # Application complète (RAG + LynX) : Mongo + Ollama + front Next.js + API FastAPI
-python serve.py                     # (ancienne UI Streamlit : python serve.py --streamlit)
+python serve.py
 
 # Tests (hors-ligne, sans Ollama)
 python -m pytest tests                                     # RAG (154)

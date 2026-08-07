@@ -15,13 +15,12 @@ précis. Pour la carte du code, voir [`ARCHITECTURE.md`](ARCHITECTURE.md).
 Trois couches (détail dans `ARCHITECTURE.md`) :
 
 - **UI cible** : front **Next.js** (`web/`) → **API FastAPI** (`api/`).
-- **UI legacy** : **Streamlit** (`legacy/app/`), gardée le temps de la parité.
+- **UI legacy** : retirée (migration terminée) — historique dans `git log -- legacy/`.
 - **Moteur partagé** : `core/ retrieval/ indexing/ nlp/ preprocessing/ utils/ tools/`
   (RAG) + `lynx/` (AI for Requirements).
 
 **Lancement unique** : `python serve.py` démarre MongoDB + Ollama (s'ils ne
 tournent pas), puis l'API FastAPI (`:8000`) + le front Next.js (`:3000`).
-`python serve.py --streamlit` lance l'UI Streamlit legacy (`:8501`).
 
 **Dépendances externes au runtime** : **MongoDB** (chunks, index BM25, sessions,
 corpus LynX, traces) + **Ollama** (LLM + embeddings) + un **cross-encoder** local
@@ -35,7 +34,6 @@ corpus LynX, traces) + **Ollama** (LLM + embeddings) + un **cross-encoder** loca
 | Ollama | 11434 | génération + embeddings | **oui** |
 | API FastAPI (uvicorn) | 8000 | backend de l'UI cible | oui (UI cible) |
 | Front Next.js | 3000 | UI cible | oui (UI cible) |
-| Streamlit legacy | 8501 | UI de secours | non (optionnel) |
 
 ---
 
@@ -181,7 +179,7 @@ cp .env.example .env                 # puis adapter (modèles, MONGO_BIN si port
 #    data/mongodb/ (base), data/chroma_db/ (vecteurs), lynx/corpus/ (matrice LynX)
 
 # 8. Lancer
-python serve.py                      # UI cible (Next.js + API) ; --streamlit pour le legacy
+python serve.py                      # UI Next.js + API FastAPI
 
 # 9. Vérifier
 python diagnostic.py                 # état services + routage + vector store

@@ -97,7 +97,7 @@ GEN_MODEL=mistral-small3.2:latest
 
 ```bash
 python serve.py                                # front Next.js (:3000) + API FastAPI (:8000)
-# python serve.py --streamlit                  # ancienne UI Streamlit (legacy, :8501)
+# python serve.py                  # ancienne UI Streamlit (legacy, :8501)
 python -m evals.run_eval --mode retrieval      # évaluation retrieval (rapide)
 python -m core.agent "Quel est le niveau EAL de la TOE ?"   # agent en CLI
 python rag_mcp_server.py                        # serveur MCP (stdio)
