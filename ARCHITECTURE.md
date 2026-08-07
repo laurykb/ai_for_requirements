@@ -95,6 +95,13 @@ voit que ses documents et ses conversations.
 - **MongoDB** — chunks, index BM25 sérialisé, sessions de conversation, corpus de
   travail LynX (`working.json` + historique).
 - **Chroma** — vecteurs (embeddings bge-m3).
+
+> **Multi-installations sur une même machine** : le serveur Mongo (:27017) est
+> partagé, mais chaque installation a SON Chroma local (`data/chroma_db`). Avec
+> le `MONGO_DB=ragdb` par défaut, deux installations lancées côte à côte se
+> polluent mutuellement (documents/sessions communs, vecteurs incohérents).
+> Donner à chacune sa base : `scripts/migrate_mongo_db.py <base_dédiée>` puis
+> `MONGO_DB=<base_dédiée>` dans le `.env` (voir l'en-tête du script).
 - **`models/`** — poids du cross-encoder (gitignoré, local).
 - **Ollama** — génération (`mistral-small3.2`) + embeddings (`bge-m3`).
 
