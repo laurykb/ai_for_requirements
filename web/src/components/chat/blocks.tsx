@@ -322,7 +322,9 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
       )}
       {m.answerValidation && <AnswerValidationBlock validation={m.answerValidation} />}
       {m.analysisArtifact && <AnalysisResultsBlock artifact={m.analysisArtifact} />}
-      {m.citations && <SourcesBlock citations={m.citations} />}
+      {/* Chat baseline (lynxNav présent) : Sources masquées — la source est
+          toujours la baseline, les passages récupérés disent déjà tout. */}
+      {m.citations && !lynxNav && <SourcesBlock citations={m.citations} />}
       {/* Passages récupérés : boîte de verre pour TOUS les modes (cocher/
           décocher + régénérer sur la dernière réponse). key : remonte le bloc
           quand la liste change (régénération) pour réaligner les cases. */}
