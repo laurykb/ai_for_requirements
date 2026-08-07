@@ -31,7 +31,6 @@ from eval.run_eval import run_golden_eval    # noqa: E402
 from src import audit as lynx_audit          # noqa: E402
 from src import autofix as lynx_autofix      # noqa: E402
 from src import correction as lynx_correction  # noqa: E402
-from src import generation as lynx_generation  # noqa: E402
 from src import corpus_io, feedback, llm, roi, store, trace  # noqa: E402
 from src.models import Action                 # noqa: E402
 from src.orchestrator import (                # noqa: E402
@@ -483,73 +482,6 @@ def audit_fix_apply(body: FixApplyBody) -> dict:
                              "Correction en lot (audit)")
     store.save_working(corpus)
     return {"n": len(corpus), "exigences": corpus}
-
-
-# ─────────────── Génération descendante de filles (SSE) ───────────────
-
-class GenerateChildrenBody(BaseModel):
-    req_id: str
-
-
-@router.post("/generate/children")
-def generate_children(body: GenerateChildrenBody) -> StreamingResponse:
-    """Propose des exigences filles L(n+1) pour la mère sélectionnée :
-    `progress` {phase: generation|audit|reecriture, ...} puis `result`
-    (récap sélectif — rien n'est créé sans /generate/children/apply)."""
-    corpus = [dict(r) for r in _get_corpus()]
-
-    def run(emit, cancelled):
-        with _LLM_LOCK:
-            llm.start_trace()  # boîte de verre : proposition + audit + débat + réécriture
-            out = lynx_generation.generate_children(
-                corpus, body.req_id,
-                on_progress=lambda info: emit({"type": "progress", **info}),
-                cancelled=cancelled)
-            records = llm.stop_trace()
-        if out.get("error"):
-            emit({"type": "error", "message": str(out["error"])[:300]})
-        else:
-            child_ids = [f["id_propose"] for f in out.get("filles", [])]
-            out["exchanges"] = trace.build_generation_timeline(records, child_ids)
-            emit({"type": "result", **out})
-            emit({"type": "done"})
-
-    return _sse_stream(run, on_cancel=llm.stop_trace,  # purge le buffer, copie jetée
-                       cancel_excs=(lynx_generation.BatchCancelled,))
-
-
-class ChildItem(BaseModel):
-    texte: str
-    niveau: int
-    id: str | None = None             # id proposé au récap (repli auto si pris)
-
-
-class GenerateApplyBody(BaseModel):
-    parent_id: str
-    items: list[ChildItem]
-
-
-@router.post("/generate/children/apply")
-def generate_children_apply(body: GenerateApplyBody) -> dict:
-    """Crée réellement les filles cochées du récap (lien DERIVE via parent_id),
-    par le même chemin que la création manuelle (CREATE + persistance)."""
-    corpus = _get_corpus()
-    ids = {r["id"] for r in corpus}
-    if body.parent_id not in ids:
-        raise HTTPException(400, f"Mère inconnue : {body.parent_id}")
-    if not body.items:
-        raise HTTPException(400, "Aucune fille sélectionnée.")
-    for it in body.items:
-        if not it.texte.strip():
-            raise HTTPException(400, "Texte de fille vide.")
-    for it in body.items:
-        ids = {r["id"] for r in _get_corpus()}
-        cid = it.id if it.id and it.id not in ids else ""  # "" -> id auto
-        apply_action(ApplyBody(action=ActionBody(
-            action_type="CREATE", target_id=cid, new_text=it.texte.strip(),
-            parent_id=body.parent_id, niveau=it.niveau),
-            rationale="Génération descendante (validée au récap)"))
-    return {"n": len(_get_corpus()), "exigences": _get_corpus()}
 
 
 # ─────────────── Éval du golden set (SSE) ───────────────

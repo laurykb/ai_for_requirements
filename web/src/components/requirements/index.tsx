@@ -24,8 +24,7 @@ import {
   type Suggestion, type Verdict,
 } from "@/components/requirements/blocks";
 import {
-  AuditPanel, CreateChildForm, GenerateChildrenBlock, LinkForm,
-  type GenProgress, type GenRecap,
+  AuditPanel, CreateChildForm, LinkForm,
 } from "@/components/requirements/panels";
 
 const ReqGraph = dynamic(() => import("@/components/req-graph").then((m) => m.ReqGraph), {
@@ -88,11 +87,6 @@ export function Requirements({ focusReq }: {
   // Vue du graphe : 2D par niveaux (défaut, scannable) ou 3D en couches.
   const [graphView, setGraphView] = useState<"2d" | "3d">("2d");
 
-  const [genRunning, setGenRunning] = useState(false);
-  const [genProgress, setGenProgress] = useState<GenProgress | null>(null);
-  const [genRecap, setGenRecap] = useState<GenRecap | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
-  const genAbort = useRef<AbortController | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const verdictRef = useRef<HTMLDivElement>(null);
@@ -314,47 +308,6 @@ export function Requirements({ focusReq }: {
 
   /** Génération descendante : l'agent propose des filles auto-auditées sur
    * une copie — rien n'est créé avant la validation sélective du récap. */
-  const runGenerateChildren = async () => {
-    if (!sel || genRunning || running) return;
-    setGenRunning(true);
-    setGenRecap(null);
-    setGenProgress(null);
-    setGenError(null);
-    const ctl = new AbortController();
-    genAbort.current = ctl;
-    try {
-      await streamPost("/api/lynx/generate/children", { req_id: sel.id }, (ev) => {
-        if (ev.type === "progress") setGenProgress(ev as unknown as GenProgress);
-        else if (ev.type === "result") setGenRecap(ev as unknown as GenRecap);
-        else if (ev.type === "error") setGenError(`Génération : ${String(ev.message)}`);
-      }, ctl.signal);
-    } catch (e) {
-      if (!ctl.signal.aborted) setGenError(`API injoignable (${String(e)})`);
-    }
-    genAbort.current = null;
-    setGenProgress(null);
-    setGenRunning(false);
-  };
-
-  const cancelGenerateChildren = () => genAbort.current?.abort();
-
-  /** Crée réellement les filles cochées (liens DERIVE via parent_id). */
-  const applyGenerateChildren = async (items: { id: string; texte: string; niveau: number }[]) => {
-    if (!sel) return;
-    const res = await fetch(`${API_BASE}/api/lynx/generate/children/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parent_id: sel.id, items }),
-    }).catch(() => null);
-    if (!res?.ok) {
-      setGenError("Création des filles impossible.");
-      return;
-    }
-    setGenRecap(null);
-    setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
-    await refresh();
-  };
-
   const suggest = async () => {
     if (!sel || suggesting) return;
     setSuggesting(true);
@@ -627,13 +580,6 @@ export function Requirements({ focusReq }: {
               {/* Créer une exigence fille (parité Streamlit). */}
               <CreateChildForm key={sel.id} sel={sel} disabled={running} onCreate={analyze} />
 
-              {/* Génération descendante L(n+1) par l'agent, récap sélectif. */}
-              <GenerateChildrenBlock
-                key={`gen-${sel.id}`} sel={sel} llmOk={llmOk} disabled={running}
-                genRunning={genRunning} genProgress={genProgress} genRecap={genRecap}
-                genError={genError} onRun={runGenerateChildren}
-                onCancel={cancelGenerateChildren} onApply={applyGenerateChildren}
-                onClose={() => { setGenRecap(null); setGenError(null); }} />
             </div>
           )}
         </aside>
