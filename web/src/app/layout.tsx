@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
@@ -41,7 +42,10 @@ export default function RootLayout({
                 RAG documentaire · vérification d&apos;exigences
               </span>
             </Link>
-            <HeaderNav />
+            {/* Suspense : la nav lit les query params (onglets LynX). */}
+            <Suspense fallback={null}>
+              <HeaderNav />
+            </Suspense>
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">{children}</main>

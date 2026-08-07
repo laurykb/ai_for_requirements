@@ -214,6 +214,14 @@ body {
   margin: 8px 0;
 }
 
+/* Espace LynX élargi : sort du conteneur central (max-w-6xl) du layout pour
+   donner à la Matrice toute la largeur utile (plafond ~1640px, centré). */
+.lynx-wide {
+  width: 100dvw;
+  margin-left: calc(50% - 50dvw);
+  padding-inline: max(1.5rem, calc(50dvw - 820px));
+}
+
 /* ===== Chat ==================================================================== */
 
 /* Blocs repliés (sources, passages) : progressive disclosure sobre. */

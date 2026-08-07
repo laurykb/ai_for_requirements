@@ -28,12 +28,12 @@ test("chat RAG : composeur présent, périmètre et modes visibles", async ({ pa
   await expect(page.getByLabel("Mode de traitement")).toBeVisible();
 });
 
-test("AI for Requirements : trois onglets, le Chat affiche l'espace baseline", async ({ page }) => {
+test("AI for Requirements : onglets en barre de menu, le Chat affiche l'espace baseline", async ({ page }) => {
   await page.goto("/requirements");
-  for (const tab of ["Matrice", "Chat", "Informations"]) {
-    await expect(page.getByRole("button", { name: tab, exact: true })).toBeVisible();
+  for (const tab of ["Matrice", "Exigences", "Chat", "Paramètres"]) {
+    await expect(page.getByRole("link", { name: tab, exact: true })).toBeVisible();
   }
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("link", { name: "Chat", exact: true }).click();
   // Selon l'état de l'index : bandeau baseline, invite de synchronisation,
   // spinner d'interrogation ou bannière d'erreur API — jamais une zone vide.
   await expect(
@@ -41,9 +41,14 @@ test("AI for Requirements : trois onglets, le Chat affiche l'espace baseline", a
   ).toBeVisible({ timeout: 10_000 });
 });
 
+test("navigateur d'exigences : liste, filtres et compteur", async ({ page }) => {
+  await page.goto("/requirements?tab=exigences");
+  await expect(page.getByLabel("Rechercher une exigence")).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByLabel("Filtrer par domaine")).toBeVisible();
+});
+
 test("chat baseline : pas de sélecteur de mode ni de pièce jointe", async ({ page }) => {
-  await page.goto("/requirements");
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.goto("/requirements?tab=chat");
   const composer = page.getByLabel("Question");
   // Le composeur n'apparaît que si l'index est prêt ; sinon le test vérifie
   // simplement l'absence des contrôles hors périmètre dans l'espace baseline.

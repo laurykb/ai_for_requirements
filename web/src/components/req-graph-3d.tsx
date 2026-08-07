@@ -74,7 +74,7 @@ export const ReqGraph3D = memo(function ReqGraph3D({
   return (
     <div className="flex flex-col gap-1.5">
       <div ref={boxRef}
-           className="h-[calc(100vh-22rem)] min-h-[560px] overflow-hidden rounded-xl border border-edge bg-surface">
+           className="h-[calc(100vh-17rem)] min-h-[620px] overflow-hidden rounded-xl border border-edge bg-surface">
         {size && (
           <ForceGraph3D
             width={size.w}

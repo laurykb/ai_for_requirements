@@ -7,7 +7,7 @@
  * Prompts métier et Suivi technique : réservés au mode Expert (monde RAG). */
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { ExpertToggle, useExpert } from "@/components/expert-toggle";
 
@@ -28,8 +28,17 @@ const RAG_PREFIXES = [
   "/rag", "/documents", "/agents", "/informations", "/observability", "/settings",
 ];
 
+// Monde LynX : les onglets de l'outil, en barre de menu (liens ?tab=).
+const LYNX_TABS = [
+  { tab: "matrice", label: "Matrice" },
+  { tab: "exigences", label: "Exigences" },
+  { tab: "chat", label: "Chat" },
+  { tab: "parametres", label: "Paramètres" },
+];
+
 export function HeaderNav() {
   const pathname = usePathname();
+  const params = useSearchParams();
   const expert = useExpert();
   if (pathname === "/") return null; // accueil : rien d'autre que les deux cartes
 
@@ -38,13 +47,26 @@ export function HeaderNav() {
   const links = inRag
     ? [...RAG_LINKS, ...RAG_TAIL, ...(expert ? RAG_EXPERT : [])]
     : [];
+  const activeTab = inLynx ? (params.get("tab") ?? "matrice") : null;
 
   return (
     <nav className="flex items-center gap-5 text-sm text-fg-muted">
       <Link href="/" className="text-fg-faint transition-colors hover:text-foreground">
         ← Accueil
       </Link>
-      {inLynx && <span className="text-foreground">AI for Requirements</span>}
+      {inLynx && LYNX_TABS.map((t) => (
+        <Link
+          key={t.tab}
+          href={t.tab === "matrice" ? "/requirements" : `/requirements?tab=${t.tab}`}
+          replace scroll={false}
+          aria-current={activeTab === t.tab ? "page" : undefined}
+          className={`transition-colors hover:text-foreground ${
+            activeTab === t.tab ? "text-accent-bright" : ""
+          }`}
+        >
+          {t.label}
+        </Link>
+      ))}
       {links.map((l) => (
         <Link
           key={l.href}

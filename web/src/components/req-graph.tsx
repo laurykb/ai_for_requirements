@@ -173,7 +173,7 @@ export const ReqGraph = memo(function ReqGraph({
   return (
     <div className="flex flex-col gap-1.5">
       {/* La vue centrale de LynX : le graphe prend la hauteur disponible. */}
-      <div className="req-graph h-[calc(100vh-22rem)] min-h-[560px] overflow-hidden rounded-xl border border-edge bg-surface">
+      <div className="req-graph h-[calc(100vh-17rem)] min-h-[620px] overflow-hidden rounded-xl border border-edge bg-surface">
       <ReactFlow
         nodes={nodes}
         edges={edges}
