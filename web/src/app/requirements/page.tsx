@@ -7,6 +7,7 @@ import { LynxBrowser } from "@/components/lynx-browser";
 import { LynxChat } from "@/components/lynx-chat";
 import { LynxInfo } from "@/components/lynx-info";
 import { LynxNavContext } from "@/components/lynx-nav";
+import { LynxRuns } from "@/components/lynx-runs";
 import { Requirements } from "@/components/requirements";
 
 /** AI for Requirements (LynX) : seconde lecture de la matrice d'exigences.
@@ -20,9 +21,9 @@ import { Requirements } from "@/components/requirements";
  * Chat. Matrice, Exigences et Chat restent montés (masqués CSS) : sélection,
  * audit et fil de conversation survivent aux allers-retours. */
 
-export type LynxTab = "matrice" | "exigences" | "chat" | "parametres";
+export type LynxTab = "matrice" | "exigences" | "chat" | "suivi" | "parametres";
 
-const TABS: LynxTab[] = ["matrice", "exigences", "chat", "parametres"];
+const TABS: LynxTab[] = ["matrice", "exigences", "chat", "suivi", "parametres"];
 
 function RequirementsPageInner() {
   const router = useRouter();
@@ -59,6 +60,9 @@ function RequirementsPageInner() {
         </div>
         <div className={tab === "chat" ? "" : "hidden"}>
           <LynxChat prefill={chatPrefill} />
+        </div>
+        <div className={tab === "suivi" ? "" : "hidden"}>
+          <LynxRuns active={tab === "suivi"} />
         </div>
         {tab === "parametres" && <LynxInfo />}
       </LynxNavContext.Provider>

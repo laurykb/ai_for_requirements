@@ -9,11 +9,12 @@
 import { useEffect, useRef, useState } from "react";
 
 import { API_BASE, getJSON } from "@/lib/api";
-import { Banner, Hint, Spinner } from "@/components/ui";
+import { useExpert } from "@/components/expert-toggle";
+import { Banner, Dot, Hint, Spinner } from "@/components/ui";
 import { streamPost } from "@/components/requirements/blocks";
 
 type Skill = { name: string; content: string };
-type OrchEntry = { name: string; label: string; enabled: boolean };
+type OrchEntry = { name: string; label: string; enabled: boolean; model?: string | null };
 type Orchestration = { deterministic: OrchEntry[]; semantic: OrchEntry[] };
 
 type AxisScore = { tp?: number; fp?: number; fn?: number; precision: number; recall: number };
@@ -197,6 +198,7 @@ function OrchList({ title, hint, entries, onChange }: {
 }
 
 export function LynxInfo() {
+  const expert = useExpert();
   const [skills, setSkills] = useState<Skill[] | null>(null);
   const [orch, setOrch] = useState<Orchestration | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -268,6 +270,28 @@ export function LynxInfo() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      {/* Vue d'ensemble (toujours visible) : quels agents, quel modèle. */}
+      <section>
+        <h3 className="text-sm font-semibold text-foreground">
+          Agents &amp; modèles{" "}
+          <Hint text="Les agents du pipeline d'analyse et le LLM que chacun utilise (routage LYNX_MODEL_<AGENT> dans le .env ; les déterministes n'appellent aucun LLM). Modifier l'orchestration et les prompts : mode Expert." />
+        </h3>
+        <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
+          {[...orch.deterministic.map((e) => ({ ...e, kind: "déterministe" })),
+            ...orch.semantic.map((e) => ({ ...e, kind: "sémantique (IA)" }))].map((e) => (
+            <p key={e.name} className="flex items-center gap-2 text-xs">
+              <Dot tone={e.enabled ? "good" : "neutral"} />
+              <span className={e.enabled ? "text-foreground" : "text-fg-faint line-through"}>
+                {e.label}
+              </span>
+              <span className="ml-auto text-right font-mono text-[10px] text-fg-faint">
+                {e.kind === "déterministe" ? "sans LLM" : (e.model ?? "—")}
+              </span>
+            </p>
+          ))}
+        </div>
+      </section>
+
       <section>
         <h3 className="text-sm font-semibold text-foreground">
           Chat sur la baseline{" "}
@@ -287,7 +311,15 @@ export function LynxInfo() {
         </p>
       </section>
 
-      <section>
+      {!expert && (
+        <Banner tone="neutral">
+          Activez le mode <b>Expert</b> (en haut à droite) pour réordonner ou
+          désactiver les agents, éditer leurs prompts et lancer l&apos;évaluation
+          sur le golden set.
+        </Banner>
+      )}
+
+      {expert && <section>
         <h3 className="text-sm font-semibold text-foreground">
           Orchestration des agents{" "}
           <Hint text="Déterministes : exécutés l'un après l'autre, dans cet ordre. Sémantiques (IA) : lancés en parallèle, l'ordre = ordre de lancement. Décocher = retirer du pipeline." />
@@ -322,9 +354,9 @@ export function LynxInfo() {
           )}
           {saved === "ko" && <span className="text-[11px] text-bad">échec de l&apos;enregistrement.</span>}
         </div>
-      </section>
+      </section>}
 
-      <section>
+      {expert && <section>
         <h3 className="text-sm font-semibold text-foreground">
           Prompts des agents{" "}
           <Hint text="Le markdown exact envoyé à chaque agent IA (skills/*.md). Modifiable ici ; rechargé du disque à chaque appel — effet dès l'analyse suivante." />
@@ -399,7 +431,7 @@ export function LynxInfo() {
             <SkillEditor key={s.name} s={s} onTest={runEval} evalRunning={evalRunning} />
           ))}
         </div>
-      </section>
+      </section>}
     </div>
   );
 }

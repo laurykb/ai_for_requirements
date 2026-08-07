@@ -33,6 +33,7 @@ const LYNX_TABS = [
   { tab: "matrice", label: "Matrice" },
   { tab: "exigences", label: "Exigences" },
   { tab: "chat", label: "Chat" },
+  { tab: "suivi", label: "Suivi" },
   { tab: "parametres", label: "Paramètres" },
 ];
 
@@ -91,7 +92,7 @@ export function HeaderNav() {
           ?
         </Link>
       )}
-      {inRag && <ExpertToggle />}
+      {(inRag || inLynx) && <ExpertToggle />}
     </nav>
   );
 }

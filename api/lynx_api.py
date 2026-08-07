@@ -175,6 +175,50 @@ def _candidate(corpus: list[dict], a: ActionBody) -> list[dict]:
     return cand
 
 
+def _save_run(kind: str, summary: dict, exchanges: list) -> str | None:
+    """Traçabilité des runs multi-agents (doctrine : chemin de pensée, appels
+    LLM, coût/latence). Meilleur-effort : Mongo down ne casse jamais un run.
+    Collection bornée aux 200 derniers runs."""
+    try:
+        from utils.mongo import get_db
+        col = get_db()["lynx_runs"]
+        run_id = uuid4().hex[:12]
+        col.insert_one({"run_id": run_id, "kind": kind, "t": time.time(),
+                        **summary, "exchanges": exchanges})
+        excess = col.count_documents({}) - 200
+        if excess > 0:
+            for doc in col.find({}, {"_id": 1}).sort("t", 1).limit(excess):
+                col.delete_one({"_id": doc["_id"]})
+        return run_id
+    except Exception:
+        return None
+
+
+@router.get("/runs")
+def list_runs(limit: int = 50) -> dict:
+    """Historique des runs multi-agents (analyses, audits) — résumés seuls."""
+    try:
+        from utils.mongo import get_db
+        rows = list(get_db()["lynx_runs"].find({}, {"_id": 0, "exchanges": 0})
+                    .sort("t", -1).limit(max(1, min(limit, 200))))
+        return {"available": True, "runs": rows}
+    except Exception:
+        return {"available": False, "runs": []}
+
+
+@router.get("/runs/{run_id}")
+def get_run(run_id: str) -> dict:
+    """Un run complet : résumé + chemin de pensée (échanges LLM par agent)."""
+    try:
+        from utils.mongo import get_db
+        doc = get_db()["lynx_runs"].find_one({"run_id": run_id}, {"_id": 0})
+    except Exception:
+        raise HTTPException(503, "Mongo injoignable.")
+    if not doc:
+        raise HTTPException(404, "Run introuvable.")
+    return doc
+
+
 class _Cancelled(Exception):
     """Le client SSE a disparu : on interrompt le worker au plus tôt (sinon il
     poursuivrait ses appels LLM en tenant _LLM_LOCK — UI « pendue » ensuite)."""
@@ -287,13 +331,17 @@ def analyze(body: AnalyzeBody) -> StreamingResponse:
                 findings = []
                 emit({"type": "error", "message": str(exc)})
             records = llm.stop_trace()
-            emit({"type": "exchanges",
-                  "exchanges": trace.build_timeline(records, findings)})
+            timeline = trace.build_timeline(records, findings)
+            emit({"type": "exchanges", "exchanges": timeline})
             # Doctrine multi-agent : complétude, appels LLM, coût vs latence.
-            emit({"type": "metrics",
-                  "agents_done": agents_done["n"],
-                  "llm_calls": llm.llm_calls_in_trace(),
-                  "wall_s": round(time.time() - t0, 1)})
+            metrics = {"agents_done": agents_done["n"],
+                       "llm_calls": llm.llm_calls_in_trace(),
+                       "wall_s": round(time.time() - t0, 1)}
+            emit({"type": "metrics", **metrics})
+            _save_run("analyse", {
+                "action": f"{action.action_type.value} {action.target_id}",
+                "verdict": verdict_label(report) if findings is not None and 'report' in dir() else None,
+                **metrics}, timeline)
             # ROI : défauts captés tôt (shift-left), comme le Streamlit.
             try:
                 roi.record_catches("edition", action.action_type.value,
@@ -353,16 +401,22 @@ def audit(body: AuditBody) -> StreamingResponse:
     def run(emit, cancelled):
         with _LLM_LOCK:
             llm.start_trace()
+            t0 = time.time()
             rep = lynx_audit.audit_matrix(
                 corpus, deep=body.deep,
                 on_event=lambda done, total: emit(
                     {"type": "progress", "done": done, "total": total}))
             records = llm.stop_trace()
+        exchanges = trace.humanize_audit(records)
+        metrics = {"llm_calls": llm.llm_calls_in_trace(),
+                   "wall_s": round(time.time() - t0, 1)}
         emit({"type": "report", "n": rep.n, "score": rep.score,
               "counts": rep.counts, "flagged_ids": rep.flagged_ids,
               "n_non_audite": rep.n_non_audite,
               "findings": [vars(f) for f in rep.findings],
-              "exchanges": trace.humanize_audit(records)})
+              "exchanges": exchanges})
+        emit({"type": "metrics", **metrics})
+        _save_run("audit", {"score": rep.score, "n": rep.n, **metrics}, exchanges)
         emit({"type": "done"})
 
     return _sse_stream(run, on_cancel=llm.stop_trace)
@@ -605,7 +659,11 @@ def get_orchestration() -> dict:
     from src.orchestrator import AGENT_LABELS
     labels = {f.__name__: lbl for f, lbl in AGENT_LABELS.items()}
     cfg = oc.load_config()
-    return {g: [{**e, "label": labels.get(e["name"], e["name"])} for e in cfg[g]]
+    # `model` : LLM résolu par agent (routage LYNX_MODEL_<SKILL>, cf. src.llm).
+    # Les déterministes n'appellent pas de LLM -> None.
+    return {g: [{**e, "label": labels.get(e["name"], e["name"]),
+                 "model": llm.model_for(e["name"]) if g == "semantic" else None}
+                for e in cfg[g]]
             for g in ("deterministic", "semantic")}
 
 
