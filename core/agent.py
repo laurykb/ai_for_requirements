@@ -54,8 +54,17 @@ def _format_tools(specs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+_AGENT_BEHAVIOR_PROMPT = (
+    "Planifie tes recherches avant d agir, utilise les outils de façon économe, "
+    "puis produis une réponse exhaustive, structurée et sourcée."
+)
+
+
 def _build_system_prompt(tools_block: str, max_iter: int) -> str:
+    from core.prompt_registry import get_prompt
+    behavior = get_prompt("agent.behavior", _AGENT_BEHAVIOR_PROMPT)
     return (
+        behavior + "\n\n" +
         "Tu es un agent qui répond à des questions techniques en t'appuyant sur des OUTILS. "
         "Tu ne connais RIEN par toi-même : pour toute information factuelle, tu DOIS interroger un outil.\n\n"
         "Outils disponibles :\n"

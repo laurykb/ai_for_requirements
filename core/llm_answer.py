@@ -168,7 +168,9 @@ Réponds directement, sans préambule."""
 def get_system_prompt():
     """Prompt système par défaut : épuré en mode rapide (petit modèle), détaillé sinon."""
     from env_config import RAG_FAST_MODE
-    return LEAN_SYSTEM_PROMPT if RAG_FAST_MODE else DEFAULT_SYSTEM_PROMPT
+    from core.prompt_registry import get_prompt
+    default = LEAN_SYSTEM_PROMPT if RAG_FAST_MODE else DEFAULT_SYSTEM_PROMPT
+    return get_prompt("generate.system", default)
 
 
 def _chunk_source_label(chunk: dict, idx: int) -> str:

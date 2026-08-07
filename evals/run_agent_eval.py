@@ -44,7 +44,7 @@ def _run_engine(engine: str, question: str) -> dict:
 
 
 def _evaluate_item(item: dict, engine: str) -> dict:
-    from core.evaluation import keyword_hit_rate, context_recall, exact_match, f1_token
+    from core.evaluation import keyword_hit_rate, context_recall_lexical, exact_match, f1_token
 
     question = (item.get("question") or "").strip()
     reference = (item.get("answer") or "").strip()
@@ -58,7 +58,7 @@ def _evaluate_item(item: dict, engine: str) -> dict:
         metrics = {
             "question": question,
             "keyword_hit_rate": keyword_hit_rate(chunks, expected_kw),
-            "context_recall": context_recall(chunks, reference) if reference else None,
+            "context_recall": context_recall_lexical(chunks, reference) if reference else None,
             "exact_match": exact_match(answer, reference),
             "f1_token": f1_token(answer, reference),
             "tool_calls": res.get("tool_calls"),

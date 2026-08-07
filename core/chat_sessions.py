@@ -73,7 +73,9 @@ def list_sessions(limit: int = 50) -> list[dict]:
 
 
 def add_message(session_id: str, role: str, content: str, citations: list = None,
-                reasoning: str = None, chunks: list = None):
+                reasoning: str = None, chunks: list = None,
+                evidence_dossier: dict = None, answer_validation: dict = None,
+                analysis_artifact: dict = None):
     """
     Ajoute un message à la session et met à jour le titre si c'est le 1er message user.
     `reasoning` (optionnel) : trace de raisonnement de l'agent, affichée repliée.
@@ -85,6 +87,12 @@ def add_message(session_id: str, role: str, content: str, citations: list = None
         msg["reasoning"] = reasoning
     if chunks:
         msg["chunks"] = chunks
+    if evidence_dossier:
+        msg["evidenceDossier"] = evidence_dossier
+    if answer_validation:
+        msg["answerValidation"] = answer_validation
+    if analysis_artifact:
+        msg["analysisArtifact"] = analysis_artifact
 
     # Auto-titre : uniquement sur le premier message utilisateur.
     if role == "user":
@@ -180,6 +188,22 @@ def truncate_last_exchange(session_id: str) -> list[dict]:
         {"$set": {"messages": msgs, "updated_at": now}},
     )
     return msgs
+
+
+def set_last_assistant_eval(session_id: str, evaluation: dict):
+    """Attache les métriques qualité au dernier message assistant."""
+    doc = _col().find_one({"session_id": session_id}, {"messages": 1})
+    if not doc:
+        return
+    msgs = doc.get("messages", [])
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "assistant":
+            _col().update_one(
+                {"session_id": session_id},
+                {"$set": {f"messages.{i}.eval": evaluation,
+                          "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S")}},
+            )
+            break
 
 
 def set_last_assistant_attribution(session_id: str, attribution: dict):

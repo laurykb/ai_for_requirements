@@ -51,7 +51,9 @@ def _build_enriched_text(doc):
 
 
 def build_bm25_index(docs):
-    """Construit l'index BM25 et les structures associées."""
+    """Construit l'index BM25 et les structures associées.
+    Les chunks au contenu vide/blanc sont ignorés (ils pollueraient les scores)."""
+    docs = [d for d in docs if (getattr(d, "page_content", "") or "").strip()]
     texts = [getattr(d, "page_content", "") or "" for d in docs]
     ids = [getattr(d, "metadata", {}).get("id", f"doc_{i:04d}") for i, d in enumerate(docs)]
     metadatas = [getattr(d, "metadata", {}) for d in docs]

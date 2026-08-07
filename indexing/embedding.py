@@ -1,7 +1,7 @@
 """Génération d'embeddings et indexation dans le magasin vectoriel."""
 
 from nlp.ollama_embedding import OllamaEmbedding
-from env_config import COLLECTION_NAME
+from env_config import COLLECTION_NAME, HYPE_ENABLED, HYPE_MAX_QUESTIONS, CONTEXT_HEADERS_ENABLED
 from retrieval.vector_store import get_vector_store
 from utils.logging_config import get_logger
 
@@ -12,52 +12,117 @@ logger = get_logger("rag.embedding")
 _INVALID_EMBED_ABORT_RATIO = 0.5
 
 
+def _sanitize_chroma_metadata(meta):
+    """Retourne des métadonnées scalaires compatibles avec Chroma.
+
+    Mongo conserve les listes structurées sur les chunks. L'index vectoriel n'en
+    a besoin que pour l'affichage/retrieval et certaines versions de Chroma
+    refusent notamment les listes vides (cas normal pour quality_reasons sur un
+    chunk accepté).
+    """
+    sanitized = dict(meta)
+    separators = {
+        "questions": " | ",
+        "quality_reasons": ", ",
+    }
+    for key, value in list(sanitized.items()):
+        if isinstance(value, dict):
+            if key == "entities":
+                from nlp.ner_extractor import entities_to_str
+                sanitized[key] = entities_to_str(value)
+            else:
+                sanitized[key] = str(value)
+        elif isinstance(value, (list, tuple, set)):
+            separator = separators.get(key, ", ")
+            sanitized[key] = separator.join(str(item) for item in value)
+    return sanitized
+
+
+def _prefix_header(text, breadcrumb):
+    """Préfixe [breadcrumb] au texte à embarquer si absent (idempotent)."""
+    if not (CONTEXT_HEADERS_ENABLED and breadcrumb):
+        return text
+    tag = f"[{breadcrumb}]"
+    return text if tag in text else f"{tag}\n{text}"
+
+
+def build_embedding_units(docs):
+    """Unités à indexer : 1 vecteur contenu par chunk (+ vecteurs HyPE par question
+    pointant vers le parent si HYPE_ENABLED). Pur : aucune dépendance Ollama/Mongo."""
+    units = []
+    for d in docs:
+        content = d.page_content.strip()
+        if not content:
+            continue
+        meta = dict(d.metadata)
+        cid = meta["id"]
+        breadcrumb = meta.get("breadcrumb", "")
+        units.append({
+            "id": cid,
+            "document": content,
+            "embed_text": _prefix_header(content, breadcrumb),
+            "metadata": meta,
+        })
+        if HYPE_ENABLED:
+            questions = [q for q in (meta.get("questions") or []) if q and q.strip()]
+            for i, q in enumerate(questions[:HYPE_MAX_QUESTIONS]):
+                hmeta = dict(meta)
+                hmeta["chunk_type"] = "hype_question"
+                hmeta["parent_id"] = cid
+                hmeta["id"] = cid  # résout vers le parent en aval
+                units.append({
+                    "id": f"{cid}::hype::{i}",
+                    "document": content,
+                    "embed_text": _prefix_header(q.strip(), breadcrumb),
+                    "metadata": hmeta,
+                })
+    return units
+
+
 def build_embeddings(docs):
     """
     Génère les embeddings (vecteurs) pour une liste de Documents à l'aide du modèle OllamaEmbedding.
-    
-    Stratégie d'embedding (inspirée RAGFlow) :
-    - Si le chunk a des questions générées (auto_questions), l'embedding est calculé
-      sur les questions plutôt que le contenu brut, car question<->question matching
-      est un signal de pertinence plus fort que contenu<->question.
-    - Sinon, fallback sur le contenu brut.
-    
-    Retourne les textes, les vecteurs, les métadonnées et les identifiants associés à chaque chunk.
+
+    Stratégie d'embedding (voir build_embedding_units pour le détail) :
+    - 1 vecteur "contenu" par chunk : embarque page_content (préfixé du
+      breadcrumb en embed_text si CONTEXT_HEADERS_ENABLED), jamais les questions.
+    - Si HYPE_ENABLED : +1 vecteur par question générée (HyPE), qui embarque la
+      question mais pointe (via metadata["id"]) vers le chunk parent — un hit
+      sur la question retourne directement le contenu du parent.
+
+    Il peut donc y avoir plusieurs unités (texte + vecteur + métadonnées + id)
+    par chunk source ; les listes retournées sont alignées par unité, pas par chunk.
 
     Args:
         docs (list): Liste d'objets Document (doivent avoir .page_content et .metadata)
 
     Returns:
         tuple: (texts, vecs, metadatas, ids)
-            - texts (list[str]): Textes des chunks
+            - texts (list[str]): Texte "document" restitué (contenu du chunk, jamais les questions)
             - vecs (list[list[float]]): Embeddings vectoriels
-            - metadatas (list[dict]): Métadonnées associées à chaque chunk
-            - ids (list[str]): Identifiants uniques de chaque chunk
+            - metadatas (list[dict]): Métadonnées associées à chaque unité
+            - ids (list[str]): Identifiants uniques de chaque unité (Chroma)
     """
     model = OllamaEmbedding()
 
     # Filtrer les documents vides (pas de texte = pas d'embedding utile)
     docs = [d for d in docs if d.page_content.strip()]
 
-    texts = [d.page_content.strip() for d in docs]
+    # Une unité par vecteur à produire : 1 par chunk (contenu) + éventuellement
+    # 1 par question HyPE (pointant vers le parent). Voir build_embedding_units.
+    units = build_embedding_units(docs)
+    texts = [u["document"] for u in units]
+    texts_to_embed = [u["embed_text"] for u in units]
+    raw_metadatas = [u["metadata"] for u in units]
+    ids = [u["id"] for u in units]
 
-    # Priorise les questions générées : meilleur signal pour le matching question<->question.
-    texts_to_embed = []
-    for d in docs:
-        questions_str = d.metadata.get("questions_str", "")
-        if questions_str and len(questions_str) > 20:
-            # Embedding sur les questions générées (meilleur pour le retrieval)
-            texts_to_embed.append(questions_str)
-        else:
-            texts_to_embed.append(d.page_content.strip())
-    
     vecs = model.embed_documents(texts_to_embed)
 
     # Détecter les embeddings invalides (vides ou tout-zéro = échec côté modèle).
     invalid_idx = [i for i, vec in enumerate(vecs) if not vec or all(v == 0.0 for v in vec)]
     if invalid_idx:
         ratio = len(invalid_idx) / max(1, len(vecs))
-        sample_ids = [docs[i].metadata.get("id", "<unknown>") for i in invalid_idx[:10]]
+        sample_ids = [raw_metadatas[i].get("id", "<unknown>") for i in invalid_idx[:10]]
         if ratio > _INVALID_EMBED_ABORT_RATIO:
             # Trop d'échecs -> problème systémique, on abandonne sans rien indexer.
             raise RuntimeError(
@@ -71,26 +136,14 @@ def build_embeddings(docs):
             len(invalid_idx), len(vecs), sample_ids,
         )
         keep = [i for i in range(len(vecs)) if i not in set(invalid_idx)]
-        docs = [docs[i] for i in keep]
         texts = [texts[i] for i in keep]
+        raw_metadatas = [raw_metadatas[i] for i in keep]
+        ids = [ids[i] for i in keep]
         vecs = [vecs[i] for i in keep]
 
     # Chroma n'accepte pas les objets complexes dans metadata.
-    metadatas = []
-    for d in docs:
-        meta = dict(d.metadata)
-        if isinstance(meta.get("keywords"), list):
-            meta["keywords"] = ", ".join(meta["keywords"])
-        if isinstance(meta.get("questions"), list):
-            meta["questions"] = " | ".join(meta["questions"])
-        if isinstance(meta.get("entities"), dict):
-            from nlp.ner_extractor import entities_to_str
-            meta["entities"] = entities_to_str(meta["entities"])
-        if isinstance(meta.get("entities_flat"), list):
-            meta["entities_flat"] = ", ".join(meta["entities_flat"])
-        metadatas.append(meta)
-    
-    ids = [d.metadata["id"] for d in docs]
+    metadatas = [_sanitize_chroma_metadata(meta) for meta in raw_metadatas]
+
     return texts, vecs, metadatas, ids
 
 
@@ -131,7 +184,6 @@ def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_N
         return store
     store.add(ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings)
     return store
-
 
 
 

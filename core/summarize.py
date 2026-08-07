@@ -85,7 +85,7 @@ def summarize_document(source: str) -> dict:
         prompt = _SUMMARY_PROMPT.format(n=n, source=source,
                                         material=material[:_MAX_MATERIAL_CHARS])
         from core.model_router import build_llm
-        summary = build_llm("generate").invoke(prompt)
+        summary = build_llm("synthesize").invoke(prompt)
         logger.info("Résumé de « %s » : %d %s agrégés", source, n, basis)
         return {"status": "success", "summary": summary, "n": n, "basis": basis}
     except Exception as e:

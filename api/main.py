@@ -34,6 +34,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in _ORIGINS.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 # LynX (AI for Requirements) : routeur dédié, importé paresseusement pour ne
@@ -43,12 +44,14 @@ from api.rag import router as rag_router        # noqa: E402
 from api.sessions import router as sessions_router  # noqa: E402
 from api.documents import router as documents_router  # noqa: E402
 from api.system import router as system_router  # noqa: E402
+from api.prompts import router as prompts_router  # noqa: E402
 
 app.include_router(lynx_router)
 app.include_router(rag_router)
 app.include_router(sessions_router)
 app.include_router(documents_router)
 app.include_router(system_router)
+app.include_router(prompts_router)
 
 
 def _port_open(port: int, host: str = "127.0.0.1") -> bool:

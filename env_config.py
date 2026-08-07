@@ -226,10 +226,9 @@ def get_config() -> Dict[str, Any]:
     use_cross_encoder = os.environ.get("USE_CROSS_ENCODER", "true").lower() in ("true", "1", "yes")
     
     # Fallback pour le device du cross-encoder
-    if num_gpus >= 2:
-        default_ce_device = "cuda:1"  # Si 2+ GPUs, utiliser GPU 1 pour CE
-    else:
-        default_ce_device = "cuda:0" if num_gpus == 1 else "cpu"
+    # Ollama répartit les LLM sur toutes les cartes avec SCHED_SPREAD. Le CE
+    # utilise cuda:0 explicitement pour ne pas cibler une carte arbitrairement saturée.
+    default_ce_device = "cuda:0" if num_gpus else "cpu"
     
     ce_device = os.environ.get("CE_DEVICE", default_ce_device)
     cross_encoder_model_raw = os.environ.get(
@@ -242,8 +241,12 @@ def get_config() -> Dict[str, Any]:
         "USE_CROSS_ENCODER": use_cross_encoder,
         "CE_DEVICE": ce_device,
         "CROSS_ENCODER_LOCAL_PATH": cross_encoder_model,
-        # Seuil hors-scope : le cross-encoder renvoie ~0.500 (neutre) pour le hors-sujet
-        # et juste au-dessus pour l'in-domain. 0.505 les sépare (calibré).
+        # Seuil hors-scope : le cross-encoder renvoie ~0.500 (neutre/plancher) pour le
+        # hors-sujet, quel que soit le sujet. Le seuil doit rester JUSTE AU-DESSUS de ce
+        # plancher pour que le hors-sujet s'abstienne ; les questions exploratoires
+        # (génériques/définitionnelles) contournent cette porte via retrieval.intent.
+        # is_exploratory (core.ask._should_abstain), donc ce seuil ne les affecte pas.
+        # Valeur calibrée par éval (evals/run_eval --mode retrieval + scripts/probe_retrieval).
         "CE_RELEVANCE_THRESHOLD": float(os.environ.get("CE_RELEVANCE_THRESHOLD", "0.505")),
     }
     
@@ -251,10 +254,20 @@ def get_config() -> Dict[str, Any]:
     retrieval_config = {
         "NUM_CHUNKS": int(os.environ.get("NUM_CHUNKS", "15")),
         "RRF_K": int(os.environ.get("RRF_K", "60")),
-        "WEIGHT_SEMANTIC": float(os.environ.get("WEIGHT_SEMANTIC", "0.3")),
-        "WEIGHT_BM25": float(os.environ.get("WEIGHT_BM25", "0.7")),
+        "WEIGHT_SEMANTIC": float(os.environ.get("WEIGHT_SEMANTIC", "0.5")),
+        "WEIGHT_BM25": float(os.environ.get("WEIGHT_BM25", "0.5")),
         "MAX_CHUNK_LENGTH": int(os.environ.get("MAX_CHUNK_LENGTH", "25000")),
         "MAX_QUERY_CHARS": int(os.environ.get("MAX_QUERY_CHARS", "512")),
+        # Pool de candidats ÉLASTIQUE remonté par branche AVANT rerank : borne basse
+        # (petit corpus, rapide), incrément par document, borne haute (protège le
+        # coût du rerank sur gros corpus). pool = clamp(MIN, MIN + PER_DOC*n_docs, MAX).
+        "CANDIDATE_POOL_MIN": int(os.environ.get("CANDIDATE_POOL_MIN", "40")),
+        "CANDIDATE_POOL_MAX": int(os.environ.get("CANDIDATE_POOL_MAX", "120")),
+        "CANDIDATE_POOL_PER_DOC": int(os.environ.get("CANDIDATE_POOL_PER_DOC", "3")),
+        # Plancher de couverture : chunks min garantis par document pertinent (mode « Tous »).
+        "PER_DOC_FLOOR": int(os.environ.get("PER_DOC_FLOOR", "1")),
+        # Plafond du top-k final après plancher (protège le contexte de génération).
+        "MAX_CHUNKS": int(os.environ.get("MAX_CHUNKS", "24")),
     }
     
     # --------------------- CHUNKING & ENHANCEMENT -------------------
@@ -285,6 +298,13 @@ def get_config() -> Dict[str, Any]:
         # agent (sous-questions) et le révise en cours de route. Par défaut le même
         # modèle que l'agent, surchargeable indépendamment via .env.
         "PLANNER_MODEL": os.environ.get("PLANNER_MODEL", "").strip() or agent_model,
+        # Gros corpus : modèle MAP, modèle REDUCE et rédacteur final indépendants.
+        "SYNTHESIS_MODEL": os.environ.get("SYNTHESIS_MODEL", "").strip() or gen_model,
+        "DEEP_RESEARCH_MODEL": os.environ.get("DEEP_RESEARCH_MODEL", "").strip() or "deepseek-r1:32b",
+        "EXTRACTION_MODEL": (os.environ.get("EXTRACTION_MODEL", "").strip()
+                             or os.environ.get("SYNTHESIS_MODEL", "").strip()
+                             or gen_model),
+        "JUDGE_MODEL": os.environ.get("JUDGE_MODEL", "").strip() or rewriter_model,
         # Attribution par affirmation (passe post-hoc, core/attribution.py) :
         # budget TOTAL de la passe (appel LLM + validation + retry compris).
         # Dépassé -> la réponse garde ses marqueurs inline et l'event
@@ -334,7 +354,30 @@ def get_config() -> Dict[str, Any]:
         "PARENT_CHILD_MAX_CHARS": int(os.environ.get("PARENT_CHILD_MAX_CHARS", "4000")),
         "NUM_CHUNKS_PARENT_CHILD": int(os.environ.get("NUM_CHUNKS_PARENT_CHILD", "8")),
     }
-    
+
+    # --------------------- VAGUE 1 -------------------
+    vague1_config = {
+        "HYPE_ENABLED": os.environ.get("HYPE_ENABLED", "false").lower() in ("true", "1", "yes"),
+        "HYPE_MAX_QUESTIONS": int(os.environ.get("HYPE_MAX_QUESTIONS", "3")),
+        "CONTEXT_HEADERS_ENABLED": os.environ.get("CONTEXT_HEADERS_ENABLED", "false").lower() in ("true", "1", "yes"),
+    }
+
+    # --------------------- CORPUS PIPELINE -------------------
+    corpus_config = {
+        "CORPUS_MAP_CONCURRENCY": int(os.environ.get("CORPUS_MAP_CONCURRENCY", "4")),
+        "COVERAGE_REPAIR_ENABLED": os.environ.get("COVERAGE_REPAIR_ENABLED", "false").lower() in ("true", "1", "yes"),
+        "CORPUS_MAX_DOCS": int(os.environ.get("CORPUS_MAX_DOCS", "50")),
+        "CORPUS_PREFILTER_TOPN": int(os.environ.get("CORPUS_PREFILTER_TOPN", "200")),
+    }
+
+    # --------------------- ÉVALUATION RAGAS -------------------
+    ragas_config = {
+        # Nombre d'appels juge LLM concurrents (par affirmation / par chunk) dans
+        # core/evaluation.py. Sûr : OllamaClient.invoke est un POST sans état partagé.
+        # Aligné sur OLLAMA_NUM_PARALLEL=4 (systemd) pour exploiter les 2 GPU.
+        "RAGAS_JUDGE_CONCURRENCY": int(os.environ.get("RAGAS_JUDGE_CONCURRENCY", "4")),
+    }
+
     # --------------------- COLLECTION CHROMA DB -------------------
     chroma_config = {
         "COLLECTION_NAME": os.environ.get("COLLECTION_NAME", "test_rag"),
@@ -348,7 +391,7 @@ def get_config() -> Dict[str, Any]:
             "Essayez de reformuler la question, ou choisissez d'autres documents à interroger."
         ),
     }
-    
+
     # --------------------- MERGE ALL -------------------
     full_config = {
         **paths_config,
@@ -362,6 +405,9 @@ def get_config() -> Dict[str, Any]:
         **enhancement_config,
         **self_rag_config,
         **parent_child_config,
+        **vague1_config,
+        **corpus_config,
+        **ragas_config,
         **chroma_config,
         **messages_config,
         # Infos système
@@ -404,6 +450,10 @@ ENHANCE_NUM_CTX = CONFIG["ENHANCE_NUM_CTX"]
 AGENT_MODEL = CONFIG["AGENT_MODEL"]
 AGENT_MAX_ITERATIONS = CONFIG["AGENT_MAX_ITERATIONS"]
 PLANNER_MODEL = CONFIG["PLANNER_MODEL"]
+SYNTHESIS_MODEL = CONFIG["SYNTHESIS_MODEL"]
+DEEP_RESEARCH_MODEL = CONFIG["DEEP_RESEARCH_MODEL"]
+EXTRACTION_MODEL = CONFIG["EXTRACTION_MODEL"]
+JUDGE_MODEL = CONFIG["JUDGE_MODEL"]
 ATTRIBUTION_TIMEOUT_S = CONFIG["ATTRIBUTION_TIMEOUT_S"]
 RAG_FAST_MODE = CONFIG["RAG_FAST_MODE"]
 GEN_NUM_CHUNKS = CONFIG["GEN_NUM_CHUNKS"]
@@ -422,6 +472,11 @@ WEIGHT_SEMANTIC = CONFIG["WEIGHT_SEMANTIC"]
 WEIGHT_BM25 = CONFIG["WEIGHT_BM25"]
 MAX_CHUNK_LENGTH = CONFIG["MAX_CHUNK_LENGTH"]
 MAX_QUERY_CHARS = CONFIG["MAX_QUERY_CHARS"]
+CANDIDATE_POOL_MIN = CONFIG["CANDIDATE_POOL_MIN"]
+CANDIDATE_POOL_MAX = CONFIG["CANDIDATE_POOL_MAX"]
+CANDIDATE_POOL_PER_DOC = CONFIG["CANDIDATE_POOL_PER_DOC"]
+PER_DOC_FLOOR = CONFIG["PER_DOC_FLOOR"]
+MAX_CHUNKS = CONFIG["MAX_CHUNKS"]
 #N_EXPANSIONS = CONFIG["N_EXPANSIONS"]
 
 AUTO_KEYWORDS = CONFIG["AUTO_KEYWORDS"]
@@ -442,9 +497,21 @@ PARENT_CHILD_ENABLED = CONFIG["PARENT_CHILD_ENABLED"]
 PARENT_CHILD_MAX_CHARS = CONFIG["PARENT_CHILD_MAX_CHARS"]
 NUM_CHUNKS_PARENT_CHILD = CONFIG["NUM_CHUNKS_PARENT_CHILD"]
 
+HYPE_ENABLED = CONFIG["HYPE_ENABLED"]
+HYPE_MAX_QUESTIONS = CONFIG["HYPE_MAX_QUESTIONS"]
+CONTEXT_HEADERS_ENABLED = CONFIG["CONTEXT_HEADERS_ENABLED"]
+
+CORPUS_MAP_CONCURRENCY = CONFIG["CORPUS_MAP_CONCURRENCY"]
+COVERAGE_REPAIR_ENABLED = CONFIG["COVERAGE_REPAIR_ENABLED"]
+CORPUS_MAX_DOCS = CONFIG["CORPUS_MAX_DOCS"]
+CORPUS_PREFILTER_TOPN = CONFIG["CORPUS_PREFILTER_TOPN"]
+
+RAGAS_JUDGE_CONCURRENCY = CONFIG["RAGAS_JUDGE_CONCURRENCY"]
+
 COLLECTION_NAME = CONFIG["COLLECTION_NAME"]
 
 OUT_OF_SCOPE_MESSAGE = CONFIG["OUT_OF_SCOPE_MESSAGE"]
+
 NUM_GPUS = CONFIG["NUM_GPUS"]
 CUDA_AVAILABLE = CONFIG["CUDA_AVAILABLE"]
 LOG_LEVEL = CONFIG["LOG_LEVEL"]

@@ -203,11 +203,28 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
             logger.info("RAPTOR : %d résumés ajoutés -> %d docs total", len(summary_docs), len(docs))
         else:
             stats["raptor"] = {"enabled": False, "summaries_generated": 0}
-        
+
+        # Filtrer les chunks vides : ils polluent BM25 (token vide) et le pool de
+        # candidats sémantique sans jamais rien apporter à une réponse.
+        _before = len(docs)
+        docs = [d for d in docs if (getattr(d, "page_content", "") or "").strip()]
+        _removed = _before - len(docs)
+        if _removed:
+            logger.info("Chunks vides écartés avant indexation : %d", _removed)
+        stats["empty_chunks_removed"] = _removed
+
+        from indexing.chunk_quality import qualify_documents
+        stats["quality"] = qualify_documents(docs)
+        indexable_docs = [d for d in docs if d.metadata.get("quality_status") != "quarantined"]
+        if not indexable_docs:
+            raise ValueError("Tous les chunks ont été mis en quarantaine par le contrôle qualité")
+        stats["quality"]["indexed"] = len(indexable_docs)
+        _notify_progress(progress_callback, f"Contrôle qualité : {len(indexable_docs)} indexables sur {len(docs)}...", 54)
+
         _notify_progress(progress_callback, "Construction du vocabulaire...", 55)
         
         # 4) Construction du vocabulaire
-        vocab, acronyms = build_vocab(docs, top_k_terms=3000)
+        vocab, acronyms = build_vocab(indexable_docs, top_k_terms=3000)
         output_dir_path = Path(output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
         save_vocab(vocab, acronyms, path=str(output_dir_path / "vocab.json"))
@@ -218,7 +235,7 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         _notify_progress(progress_callback, "Génération des embeddings...", 60)
         
         # 5) Embeddings via Ollama
-        texts, embeddings, metadatas, ids = build_embeddings(docs)
+        texts, embeddings, metadatas, ids = build_embeddings(indexable_docs)
         stats["embeddings_count"] = len(embeddings)
         logger.info("Embeddings générés")
         
@@ -244,7 +261,7 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         _notify_progress(progress_callback, "Construction index BM25...", 88)
         
         # 8) Index BM25 (enrichi avec keywords+questions)
-        bm25_tuple = build_bm25_index(docs)
+        bm25_tuple = build_bm25_index(indexable_docs)
         # Sauvegarde MongoDB (multi-document)
         save_bm25_to_mongo(bm25_tuple, source_doc=Path(md_path).name)
         # Sauvegarde .pkl (fallback global - conservé pour compatibilité)

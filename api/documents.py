@@ -24,14 +24,17 @@ def sources() -> dict:
     try:
         rows = list(_chunks_col().aggregate([
             {"$match": {"source": {"$ne": None}}},
-            {"$group": {"_id": "$source", "chunks": {"$sum": 1}}},
+            {"$group": {"_id": "$source", "chunks": {"$sum": 1},
+                    "accepted": {"$sum": {"$cond": [{"$eq": [{"$ifNull": ["$quality_status", "accepted"]}, "accepted"]}, 1, 0]}},
+                    "degraded": {"$sum": {"$cond": [{"$eq": ["$quality_status", "degraded"]}, 1, 0]}},
+                    "quarantined": {"$sum": {"$cond": [{"$eq": ["$quality_status", "quarantined"]}, 1, 0]}}}},
             {"$sort": {"_id": 1}},
         ]))
     except Exception:
         return {"available": False, "sources": []}
     return {
         "available": True,
-        "sources": [{"name": r["_id"], "chunks": r["chunks"]} for r in rows],
+        "sources": [{"name": r["_id"], "chunks": r["chunks"], "quality": {"accepted": r.get("accepted", 0), "degraded": r.get("degraded", 0), "quarantined": r.get("quarantined", 0)}} for r in rows],
     }
 
 
@@ -112,6 +115,7 @@ def ingest_status() -> dict:
             # c'est lui que l'UI doit cibler pour interroger le document.
             "source_name": j.get("source_name"),
             "num_chunks": res.get("num_chunks"),
+            "quality": res.get("quality"),
             "message": res.get("message"),
         })
     return {"active": ingest_queue.active(), "jobs": jobs}
@@ -198,6 +202,9 @@ def document_chunks(name: str, search: str = "", chunk_type: str = "tous",
         "heading": r.get("heading"), "breadcrumb": r.get("breadcrumb"),
         "section_idx": r.get("section_idx"), "page_number": r.get("page_number"),
         "chunk_type": r.get("chunk_type"),
+        "quality_status": r.get("quality_status", "accepted"),
+        "quality_reasons": r.get("quality_reasons", []),
+        "content_provenance": r.get("content_provenance", "raw"),
         "keywords_str": r.get("keywords_str"), "questions_str": r.get("questions_str"),
         "entities_str": r.get("entities_str"),
     } for r in rows]

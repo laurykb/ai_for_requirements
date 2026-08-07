@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from utils.logging_config import get_logger
 from env_config import (
-    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
+    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, SYNTHESIS_MODEL,
+    EXTRACTION_MODEL, JUDGE_MODEL, ENHANCEMENT_MODEL,
     NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX, OLLAMA_NUM_GPU,
 )
 
@@ -60,8 +61,10 @@ _ROLE_MODELS = {
     # Planificateur multi-hop du mode agent : plan JSON + révision (PLANNER_MODEL,
     # défaut = AGENT_MODEL).
     "planner":  lambda: PLANNER_MODEL,
+    "extract":  lambda: EXTRACTION_MODEL,
+    "synthesize": lambda: SYNTHESIS_MODEL,
     "generate": lambda: _GENERATE_OVERRIDE or GEN_MODEL,
-    "judge":    lambda: REWRITER_MODEL,
+    "judge":    lambda: JUDGE_MODEL,
     # ENHANCEMENT_MODEL est l'override explicite (historique, .env) ; à défaut on
     # réutilise le modèle de réécriture (léger, sans « thinking »), inchangé.
     "enhance":  lambda: ENHANCEMENT_MODEL or REWRITER_MODEL,
@@ -84,10 +87,14 @@ _ROLE_PARAMS = {
     "agent":    {"temperature": 0.1, "num_ctx": LLM_NUM_CTX},
     # Plans courts et structurés : température nulle, contexte modéré (question +
     # observations résumées), sortie plafonnée (un plan JSON tient en ~300 tokens).
-    "planner":  {"temperature": 0.0, "num_ctx": 8192, "num_predict": 600},
+    "planner":  {"temperature": 0.0, "num_ctx": 8192, "num_predict": 600, "think": False},
+    "extract":  {"temperature": 0.0, "num_ctx": LLM_NUM_CTX, "num_predict": 2048, "think": False},
+    # Réduction riche mais bornée afin de réserver du budget à la fusion finale.
+    "synthesize": {"temperature": 0.15, "num_ctx": LLM_NUM_CTX,
+                   "num_predict": 4096, "think": False},
     "generate": {"temperature": 0.3, "top_k": NUM_CHUNKS, "top_p": 0.8,
                  "repeat_penalty": 1.5, "num_ctx": LLM_NUM_CTX},
-    "judge":    {"temperature": 0.0, "num_ctx": 8192},
+    "judge":    {"temperature": 0.0, "num_ctx": 8192, "num_predict": 32, "think": False},
     # Enrichissement : très factuel, réponse courte plafonnée (anciennement codé en
     # dur dans nlp/chunk_enhancer._call_ollama). Consommé par ollama_options().
     # num_ctx plafonné : les prompts d'enrichissement = 1 chunk (~1 Ko) + consignes.
@@ -153,4 +160,15 @@ def build_llm(role: str, **overrides):
     model = kw.pop("model")
     keep_alive = kw.pop("keep_alive", None)
     logger.debug("LLM rôle=%s -> modèle=%s", role, model)
-    return OllamaClient(model=model, options=kw, keep_alive=keep_alive)
+    return OllamaClient(model=model, options=kw, keep_alive=keep_alive, role=role)
+
+
+def unload_model(model: str) -> None:
+    """Libère best-effort un modèle Ollama chargé pour un traitement exceptionnel."""
+    try:
+        import requests
+        from env_config import OLLAMA_HOST
+        requests.post(f"{OLLAMA_HOST}/api/generate",
+                      json={"model": model, "keep_alive": 0}, timeout=15)
+    except Exception:
+        pass

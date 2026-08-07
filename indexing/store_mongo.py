@@ -28,6 +28,9 @@ def _doc_to_record(doc):
         "source": doc.metadata["source"],
         "page_number": doc.metadata.get("page_number"),
         "chunk_type": doc.metadata.get("chunk_type", "chunk"),
+        "quality_status": doc.metadata.get("quality_status", "accepted"),
+        "quality_reasons": doc.metadata.get("quality_reasons", []),
+        "content_provenance": doc.metadata.get("content_provenance", "raw"),
         # Enrichissement LLM (vide si non activé)
         "keywords": doc.metadata.get("keywords", []),
         "keywords_str": doc.metadata.get("keywords_str", ""),

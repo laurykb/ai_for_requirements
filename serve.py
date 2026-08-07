@@ -72,7 +72,10 @@ def start_ollama() -> None:
     # FLASH_ATTENTION=0 : évite des NaN de bge-m3 sur certains GPU. NUM_PARALLEL=1
     # et KEEP_ALIVE=5m : adaptés à une VRAM contrainte (évite de pinner un modèle).
     env = {**os.environ, "OLLAMA_FLASH_ATTENTION": "0",
-           "OLLAMA_NUM_PARALLEL": "1", "OLLAMA_KEEP_ALIVE": "5m"}
+           "OLLAMA_NUM_PARALLEL": os.environ.get("OLLAMA_NUM_PARALLEL", "4"),
+           "OLLAMA_MAX_LOADED_MODELS": os.environ.get("OLLAMA_MAX_LOADED_MODELS", "4"),
+           "OLLAMA_SCHED_SPREAD": os.environ.get("OLLAMA_SCHED_SPREAD", "1"),
+           "OLLAMA_KEEP_ALIVE": os.environ.get("OLLAMA_KEEP_ALIVE", "15m")}
     print("Ollama : démarrage...")
     _spawn([ollama, "serve"], env=env)
 

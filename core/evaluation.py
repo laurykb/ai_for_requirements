@@ -7,8 +7,8 @@ Deux niveaux de métriques :
 NIVEAU 1 - Heuristiques rapides (sans LLM, instantanées) :
   - exact_match        : la référence est-elle contenue dans la réponse ?
   - f1_token           : overlap token SQuAD entre réponse générée et référence
-  - context_recall     : les chunks couvrent-ils les tokens de la référence ?
-  - context_precision  : les topK chunks sont-ils pertinents (F1 > seuil) ?
+  - context_recall_lexical     : les chunks couvrent-ils les tokens de la référence ?
+  - context_precision_lexical  : les topK chunks sont-ils pertinents (F1 > seuil) ?
 
 NIVEAU 2 - LLM-as-a-judge local (Ollama, comme RAGAS) :
   - faithfulness_llm       : la réponse ne contient-elle que ce qui est dans le contexte ?
@@ -25,11 +25,28 @@ from __future__ import annotations
 
 import re
 import time
+import types
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from utils.mongo import get_client
 from utils.logging_config import get_logger
+from env_config import RAGAS_JUDGE_CONCURRENCY
 
 logger = get_logger("rag.eval")
+
+
+# -----------------------------------------------------------------------------
+#  Helper de parallélisation (appels juge LLM indépendants)
+# -----------------------------------------------------------------------------
+
+def _parallel_map(fn, items, workers):
+    """Applique fn à chaque item en parallèle (ordre préservé). workers<=1 -> séquentiel.
+    Sûr pour des appels LLM (OllamaClient.invoke est un POST sans état partagé)."""
+    items = list(items)
+    if workers <= 1 or len(items) <= 1:
+        return [fn(x) for x in items]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(fn, items))
 
 
 # -----------------------------------------------------------------------------
@@ -64,7 +81,7 @@ def f1_token(generated: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
-def context_recall(chunks: list, reference: str) -> float:
+def context_recall_lexical(chunks: list, reference: str) -> float:
     if not reference or not chunks:
         return 0.0
     ref_tok = _tokens(reference)
@@ -76,7 +93,7 @@ def context_recall(chunks: list, reference: str) -> float:
     return len(ref_tok & covered) / len(ref_tok)
 
 
-def context_precision(chunks: list, reference: str, topk: int = 5) -> float:
+def context_precision_lexical(chunks: list, reference: str, topk: int = 5) -> float:
     if not reference or not chunks:
         return 0.0
     relevant = sum(
@@ -84,6 +101,25 @@ def context_precision(chunks: list, reference: str, topk: int = 5) -> float:
         if f1_token(c.get("doc", ""), reference) > 0.1
     )
     return relevant / min(topk, len(chunks))
+
+
+def structured_axis_coverage(generated: str, expected_axes: list) -> Optional[float]:
+    """Part des axes structurés dont les faits obligatoires apparaissent.
+
+    Chaque axe est {name, keywords, min_hits?}. Cette métrique déterministe mesure
+    la couverture du contrat métier, indépendamment du style de rédaction.
+    """
+    if not expected_axes:
+        return None
+    blob = _normalize(generated)
+    covered = 0
+    for axis in expected_axes:
+        keywords = [str(k) for k in (axis.get("keywords") or []) if str(k).strip()]
+        minimum = int(axis.get("min_hits", len(keywords) or 1))
+        hits = sum(1 for keyword in keywords if _normalize(keyword) in blob)
+        if hits >= minimum:
+            covered += 1
+    return covered / len(expected_axes)
 
 
 def keyword_hit_rate(chunks: list, expected_keywords: list, topk: int = 10) -> Optional[float]:
@@ -115,17 +151,191 @@ def _get_judge_llm(model: str = None):
 def _ask_judge(llm, prompt: str, max_retries: int = 2) -> float:
     for attempt in range(max_retries + 1):
         try:
-            raw = llm.invoke(prompt).strip()
+            try:
+                raw = llm.invoke(prompt, format="json").strip()
+            except TypeError:
+                # Compatibilité avec les juges injectés des tests.
+                raw = llm.invoke(prompt).strip()
             matches = re.findall(r"\b(0(?:\.\d+)?|1(?:\.0+)?)\b", raw)
             if matches:
                 return min(1.0, max(0.0, float(matches[0])))
             m10 = re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", raw)
             if m10:
                 return min(1.0, float(m10.group(1)) / 10.0)
+            else:
+                # Sortie non parsable (ex. « Oui » sans nombre) : on retente, et au
+                # dernier essai on trace le texte brut — un juge dégénéré fausserait
+                # silencieusement la boussole RAGAS (biais vers 0). Diagnosticable.
+                if attempt == max_retries:
+                    logger.warning("[judge] Réponse non parsable (score=0.0) : %r",
+                                   raw[:200])
         except Exception as e:
             if attempt == max_retries:
                 logger.warning("[judge] Échec après %d tentatives : %s", max_retries, e)
     return 0.0
+
+
+def _call_llm(llm, prompt: str) -> str:
+    """Appelle un juge injecté : callable(prompt)->str OU objet avec .invoke."""
+    if llm is None:
+        llm = _get_judge_llm()
+    fn = llm if callable(llm) else llm.invoke
+    return fn(prompt) or ""
+
+
+_CLAIMS_PROMPT = """[TÂCHE] Décompose le TEXTE en affirmations ATOMIQUES (une idée vérifiable par ligne).
+- Une affirmation par ligne, préfixée « - ». Rien d'autre.
+- Fidèle au texte, sans invention, sans reformulation excessive.
+
+[TEXTE]
+{text}
+
+[AFFIRMATIONS]"""
+
+
+def decompose_claims(text: str, llm=None) -> list[str]:
+    """Extrait des affirmations atomiques d'un texte (LLM injectable)."""
+    if not (text or "").strip():
+        return []
+    raw = _call_llm(llm, _CLAIMS_PROMPT.format(text=text[:2000]))
+    items = []
+    for line in raw.splitlines():
+        s = line.strip().lstrip("-*•").strip()
+        if s:
+            items.append(s)
+    return items
+
+
+# -----------------------------------------------------------------------------
+#  NIVEAU 2b - Métriques RAGAS par affirmation (fidélité / rappel de contexte)
+# -----------------------------------------------------------------------------
+#
+# Contrairement à faithfulness_llm/context_recall_lexical (un seul score global), ces
+# variantes décomposent le texte en affirmations atomiques (decompose_claims)
+# puis jugent chacune individuellement (_judge_supported) - style RAGAS.
+
+def _judge_supported(claim: str, context: str, llm) -> bool:
+    """Le CONTEXTE soutient-il l'AFFIRMATION ? (juge LLM, >= 0.5 = soutenue)."""
+    prompt = f"""[TÂCHE] Le CONTEXTE soutient-il l'AFFIRMATION ? Réponds uniquement en JSON strict : {{"score": 1.0}} si oui (directement justifiable), sinon {{"score": 0.0}}.
+
+[CONTEXTE]
+{context[:2000]}
+
+[AFFIRMATION]
+{claim}
+
+Score :"""
+    judge = llm
+    if callable(judge) and not hasattr(judge, "invoke"):
+        # _ask_judge attend un objet .invoke -> on enveloppe un llm callable injecté.
+        judge = types.SimpleNamespace(invoke=judge)
+    return _ask_judge(judge, prompt) >= 0.5
+
+
+def _context_text(chunks: list, topk: int = 5, per: int = 500) -> str:
+    """Concatène les textes des topk premiers chunks (tronqués à `per` caractères chacun)."""
+    return "\n\n".join((c.get("doc", "") or "")[:per] for c in (chunks or [])[:topk])
+
+
+def faithfulness_ragas(generated: str, chunks: list, llm=None) -> float:
+    """Fidélité par affirmations : affirmations de la RÉPONSE soutenues par le contexte / total."""
+    claims = decompose_claims(generated, llm=llm)
+    if not claims or not chunks:
+        return 0.0
+    if llm is None:
+        llm = _get_judge_llm()
+    ctx = _context_text(chunks)
+    supported = sum(_parallel_map(lambda c: _judge_supported(c, ctx, llm), claims, RAGAS_JUDGE_CONCURRENCY))
+    return supported / len(claims)
+
+
+def _generate_questions(generated: str, n: int, llm) -> list[str]:
+    """Génère `n` questions auxquelles la réponse `generated` répondrait (LLM injectable)."""
+    prompt = f"""[TÂCHE] À partir de la RÉPONSE, génère {n} question(s) auxquelles elle répondrait. Une par ligne, préfixée « - ». Rien d'autre.
+
+[RÉPONSE]
+{generated[:1500]}
+
+[QUESTIONS]"""
+    raw = _call_llm(llm, prompt)
+    qs = [l.strip().lstrip("-*•").strip() for l in raw.splitlines() if l.strip()]
+    return qs[:n]
+
+
+def _cosine(a, b) -> float:
+    import numpy as np
+    va, vb = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(va @ vb / (na * nb))
+
+
+def answer_relevancy_ragas(generated, question, llm=None, embed=None, n=3) -> float:
+    """Cosinus moyen entre la question d'origine et des questions générées depuis la réponse."""
+    if not (generated or "").strip():
+        return 0.0
+    if embed is None:
+        from nlp.ollama_embedding import OllamaEmbedding
+        embed = OllamaEmbedding().embed_query
+    gen_qs = _generate_questions(generated, n, llm)
+    if not gen_qs:
+        return 0.0
+    q_vec = embed(question)
+    sims = [_cosine(q_vec, embed(gq)) for gq in gen_qs]
+    return sum(sims) / len(sims)
+
+
+def context_recall_ragas(reference: str, chunks: list, llm=None) -> float:
+    """Rappel de contexte par affirmations : affirmations de la RÉFÉRENCE attribuables au contexte récupéré / total."""
+    claims = decompose_claims(reference, llm=llm)
+    if not claims or not chunks:
+        return 0.0
+    if llm is None:
+        llm = _get_judge_llm()
+    ctx = _context_text(chunks)
+    attrib = sum(_parallel_map(lambda c: _judge_supported(c, ctx, llm), claims, RAGAS_JUDGE_CONCURRENCY))
+    return attrib / len(claims)
+
+
+def _judge_chunk_relevant(question: str, reference: str, doc: str, llm) -> bool:
+    """Le PASSAGE est-il pertinent pour répondre à la QUESTION (au vu de la RÉFÉRENCE) ?"""
+    prompt = f"""[TÂCHE] Ce PASSAGE est-il pertinent pour répondre à la QUESTION (au vu de la RÉPONSE attendue) ? Réponds uniquement en JSON strict : {{"score": 1.0}} si pertinent, sinon {{"score": 0.0}}.
+
+[QUESTION] {question}
+[RÉPONSE ATTENDUE] {reference[:500]}
+[PASSAGE] {doc[:800]}
+
+Score :"""
+    judge = llm
+    if callable(judge) and not hasattr(judge, "invoke"):
+        # _ask_judge attend un objet .invoke -> on enveloppe un llm callable injecté.
+        judge = types.SimpleNamespace(invoke=judge)
+    return _ask_judge(judge, prompt) >= 0.5
+
+
+def context_precision_ragas(question: str, reference: str, chunks: list, topk: int = 5, llm=None) -> float:
+    """Mean average precision@k : pertinence jugée par chunk, pondérée par le rang."""
+    kept = (chunks or [])[:topk]
+    if not kept:
+        return 0.0
+    if llm is None:
+        llm = _get_judge_llm()
+    # Jugement de pertinence PAR CHUNK en parallèle (indépendants), ordre préservé ;
+    # l'AP@k reste calculée séquentiellement ensuite (dépend du rang -> non parallélisable).
+    rels = _parallel_map(
+        lambda c: _judge_chunk_relevant(question, reference, c.get("doc", "") or "", llm),
+        kept, RAGAS_JUDGE_CONCURRENCY,
+    )
+    hits = 0
+    precisions = []
+    for i, is_rel in enumerate(rels, 1):
+        if is_rel:
+            hits += 1
+            precisions.append(hits / i)
+    if not precisions:
+        return 0.0
+    return sum(precisions) / len(precisions)
 
 
 def faithfulness_llm(generated: str, chunks: list, llm=None) -> float:
@@ -349,8 +559,8 @@ def evaluate_single(
     if has_ref:
         metrics["exact_match"]       = exact_match(generated_answer, reference_answer)
         metrics["f1_token"]          = f1_token(generated_answer, reference_answer)
-        metrics["context_recall"]    = context_recall(retrieved_chunks, reference_answer)
-        metrics["context_precision"] = context_precision(retrieved_chunks, reference_answer, topk=topk_precision)
+        metrics["context_recall"]    = context_recall_lexical(retrieved_chunks, reference_answer)
+        metrics["context_precision"] = context_precision_lexical(retrieved_chunks, reference_answer, topk=topk_precision)
     else:
         metrics["exact_match"]       = None
         metrics["f1_token"]          = None
@@ -447,8 +657,9 @@ def run_evaluation_batch(
 def aggregate_metrics(results: list) -> dict:
     """Calcule les moyennes de toutes les métriques numériques (ignore les None)."""
     keys = [
-        "exact_match", "f1_token", "context_recall", "context_precision",
-        "faithfulness", "answer_relevance", "context_relevance",
+        "keyword_hit_rate", "exact_match", "f1_token",
+        "context_recall", "context_precision",
+        "faithfulness", "answer_relevance", "answer_relevancy", "context_relevance",
         "latency_s", "num_chunks_retrieved",
     ]
     ok = [r for r in results if r.get("status") == "ok"]
@@ -467,11 +678,16 @@ def aggregate_metrics(results: list) -> dict:
 
 def save_eval_run_to_mongo(results: list, run_name: str,
                            db_name: str = "ragdb",
-                           collection_name: str = "eval_runs") -> str:
+                           collection_name: str = "eval_runs",
+                           dataset: str | None = None, mode: str | None = None,
+                           breakdown: dict | None = None) -> str:
     client = get_client()
     col = client[db_name][collection_name]
     doc = {
         "run_name": run_name,
+        "dataset": dataset,
+        "mode": mode,
+        "breakdown": breakdown or {},
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "aggregate": aggregate_metrics(results),
         "details": results,

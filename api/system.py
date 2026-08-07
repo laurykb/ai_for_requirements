@@ -11,6 +11,13 @@ from utils.mongo import get_client
 router = APIRouter()
 
 
+@router.get("/api/task-metrics")
+def task_metrics(limit: int = 20, kind: str | None = None) -> dict:
+    """Accomplissement, trajectoire et efficacité des dernières tâches Chat/SRA."""
+    from utils.task_metrics import recent
+    return {"tasks": recent(limit=limit, kind=kind)}
+
+
 @router.get("/api/perf")
 def perf_stats() -> dict:
     """Performance d'inférence de CE process API : tokens/s, time-to-first-token,
@@ -18,8 +25,9 @@ def perf_stats() -> dict:
     from utils import perf
     rows = perf.snapshot()
     return {"gpu": [{"used": int(u), "total": int(t)} for u, t in (perf.gpu_memory() or [])],
+            "hardware_profile": perf.hardware_profile(),
             "aggregate": perf.aggregate(rows) if rows else None,
-            "rows": [{"model": r["model"], "gen_tokens": r["gen_tokens"],
+            "rows": [{"model": r["model"], "role": r.get("role"), "task_id": r.get("task_id"), "prompt_tokens": r.get("prompt_tokens", 0), "gen_tokens": r["gen_tokens"], "prompt_eval_s": round(r.get("prompt_eval_s", 0), 2), "load_s": round(r.get("load_s", 0), 2), "decode_s": round(r.get("gen_s", 0), 2),
                       "tok_per_s": round(r["tok_per_s"], 1) if r["tok_per_s"] else None,
                       "ttft_s": round(r["ttft_s"], 2) if r["ttft_s"] else None,
                       "total_s": round(r["total_s"], 1)} for r in rows[:30]]}
@@ -99,10 +107,15 @@ def set_generation_model(body: ModelAction) -> dict:
 # Clés .env modifiables depuis la vue Paramètres — source unique, partagée par la
 # lecture (GET) et l'écriture (liste blanche du POST) : ajouter une clé ici la rend
 # lisible ET modifiable, sans risque de dérive entre les deux endpoints.
-_SETTABLE_KEYS = ("NUM_CHUNKS", "EMBED_MODEL", "GEN_MODEL", "WEIGHT_SEMANTIC",
+_SETTABLE_KEYS = ("OLLAMA_HOST", "LLM_NUM_CTX", "EMBED_MODEL", "REWRITER_MODEL",
+                  "AGENT_MODEL", "PLANNER_MODEL", "EXTRACTION_MODEL",
+                  "SYNTHESIS_MODEL", "DEEP_RESEARCH_MODEL", "GEN_MODEL", "JUDGE_MODEL",
+                  "ENHANCEMENT_MODEL", "NUM_CHUNKS", "WEIGHT_SEMANTIC",
                   "WEIGHT_BM25", "CE_RELEVANCE_THRESHOLD", "AUTO_KEYWORDS",
                   "AUTO_QUESTIONS", "CHUNKING_MODE", "RAPTOR_SUMMARIES",
-                  "SELF_RAG_ENABLED", "SELF_RAG_THRESHOLD", "SELF_RAG_MAX_RETRIES")
+                  "SELF_RAG_ENABLED", "SELF_RAG_THRESHOLD", "SELF_RAG_MAX_RETRIES",
+                  "CE_DEVICE", "CORPUS_MAP_CONCURRENCY", "RAGAS_JUDGE_CONCURRENCY",
+                  "ENHANCE_MAX_WORKERS")
 
 
 @router.get("/api/settings")
