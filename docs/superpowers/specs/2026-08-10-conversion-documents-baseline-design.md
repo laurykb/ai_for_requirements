@@ -77,8 +77,9 @@ File séquentielle (conversion/queue.py, pattern ingest_queue, 1 worker)
 Assemblage + corpus_io.validate_corpus (pydantic, dédup ids)
    ▼
 data/conversions/<job_id>/  (baseline.json + report.json, persistés)
-   ├─ GET  …/baseline  (téléchargement)
-   └─ POST …/push      (envoi corpus LynX — geste explicite)
+   ├─ Télécharger : JSON édité en revue (côté client)
+   └─ Envoyer vers LynX : JSON édité → POST /api/lynx/corpus/upload
+      existant (geste explicite)
 ```
 
 - Un job = un lot = une baseline candidate, rechargeable après fermeture de
@@ -125,8 +126,13 @@ Routeur `api/conversion.py` :
 | `POST /api/conversion/jobs` | upload lot + mapping niveaux + option RAG → job en file |
 | `GET /api/conversion/jobs/{id}/events` | SSE progression |
 | `GET /api/conversion/jobs/{id}` | état + rapport (rechargeable) |
-| `GET /api/conversion/jobs/{id}/baseline` | télécharge le JSON |
-| `POST /api/conversion/jobs/{id}/push` | envoie au corpus LynX |
+| `GET /api/conversion/jobs/{id}/baseline` | télécharge le JSON brut (serveur) |
+| `POST /api/conversion/jobs/{id}/redo` | ré-extrait UN document (motif d'ids corrigé) |
+
+L'envoi vers LynX ne passe pas par un endpoint dédié : la revue applique les
+exclusions/corrections côté client et poste le JSON édité sur
+`/api/lynx/corpus/upload` existant — les modifications de revue sont ainsi
+toujours prises en compte, et le backend reste plus petit.
 
 Passerelle RAG : si cochée, les Markdown produits par l'étage 1 sont soumis
 à la file d'ingestion RAG existante (`ingest_queue`) — un upload nourrit les
