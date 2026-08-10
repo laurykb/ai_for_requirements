@@ -67,3 +67,4 @@ secrets.toml
 
 # Baseline LynX sérialisée pour le chat (régénérée à chaque synchronisation)
 docs/out/baseline-exigences-lynx.md
+.worktrees/
