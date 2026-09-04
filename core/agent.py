@@ -49,20 +49,39 @@ def _build_agent_llm():
 def _format_tools(specs: list[dict]) -> str:
     lines = []
     for s in specs:
-        params = ", ".join(s.get("parameters", {}).get("properties", {}))
+        props = s.get("parameters", {}).get("properties", {})
+        params = ", ".join(props)
         lines.append(f"- {s['name']}({params}) : {s['description']}")
+        # Énumérations : le modèle doit connaître les valeurs EXACTES admises.
+        for pname, p in props.items():
+            if p.get("enum"):
+                lines.append(f"    {pname} ∈ {{{', '.join(p['enum'])}}}")
+        if s.get("example"):
+            import json as _json
+            lines.append("    ex: Action: " + s["name"])
+            lines.append("        Action Input: "
+                         + _json.dumps(s["example"], ensure_ascii=False))
     return "\n".join(lines)
 
 
+_AGENT_BEHAVIOR_PROMPT = (
+    "Planifie tes recherches avant d agir, utilise les outils de façon économe, "
+    "puis produis une réponse exhaustive, structurée et sourcée."
+)
+
+
 def _build_system_prompt(tools_block: str, max_iter: int) -> str:
+    from core.prompt_registry import get_prompt
+    behavior = get_prompt("agent.behavior", _AGENT_BEHAVIOR_PROMPT)
     return (
+        behavior + "\n\n" +
         "Tu es un agent qui répond à des questions techniques en t'appuyant sur des OUTILS. "
         "Tu ne connais RIEN par toi-même : pour toute information factuelle, tu DOIS interroger un outil.\n\n"
         "Outils disponibles :\n"
         f"{tools_block}\n\n"
         "Procède par étapes, en suivant EXACTEMENT ce format (un libellé par ligne) :\n\n"
         "Pensée: <ton raisonnement : que cherches-tu, un (autre) appel d'outil est-il utile ?>\n"
-        "Action: <le nom EXACT d'un outil ci-dessus>\n"
+        "Action: <le nom EXACT d'un outil ci-dessus — AUCUN autre nom n'existe>\n"
         'Action Input: <les arguments en JSON, ex: {"query": "ta sous-question"}>\n'
         "Observation: <résultat de l'outil - NE l'écris JAMAIS toi-même, il est ajouté automatiquement>\n\n"
         "Répète ce bloc autant de fois que nécessaire. Dès que tu peux conclure :\n\n"
@@ -456,6 +475,12 @@ def _observation_text(result: dict, max_len: int = 2000) -> str:
     if not result.get("ok", False):
         return json.dumps({"ok": False, "error": result.get("error", "erreur inconnue")},
                           ensure_ascii=False)
+    if "operation" in result and "answer" not in result:
+        # Outil structurel (ex. baseline_tree) : le résultat JSON complet EST
+        # l'observation — sans cette voie, l'agent recevait une observation
+        # vide, réessayait le même appel et se faisait couper par l'anti-boucle.
+        raw = json.dumps(result, ensure_ascii=False)
+        return raw[:max_len] + (" [...tronqué]" if len(raw) > max_len else "")
     answer = (result.get("answer") or "").strip()
     truncated = len(answer) > max_len
     payload = {

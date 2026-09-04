@@ -60,6 +60,10 @@ def _get_converter(do_ocr: bool = False):
     from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling.datamodel.base_models import InputFormat
     return DocumentConverter(
+        allowed_formats=[
+            InputFormat.PDF, InputFormat.DOCX, InputFormat.XLSX,
+            InputFormat.PPTX, InputFormat.HTML, InputFormat.MD,
+        ],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=_pdf_pipeline_options(do_ocr))}
     )
 

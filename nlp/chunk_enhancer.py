@@ -106,7 +106,9 @@ def _call_ollama(prompt: str, model: str = None, base_url: str = None) -> str:
         "options": ollama_options("enhance"),
     }
     try:
-        resp = requests.post(url, json=payload, timeout=120)
+        from utils.ollama_scheduler import slot
+        with slot("enhance"):
+            resp = requests.post(url, json=payload, timeout=120)
         resp.raise_for_status()
         data = resp.json()
         content = data.get("message", {}).get("content", "").strip()

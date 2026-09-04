@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set
 
 from . import debate, embeddings, llm
-from .config import ALLOCATION_TOLERANCE, EMBED_DUP_THRESHOLD, LATENT_TOPK, LLM_MAX_CONCURRENCY
+from .config import (ALLOCATION_TOLERANCE, AUDIT_BATCH_SIZE, EMBED_DUP_THRESHOLD,
+                     LATENT_TOPK, LLM_MAX_CONCURRENCY)
 from .extract import allocation_rollup, from_base
 from .tree import RequirementTree
 
@@ -38,6 +39,12 @@ class MatrixReport:
     score: int
     findings: List[MatrixFinding] = field(default_factory=list)
     counts: Dict[str, int] = field(default_factory=dict)
+    requested_n: int = 0
+    audited_n: int = 0
+    coverage: float = 0.0
+    mode: str = "deterministic"
+    degraded_reasons: List[str] = field(default_factory=list)
+    score_meaningful: bool = True
 
     @property
     def flagged_ids(self) -> List[str]:
@@ -63,7 +70,7 @@ def _structural_findings(corpus: List[dict]) -> List[MatrixFinding]:
             findings.append(MatrixFinding(rid, "DOUBLON", "BLOQUANT", f"Identifiant dupliqué : {rid}."))
         seen.add(rid)
 
-    by_id = {r.get("id"): r for r in corpus}
+    graph: Dict[str, Set[str]] = {rid: set() for rid in id_set if rid}
     for r in corpus:
         rid = r.get("id")  # corpus brut (via API) : le champ id peut manquer
         pid = r.get("parent_id")
@@ -71,24 +78,58 @@ def _structural_findings(corpus: List[dict]) -> List[MatrixFinding]:
         if pid and pid not in id_set:
             findings.append(MatrixFinding(rid, "LIEN", "BLOQUANT",
                                           f"{rid} référence un parent inexistant ({pid})."))
+        elif rid and pid:
+            graph[rid].add(pid)
         # intégrité des liens typés transverses
         for lk in (r.get("links") or []):
             tgt = lk.get("target") if isinstance(lk, dict) else getattr(lk, "target", None)
-            ltype = lk.get("type") if isinstance(lk, dict) else getattr(lk, "type", "?")
+            raw_type = lk.get("type") if isinstance(lk, dict) else getattr(lk, "type", "?")
+            ltype = getattr(raw_type, "value", raw_type)
             if tgt and tgt not in id_set:
                 findings.append(MatrixFinding(rid, "LIEN", "BLOQUANT",
                                               f"Lien {ltype} de {rid} vers une cible inexistante ({tgt})."))
-        # cycle
-        cur, hops, broken = r.get("parent_id"), 0, False
-        while cur and cur in by_id and hops <= len(corpus):
-            if cur == rid:
-                broken = True
-                break
-            cur = by_id[cur].get("parent_id")
-            hops += 1
-        if broken:
-            findings.append(MatrixFinding(rid, "CYCLE", "BLOQUANT",
-                                          f"{rid} fait partie d'un cycle de traçabilité."))
+            elif rid and tgt and ltype in {"DERIVE", "REFINES", "SATISFIES"}:
+                graph[rid].add(tgt)
+
+    # Tarjan : un seul constat par composante cyclique, liens typés inclus.
+    index = 0
+    indices: Dict[str, int] = {}
+    lowlinks: Dict[str, int] = {}
+    stack: List[str] = []
+    on_stack: Set[str] = set()
+    cycles: List[List[str]] = []
+
+    def visit(node: str) -> None:
+        nonlocal index
+        indices[node] = lowlinks[node] = index
+        index += 1
+        stack.append(node)
+        on_stack.add(node)
+        for target in graph[node]:
+            if target not in graph:
+                continue
+            if target not in indices:
+                visit(target)
+                lowlinks[node] = min(lowlinks[node], lowlinks[target])
+            elif target in on_stack:
+                lowlinks[node] = min(lowlinks[node], indices[target])
+        if lowlinks[node] == indices[node]:
+            component: List[str] = []
+            while True:
+                target = stack.pop()
+                on_stack.remove(target)
+                component.append(target)
+                if target == node:
+                    break
+            if len(component) > 1 or node in graph[node]:
+                cycles.append(sorted(component))
+
+    for node in sorted(graph):
+        if node not in indices:
+            visit(node)
+    for component in cycles:
+        findings.append(MatrixFinding(component[0], "CYCLE", "BLOQUANT",
+                                      "Cycle de traçabilité : " + " → ".join(component) + "."))
 
     # allocation : dépassement de budget par parent (conversion + tolérance)
     tree = RequirementTree(corpus) if len(id_set) == len(ids) else None
@@ -229,48 +270,72 @@ def _coreference_findings(corpus: List[dict],
 def audit_matrix(corpus: List[dict], deep: bool = True,
                  on_event: Optional[Callable[[int, int], None]] = None,
                  scope: Optional[Set[str]] = None) -> MatrixReport:
-    """Audite le corpus. ``on_event(done, total)`` suit l'avancement sémantique.
-
-    ``scope`` : si fourni, ne renvoie que les constats dont ``req_id`` est dans
-    ``scope``, et ne lance la boucle sémantique LLM que pour ces exigences. Les passes
-    déterministes/cross-matrice sont calculées en plein (rapide) puis filtrées — donc
-    un audit scopé rend exactement les constats qu'un audit complet produirait pour
-    ces exigences (parité). ``scope=None`` : audit complet inchangé.
-    """
+    """Audite le corpus et distingue résultat, couverture et dégradation."""
     def _in_scope(f: MatrixFinding) -> bool:
         return scope is None or f.req_id in scope
 
+    requested_ids = [r.get("id") for r in corpus
+                     if r.get("id") and (scope is None or r.get("id") in scope)]
     findings: List[MatrixFinding] = [f for f in _structural_findings(corpus) if _in_scope(f)]
     findings += [f for f in _embedding_duplicates(corpus) if _in_scope(f)]
+    degraded_reasons: List[str] = []
+    audited_ids: Set[str] = set()
 
     try:
         tree = RequirementTree(corpus)
     except ValueError:
-        tree = None  # doublons : on s'arrête au structurel
+        tree = None
 
-    if deep and tree is not None and llm.llm_available():
-        findings += [f for f in _coreference_findings(corpus, tree) if _in_scope(f)]
-        reqs = tree.all() if scope is None else [r for r in tree.all() if r.id in scope]
-        total = len(reqs)
-        done = 0
-        with ThreadPoolExecutor(max_workers=LLM_MAX_CONCURRENCY) as pool:
-            futures = [pool.submit(_audit_one, tree, r) for r in reqs]
-            for fut in as_completed(futures):
-                try:
-                    findings += fut.result()
-                except Exception as exc:
-                    findings.append(MatrixFinding("?", "NON_AUDITE", "INFO",
-                                                  f"Audit d'une exigence en erreur : {exc}"))
-                done += 1
-                if on_event:
-                    try:
-                        on_event(done, total)
-                    except Exception:
-                        pass
+    if deep:
+        if tree is None:
+            degraded_reasons.append("Graphe invalide : audit sémantique impossible.")
+        elif not llm.llm_available():
+            degraded_reasons.append("LLM indisponible : audit déterministe uniquement.")
+        else:
+            findings += [f for f in _coreference_findings(corpus, tree) if _in_scope(f)]
+            reqs = [r for r in tree.all() if scope is None or r.id in scope]
+            total = len(reqs)
+            done = 0
+            with ThreadPoolExecutor(max_workers=LLM_MAX_CONCURRENCY) as pool:
+                for start in range(0, total, max(1, AUDIT_BATCH_SIZE)):
+                    batch = reqs[start:start + max(1, AUDIT_BATCH_SIZE)]
+                    futures = {pool.submit(_audit_one, tree, req): req.id for req in batch}
+                    for fut in as_completed(futures):
+                        req_id = futures[fut]
+                        try:
+                            result = fut.result()
+                        except Exception as exc:
+                            result = [MatrixFinding(req_id, "NON_AUDITE", "INFO",
+                                                    f"Audit en erreur : {exc}")]
+                        findings += result
+                        if not any(f.axis == "NON_AUDITE" for f in result):
+                            audited_ids.add(req_id)
+                        done += 1
+                        if on_event:
+                            try:
+                                on_event(done, total)
+                            except Exception:
+                                pass
+
+        missing = set(requested_ids) - audited_ids
+        existing = {f.req_id for f in findings if f.axis == "NON_AUDITE"}
+        reason = degraded_reasons[0] if degraded_reasons else "Audit sémantique non abouti."
+        findings += [MatrixFinding(rid, "NON_AUDITE", "INFO", reason)
+                     for rid in sorted(missing - existing)]
 
     penalty = sum(_PENALTY.get(f.severity, 0) for f in findings)
-    score = max(0, 100 - penalty)
+    evaluated_n = max(1, len(requested_ids))
+    score = max(0, round(100 * (1 - penalty / (evaluated_n * _PENALTY["BLOQUANT"]))))
     counts: Dict[str, int] = {}
     for f in findings:
         counts[f.axis] = counts.get(f.axis, 0) + 1
-    return MatrixReport(n=len(corpus), score=score, findings=findings, counts=counts)
+    requested_n = len(requested_ids)
+    audited_n = len(audited_ids) if deep else 0
+    coverage = round(100.0 * audited_n / requested_n, 1) if requested_n else 100.0
+    mode = "deterministic" if not deep else ("full" if coverage == 100.0 else "degraded")
+    return MatrixReport(
+        n=len(corpus), score=score, findings=findings, counts=counts,
+        requested_n=requested_n, audited_n=audited_n, coverage=coverage, mode=mode,
+        degraded_reasons=degraded_reasons,
+        score_meaningful=not deep or coverage > 0.0,
+    )

@@ -13,23 +13,38 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
+import { apiFetch, getJSON,
+         type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
 import { useEngineHealth, useElapsedLabel } from "@/lib/use-health";
-import type { ChatMessage, ChunkView, PlanStep, SessionInfo } from "@/lib/types";
+import type { ChatMessage, ChunkView, PlanStep, SessionInfo, TaskProgress } from "@/lib/types";
 import { useExpert } from "@/components/expert-toggle";
 import { Dot, Spinner } from "@/components/ui";
-import { AssistantMessage, NOT_FOUND_MESSAGE } from "@/components/chat/blocks";
+import { AssistantMessage, NOT_FOUND_MESSAGE, ProcessingTraceBlock } from "@/components/chat/blocks";
 import { AnswerMarkdown } from "@/components/chat/markdown";
 import { SessionsSidebar } from "@/components/chat/sessions-sidebar";
 import { Composer, type Mode } from "@/components/chat/composer";
+import { downloadConversation } from "@/components/chat/export-conversation";
+import { useDocumentAttachment } from "@/components/chat/use-document-attachment";
 
 const EXAMPLES = [
   "Quelles sont les exigences de chiffrement ?",
   "Quelles sont les menaces identifiées ?",
   "Résume les principales fonctions de sécurité.",
 ];
+
+/** Périmètre verrouillé du chat (chat LynX sur la baseline d'exigences) :
+ * la source est épinglée, la pièce jointe et le sélecteur de document
+ * disparaissent, et seules les conversations de ce périmètre sont listées. */
+export type ChatScope = {
+  source: string;
+  label: string;
+  hint: string;
+  emptyTitle: string;
+  emptyText: string;
+  examples: string[];
+};
 
 type Phase = "idle" | "retrieve" | "agent" | "generate";
 
@@ -40,9 +55,14 @@ type StepStatus = "pending" | "active" | "done" | "vide";
 /** Plan de recherche de l'agent, suivi en direct (événements plan/step/replan). */
 type PlanView = { steps: PlanStep[]; statuts: StepStatus[]; replanned: boolean };
 
-export function Chat() {
+export function Chat({ scope, prefill }: {
+  scope?: ChatScope;
+  /** Question pré-remplie de l'extérieur (pont Matrice -> Chat) : posée dans
+   * le champ, pas envoyée — l'utilisateur garde la main. */
+  prefill?: { text: string } | null;
+} = {}) {
   const [docs, setDocs] = useState<{ name: string; chunks: number }[]>([]);
-  const [selected, setSelected] = useState<string>("");
+  const [selected, setSelected] = useState<string>(scope?.source ?? "");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -50,6 +70,7 @@ export function Chat() {
   const [nChunks, setNChunks] = useState<number | null>(null);
   const [partial, setPartial] = useState<string>("");
   const [agentTrace, setAgentTrace] = useState<string[]>([]);
+  const [processingTrace, setProcessingTrace] = useState<TaskProgress[]>([]);
   const [plan, setPlan] = useState<PlanView | null>(null);
   const [route, setRoute] = useState<string>("");
   const [mode, setMode] = useState<Mode>("auto");
@@ -62,40 +83,71 @@ export function Chat() {
   // Édition du dernier prompt : le texte revient dans le champ, l'envoi
   // remplace l'échange précédent (fil + session persistée).
   const [editing, setEditing] = useState(false);
-  /** Indexation d'une pièce jointe : { name, pct, step } — bloque l'envoi. */
-  const [attach, setAttach] = useState<{ name: string; pct: number; step: string } | null>(null);
-  const [attachError, setAttachError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expert = useExpert();
   const busy = phase !== "idle";
-  const attaching = attach !== null;
   /** Moteur local sondé en continu : Ollama arrêté (ex. redémarrage du
    * service) => envoi suspendu, bannière avec le délai, reprise auto. */
   const engine = useEngineHealth();
   const engineDown = engine.kind === "down";
   const downFor = useElapsedLabel(engineDown ? engine.since : null);
 
-  // Nettoyage du poll d'ingestion au démontage.
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  // Pré-remplissage externe (pont Matrice -> Chat) : consommé une fois par
+  // objet, différé d'un tick (règle set-state-in-effect).
+  const consumedPrefill = useRef<object | null>(null);
+  useEffect(() => {
+    if (!prefill || consumedPrefill.current === prefill) return;
+    consumedPrefill.current = prefill;
+    const t = setTimeout(() => setInput(prefill.text), 0);
+    return () => clearTimeout(t);
+  }, [prefill]);
 
+  // Dépendances sur la SEULE clé stable du périmètre (scope.source) : l'objet
+  // scope est recréé à chaque poll de statut du parent (LynxChat), et une
+  // dépendance sur l'objet relancerait ces fetchs toutes les 4 s.
+  const scopeSource = scope?.source;
   const refreshDocs = useCallback(() => {
+    if (scopeSource) return; // périmètre verrouillé : pas de sélection de document
     getJSON<SourcesResponse>("/api/sources")
       .then((s) => setDocs(s.sources)).catch(() => setDocs([]));
-  }, []);
+  }, [scopeSource]);
+  const {
+    attachment: attach,
+    attaching,
+    error: attachError,
+    dismissError: dismissAttachError,
+    fileRef,
+    attachFiles,
+  } = useDocumentAttachment(Boolean(scopeSource), refreshDocs);
+  // Chaque monde ne liste que SES conversations : celles de la baseline LynX
+  // (source réservée) restent invisibles du chat RAG, et réciproquement.
   const refreshSessions = useCallback(() => {
-    getJSON<{ sessions: SessionInfo[] }>("/api/sessions")
-      .then((s) => setSessions(s.sessions)).catch(() => setSessions([]));
-  }, []);
+    getJSON<{ sessions: SessionInfo[] }>("/api/sessions?scope=" + (scopeSource ? "lynx" : "rag"))
+      .then((s) => setSessions(s.sessions))
+      .catch(() => setSessions([]));
+  }, [scopeSource]);
 
   useEffect(() => {
     const t = setTimeout(() => {
       refreshDocs();
       refreshSessions();
-      getJSON<{ models: string[]; routing: Record<string, string> }>("/api/models")
-        .then((m) => { setModels(m.models); setGenModel(m.routing?.generate ?? m.models[0] ?? ""); })
+      getJSON<{ models: string[]; generation_models: string[]; routing: Record<string, string> }>("/api/models")
+        .then((m) => {
+          const gen = m.routing?.generate ?? m.models[0] ?? "";
+          setModels(m.generation_models ?? m.models);
+          setGenModel(gen);
+          // Préchauffage : épingle le modèle de génération en VRAM dès
+          // l'ouverture du chat — le premier token n'attend plus le
+          // chargement du modèle (la génération domine la latence).
+          if (gen) {
+            apiFetch(`/api/models/generate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: gen, action: "load" }),
+            }).catch(() => null);
+          }
+        })
         .catch(() => setModels([]));
     }, 0);
     return () => clearTimeout(t);
@@ -104,7 +156,7 @@ export function Chat() {
   const loadModel = async (model: string) => {
     setGenModel(model);
     setModelStatus("chargement…");
-    const res = await fetch(`${API_BASE}/api/models/generate`, {
+    const res = await apiFetch(`/api/models/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, action: "load" }),
@@ -120,7 +172,7 @@ export function Chat() {
   const newConversation = () => {
     setSessionId(null);
     setMessages([]);
-    setSelected("");
+    setSelected(scope?.source ?? "");
   };
 
   const openSession = async (s: SessionInfo) => {
@@ -129,7 +181,7 @@ export function Chat() {
       const d = await getJSON<{ source_filter: string | null; messages: ChatMessage[] }>(
         `/api/sessions/${s.id}/messages`);
       setSessionId(s.id);
-      setSelected(d.source_filter ?? "");
+      setSelected(scope ? scope.source : (d.source_filter ?? ""));
       setMessages(d.messages.map((m) => ({ ...m })));
     } catch { /* session disparue */ }
   };
@@ -150,6 +202,7 @@ export function Chat() {
     setNChunks(null);
     setPartial("");
     setAgentTrace([]);
+    setProcessingTrace([]);
     setPlan(null);
     setRoute("");
 
@@ -158,6 +211,9 @@ export function Chat() {
     let gotDone = false;
     let pushed = false; // le message a-t-il déjà été ajouté au fil ?
     const trace: string[] = [];
+    // Copie locale : le callback SSE doit disposer immédiatement de chaque
+    // étape, sans attendre le prochain rendu React.
+    const progressTrace: TaskProgress[] = [];
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -173,6 +229,16 @@ export function Chat() {
           draft.route = `${ev.mode.toUpperCase()} — ${ev.reason}`;
           setRoute(draft.route);
           if (ev.mode === "agent") setPhase("agent");
+        } else if (ev.type === "strategy") {
+          const options = [
+            ev.retrieval.profile,
+            ev.retrieval.parent_child ? "Parent-Child" : null,
+            ev.retrieval.self_rag ? "Self-RAG" : null,
+            ev.verify ? "contrôle renforcé" : null,
+          ].filter(Boolean).join(" · ");
+          const origin = ev.mode_source === "expert_override" ? "expert" : "auto";
+          draft.route = `${ev.mode.toUpperCase()} [${origin}] — ${ev.query_type} · ${options}`;
+          setRoute(draft.route);
         } else if (ev.type === "stage" && ev.stage === "generate") setPhase("generate");
         else if (ev.type === "retrieved") {
           chunks = ev.chunks;
@@ -223,6 +289,9 @@ export function Chat() {
           draft.content += ev.text;
           setPartial(draft.content);
         } else if (ev.type === "sources") draft.citations = ev.citations;
+        else if (ev.type === "persistence" && !ev.saved) {
+          draft.persistenceWarning = ev.message ?? "Conversation non sauvegardée.";
+        }
         else if (ev.type === "attribution") {
           // Attribution par affirmation : arrive APRÈS done (passe post-hoc)
           // -> mise à jour du dernier message (marqueurs déjà affichés).
@@ -235,6 +304,23 @@ export function Chat() {
               return [...ms.slice(0, -1), { ...last, attribution }];
             }
             return ms;
+          });
+        } else if (ev.type === "task_progress") {
+          const { type: _type, ...progress } = ev;
+          void _type;
+          progressTrace.push(progress);
+          setProcessingTrace([...progressTrace]);
+        } else if (ev.type === "answer_contract") {
+          draft.evidenceDossier = ev.dossier;
+        } else if (ev.type === "answer_validation") {
+          draft.answerValidation = ev.validation;
+        } else if (ev.type === "analysis_artifact") {
+          draft.analysisArtifact = ev.artifact;
+        } else if (ev.type === "task_metrics") {
+          draft.taskMetrics = ev.metrics;
+          setMessages((ms) => {
+            const last = ms[ms.length - 1];
+            return last?.role === "assistant" ? [...ms.slice(0, -1), { ...last, taskMetrics: ev.metrics }] : ms;
           });
         } else if (ev.type === "eval") {
           draft.eval = ev;
@@ -251,11 +337,13 @@ export function Chat() {
           pushed = true;
           if (!ev.found && !draft.content) draft.content = NOT_FOUND_MESSAGE;
           if (trace.length) draft.reasoning = trace.join("\n\n");
+          draft.processingTrace = [...progressTrace];
           if (chunks.length) draft.chunks = chunks;
           setMessages((ms) => [...ms, { ...draft }]);
           setPartial("");
           setAgentTrace([]);
           setPlan(null);
+          setProcessingTrace([]);
           setPhase("idle");
           refreshSessions(); // le titre/updated_at ont pu changer
         } else if (ev.type === "error") {
@@ -275,10 +363,12 @@ export function Chat() {
     if (!pushed) {
       if (chunks.length) draft.chunks = chunks;
       if (trace.length) draft.reasoning = trace.join("\n\n");
+      if (progressTrace.length) draft.processingTrace = [...progressTrace];
       setMessages((ms) => [...ms, { ...draft }]);
     }
     setPartial("");
     setAgentTrace([]);
+    setProcessingTrace([]);
     setPlan(null);
     setPhase("idle");
   }, [busy, messages, selected, mode, sessionId, refreshSessions]);
@@ -291,13 +381,16 @@ export function Chat() {
    * retiré du fil ET de la session persistée avant de re-poser la question. */
   const send = useCallback(async (q: string) => {
     if (!editing) return ask(q);
-    setEditing(false);
     const base = lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
     if (sessionId) {
-      // Attendre la troncature : /api/ask ré-appendra la question éditée.
-      await fetch(`${API_BASE}/api/sessions/${sessionId}/last-exchange`,
-                  { method: "DELETE" }).catch(() => null);
+      const response = await apiFetch("/api/sessions/" + sessionId + "/last-exchange",
+                                   { method: "DELETE" }).catch(() => null);
+      if (!response?.ok) {
+        setModelStatus("Modification impossible : " + (response ? "HTTP " + response.status : "API indisponible"));
+        return;
+      }
     }
+    setEditing(false);
     return ask(q, base);
   }, [editing, ask, lastUserIndex, messages, sessionId]);
 
@@ -307,14 +400,15 @@ export function Chat() {
     setPhase("generate");
     setPartial("");
     try {
-      const res = await fetch(`${API_BASE}/api/regenerate`, {
+      const res = await apiFetch(`/api/regenerate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: lastUser.content, chunks: selectedChunks,
                                system_prompt: loadPrefs().systemPrompt,
                                session_id: sessionId }),
       });
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(d.detail ?? "HTTP " + res.status));
       setMessages((ms) => {
         const i = ms.map((m) => m.role).lastIndexOf("assistant");
         if (i < 0) return ms;
@@ -322,92 +416,12 @@ export function Chat() {
         // d.chunks = la sélection APRÈS affinage pré-génération : c'est la
         // liste numérotée [1..n] du contexte (contrat marqueur↔passage).
         next[i] = { ...next[i], content: d.answer, citations: d.citations,
-                    chunks: d.chunks ?? selectedChunks, eval: undefined,
+                    chunks: d.chunks ?? selectedChunks, eval: d.eval ?? undefined,
                     attribution: undefined };
         return next;
       });
-    } catch { /* silencieux : le message existant reste */ }
+    } catch (cause) { setModelStatus("Régénération impossible : " + String(cause)); }
     setPhase("idle");
-  };
-
-  /** Pièce jointe façon chatbot : réglages par défaut, barre de progression
-   * visible, envoi BLOQUÉ tant que l'indexation tourne, puis le périmètre est
-   * automatiquement fixé sur le document ajouté — via son NOM DE SOURCE réel
-   * en base (un PDF devient <nom>-clean.md). Réglages fins : onglet
-   * Documents. Suit TOUT le lot déposé ; abandon propre si l'API redémarre. */
-  const attachFiles = async (files: FileList | null) => {
-    if (!files?.length || attaching) return;
-    const names = Array.from(files).map((f) => f.name);
-    const label = names.length > 1 ? `${names[0]} (+${names.length - 1})` : names[0];
-    setAttachError(null);
-    setAttach({ name: label, pct: 0, step: "Dépôt du document…" });
-    const d = await getJSON<{ params: Record<string, unknown> }>("/api/ingest/defaults")
-      .catch(() => null);
-    const p = d?.params ?? { nkw: 5, nq: 3, mode: "technical", raptor: true, enh_model: "" };
-    const fd = new FormData();
-    Array.from(files).forEach((f) => fd.append("files", f));
-    fd.append("nkw", String(p.nkw));
-    fd.append("nq", String(p.nq));
-    fd.append("mode", String(p.mode));
-    fd.append("raptor", String(p.raptor));
-    fd.append("enh_model", String(p.enh_model ?? ""));
-    const res = await fetch(`${API_BASE}/api/documents`, { method: "POST", body: fd })
-      .catch(() => null);
-    if (fileRef.current) fileRef.current.value = "";
-    if (!res?.ok) {
-      setAttach(null);
-      setAttachError(`Dépôt impossible pour « ${label} » — type non accepté ou API indisponible.`);
-      return;
-    }
-    // Suivi de TOUTES les tâches du lot jusqu'au bout.
-    let misses = 0;
-    type Job = { name: string; status: string; pct: number; step: string;
-                 message: string | null; source_name: string | null };
-    pollRef.current = setInterval(async () => {
-      const s = await getJSON<{ active: boolean; jobs: Job[] }>("/api/ingest/status")
-        .catch(() => null);
-      const jobs = names
-        .map((n) => s?.jobs.filter((j) => j.name === n).at(-1))
-        .filter((j): j is Job => !!j);
-      if (!s || jobs.length < names.length) {
-        // File en mémoire disparue (API redémarrée ?) : ne pas bloquer à vie.
-        if (++misses >= 5) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setAttach(null);
-          setAttachError(
-            "Suivi d'indexation perdu (API redémarrée ?) — vérifiez l'onglet Documents.");
-        }
-        return;
-      }
-      misses = 0;
-      const pending = jobs.filter((j) => j.status === "queued" || j.status === "running");
-      if (pending.length) {
-        const cur = pending.find((j) => j.status === "running") ?? pending[0];
-        const done = jobs.length - pending.length;
-        const pct = Math.round((100 * done + cur.pct) / jobs.length);
-        setAttach({ name: label, pct, step: cur.step });
-        return;
-      }
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-      setAttach(null);
-      const ok = jobs.filter((j) => j.status === "success");
-      const failed = jobs.filter((j) => j.status === "error");
-      if (ok.length) {
-        refreshDocs();
-        // Le prompt suivant porte sur LE document ajouté (source réelle) —
-        // seulement si le lot n'en contient qu'un (sinon : tous les documents).
-        if (ok.length === 1 && !failed.length) {
-          setSelected(ok[0].source_name ?? ok[0].name);
-        }
-      }
-      if (failed.length) {
-        setAttachError(failed
-          .map((j) => `Indexation de « ${j.name} » échouée : ${j.message ?? "erreur."}`)
-          .join(" — "));
-      }
-    }, 1200);
   };
 
   return (
@@ -423,18 +437,28 @@ export function Chat() {
 
       {/* Fil de conversation. */}
       <section className="flex min-w-0 flex-1 flex-col">
+        {messages.length > 0 && (
+          <div className="mb-1 flex justify-end">
+            <button
+              onClick={() => downloadConversation(messages, Boolean(scope))}
+              title="Télécharge la conversation en rapport Markdown : questions, réponses, sources et identifiants d'exigences."
+              className="cursor-pointer text-[11px] text-fg-faint transition-colors hover:text-foreground"
+            >
+              Exporter la conversation (.md)
+            </button>
+          </div>
+        )}
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pb-3 pr-1">
           {messages.length === 0 && !busy && (
             <div className="rise-in flex h-full flex-col items-center justify-center text-center">
               <p className="text-base font-medium text-foreground">
-                Posez une question sur vos documents
+                {scope?.emptyTitle ?? "Posez une question sur vos documents"}
               </p>
               <p className="mt-1 text-xs text-fg-muted">
-                Réponses sourcées, citant les passages de vos documents — tout reste sur
-                cette machine.
+                {scope?.emptyText ?? "Réponses sourcées, citant les passages de vos documents — tout reste sur cette machine."}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {EXAMPLES.map((ex) => (
+                {(scope?.examples ?? EXAMPLES).map((ex) => (
                   <button
                     key={ex}
                     onClick={() => ask(ex)}
@@ -467,6 +491,7 @@ export function Chat() {
               <div key={i} className="rounded-2xl border border-edge bg-surface px-4 py-3">
                 <AssistantMessage
                   m={m} expert={expert}
+                  question={messages.slice(0, i).reverse().find((item) => item.role === "user")?.content}
                   canRegenerate={i === messages.length - 1 && !busy}
                   onRegenerate={regenerate}
                 />
@@ -539,6 +564,9 @@ export function Chat() {
                   </ul>
                 </div>
               )}
+              {processingTrace.length > 0 && (
+                <ProcessingTraceBlock trace={processingTrace} route={route} live />
+              )}
               {agentTrace.length > 0 && (
                 <div className="chat-md mb-2 border-l-2 border-edge pl-3 text-xs text-fg-muted">
                   <ReactMarkdown>{agentTrace.join("\n\n")}</ReactMarkdown>
@@ -590,11 +618,12 @@ export function Chat() {
           disabled={engineDown}
           busy={busy} attaching={attaching}
           attach={attach} attachError={attachError}
-          onDismissError={() => setAttachError(null)}
+          onDismissError={dismissAttachError}
           onAsk={send}
           onStop={() => abortRef.current?.abort()}
           fileRef={fileRef} onAttachFiles={attachFiles}
           selected={selected} setSelected={setSelected} docs={docs}
+          pinnedScope={scope ? { label: scope.label, hint: scope.hint } : undefined}
           models={models} genModel={genModel} onLoadModel={loadModel}
           modelStatus={modelStatus}
           mode={mode} setMode={setMode} expert={expert}

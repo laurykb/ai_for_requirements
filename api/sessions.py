@@ -2,21 +2,29 @@
 renommage, suppression. Imports core.* paresseux (démarrage rapide)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 
 @router.get("/api/sessions")
-def sessions() -> dict:
+def sessions(scope: Literal["all", "rag", "lynx"] = "all",
+             limit: int = Query(50, ge=1, le=100)) -> dict:
     try:
         from core.chat_sessions import list_sessions
+        from core.reserved_sources import LYNX_BASELINE_SOURCE
+        source_query = ({"source_filter": LYNX_BASELINE_SOURCE} if scope == "lynx" else
+                        {"source_filter": {"$ne": LYNX_BASELINE_SOURCE}} if scope == "rag" else {})
+        query = ({"$and": [source_query, {"messages.0": {"$exists": True}}]}
+                 if scope != "all" else source_query)
         return {"available": True,
                 "sessions": [{"id": s["session_id"], "title": s.get("title", ""),
                               "updated_at": s.get("updated_at", ""),
                               "source_filter": s.get("source_filter")}
-                             for s in list_sessions()]}
+                             for s in list_sessions(limit=limit, query=query)]}
     except Exception:
         return {"available": False, "sessions": []}
 
@@ -32,19 +40,23 @@ def session_messages(sid: str) -> dict:
 
 
 class RenameBody(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=80)
 
 
 @router.patch("/api/sessions/{sid}")
 def rename(sid: str, body: RenameBody) -> dict:
-    from core.chat_sessions import rename_session
+    from core.chat_sessions import get_session, rename_session
+    if not get_session(sid):
+        raise HTTPException(404, "Session introuvable.")
     rename_session(sid, body.title.strip() or "Conversation")
     return {"ok": True}
 
 
 @router.delete("/api/sessions/{sid}")
 def delete_sess(sid: str) -> dict:
-    from core.chat_sessions import delete_session
+    from core.chat_sessions import delete_session, get_session
+    if not get_session(sid):
+        raise HTTPException(404, "Session introuvable.")
     delete_session(sid)
     return {"ok": True}
 

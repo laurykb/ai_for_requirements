@@ -1,0 +1,72 @@
+name: ${COMPOSE_PROJECT_NAME:-ai-for-ssh}
+
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: ai-for-ssh-api:latest
+    restart: unless-stopped
+    environment:
+      MONGO_HOST: mongo
+      MONGO_PORT: "27017"
+      MONGO_DB: ${MONGO_DB:-ragdb_export}
+      OLLAMA_HOST: http://host.docker.internal:11434
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3:latest}
+      CHROMA_PATH: ${CHROMA_PATH:-/app/data/chroma_db}
+      COLLECTION_NAME: ${COLLECTION_NAME:-test_rag}
+      OLLAMA_MODEL: ${LYNX_MODEL:-llama3.2:3b}
+      LLM_MODEL: ${LYNX_MODEL:-llama3.2:3b}
+      LLM_BASE_URL: http://host.docker.internal:11434/v1
+      EMBED_BASE_URL: http://host.docker.internal:11434/v1
+      GEN_MODEL: ${GEN_MODEL:-llama3.2:3b}
+      REWRITER_MODEL: ${REWRITER_MODEL:-llama3.2:3b}
+      AGENT_MODEL: ${AGENT_MODEL:-llama3.2:3b}
+      PLANNER_MODEL: ${PLANNER_MODEL:-llama3.2:3b}
+      EXTRACTION_MODEL: ${EXTRACTION_MODEL:-llama3.2:3b}
+      SYNTHESIS_MODEL: ${SYNTHESIS_MODEL:-llama3.2:3b}
+      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
+      ENHANCEMENT_MODEL: ${ENHANCEMENT_MODEL:-llama3.2:3b}
+      USE_CROSS_ENCODER: ${USE_CROSS_ENCODER:-true}
+      CROSS_ENCODER_LOCAL_PATH: /app/models/bge-reranker-v2-m3
+      CE_DEVICE: ${CE_DEVICE:-cpu}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./.env:/app/.env
+      - ./data:/app/data
+      - ./docs:/app/docs
+      - ./lynx/corpus:/app/lynx/corpus
+      - ./models:/app/models:ro
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  web:
+    image: ai-for-ssh-web:latest
+    environment:
+      INTERNAL_API_BASE: http://api:8000
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  mongo-data:

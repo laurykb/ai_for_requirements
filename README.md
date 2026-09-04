@@ -1,24 +1,21 @@
-# AI for SSH : SaaS pour l'ingénierie de sécurité
+# AI for SSH — suite souveraine pour l'ingénierie de sécurité (PoC)
 
 **AI for SSH** réunit dans une **application 100 % locale** (aucune API externe) deux
 outils complémentaires pour le travail sur les dossiers de sécurité (ANSSI / Critères
-Communs). L'interface est un **front Next.js + API FastAPI** (`python serve.py`, par
-défaut) ; l'ancienne **UI Streamlit** reste disponible en secours dans
-[`legacy/`](legacy/README.md) le temps d'atteindre la parité complète
-(`python serve.py --streamlit`) :
+Communs). L'interface est un **front Next.js + API FastAPI** (`python serve.py`) :
 
 | Outil | Rôle | Documentation |
 |---|---|---|
 | **Outil RAG** (RAG documentaire) | Questions/réponses **sourcées** sur des cibles de sécurité : retrieval hybride, agent ReAct, serveur MCP, observabilité, **évaluation chiffrée**. | ce README |
-| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). | [`lynx/README.md`](lynx/README.md) |
+| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). Onglet **Chat** : interroger la baseline d'exigences en langage naturel (moteur RAG complet, périmètre verrouillé sur l'arbre, réponses citant les identifiants d'exigences). | [`lynx/README.md`](lynx/README.md) |
 
 Les deux outils partagent la même pile locale (Ollama : `mistral-small3.2` + `bge-m3`,
 MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par outil**.
 
 > **Genèse — le merge.** AI for SSH est l'**unification de deux projets** auparavant
 > distincts : le RAG documentaire (dépôt `rag_project`) et **LynX / AI for Requirements**.
-> Le front Next.js sert les deux outils via l'API FastAPI (`api/rag.py`, `api/lynx_api.py`) ;
-> l'UI Streamlit legacy embarque LynX **sans modifier son code** — voir
+> Le front Next.js sert les deux outils via l'API FastAPI (`api/rag.py`,
+> `api/lynx_api.py`, `api/lynx_chat.py`) — voir
 > [Intégration des deux outils](#intégration-des-deux-outils).
 
 > **Ce que c'est** : une implémentation de référence **réutilisable et multi-OS** qui
@@ -36,25 +33,13 @@ par `api/rag.py`, l'**AI for Requirements** par `api/lynx_api.py` (qui wrappe `l
 RAG et LynX sont **deux applications distinctes** choisies à l'accueil (navigations
 séparées) — lancement : `python serve.py`.
 
-**UI legacy (Streamlit).** `legacy/app/main.py` est l'ancien **hôte** unifié. Il expose
-l'Outil RAG via sa barre latérale et l'AI for Requirements en plein écran :
-
-- **Chargement non intrusif** : `_load_lynx()` importe `lynx/app.py` via `importlib` sous
-  le nom de module unique `lynx_main`, avec `lynx/` ajouté au `sys.path` → les
-  `from src import …` de LynX se résolvent dans `lynx/src`. **Le code de LynX n'est pas
-  modifié** (il reste exploitable en standalone, cf. `lynx/README.md`).
-- **Même process, mono-poste** : pas de second serveur ni d'appel réseau ; LynX conserve
-  sa navigation interne (`ss.page`).
-- **Thème** : `_LYNX_DARK_CSS` corrige uniquement les fonds clairs / textes quasi-noirs
-  que LynX code en dur, pour l'aligner sur le sombre de l'hôte.
-- **Navigation** : `view == "requirements"` (bouton d'accueil « AI for Requirements »)
-  rend LynX ; le retour « AI for SSH » est un bouton intégré dans l'UI de LynX.
-
-> Le fichier hôte s'appelle `main.py` et non `app.py` : le stem `app` collisionnerait
-> avec le package `app/` (« 'app' is not a package »).
+**UI legacy (Streamlit).** Retirée (migration terminée) — historique :
+`git log -- legacy/`. `lynx/app.py` (Streamlit standalone de LynX) reste
+utilisable ponctuellement avec `pip install streamlit streamlit-agraph`.
 
 Chaque outil garde sa propre **évaluation chiffrée** : RAG → `evals/` ; LynX →
-`lynx/eval/` (F1 micro 0.95 sur 196 cas).
+`lynx/eval/` (F1 micro 0.95 sur 196 cas) ; chat baseline →
+`evals/run_baseline_eval.py` (retrieval 12/12, abstention 3/3 sur le golden set).
 
 ---
 
@@ -122,8 +107,8 @@ GPU contraint (un modèle 8B + grand contexte déborde la VRAM → offload CPU).
 
 ## Architecture
 
-Carte de lecture complète (couches, UI cible vs legacy, points d'entrée, flux) :
-**[ARCHITECTURE.md](ARCHITECTURE.md)**.
+Carte de lecture complète (couches, UI, points d'entrée, flux) :
+**[ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ```mermaid
 flowchart LR
@@ -150,31 +135,34 @@ Couches agentiques au-dessus : `tools/rag_tool.py` (RAG-comme-outil) → `rag_mc
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/laurykb/ai_for_requirements.git && cd ai_for_requirements
+# 1. Récupérer le code (USB) puis se placer à la racine du projet
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\Activate.ps1
-pip install -r requirements.txt                      # TOUT (RAG + LynX + dev) ; + requirements-gpu.txt si GPU NVIDIA
+pip install -r requirements.txt                      # runtime RAG + LynX
+# Développement : pip install -r requirements-dev.txt
+# L'accélération GPU est gérée par Ollama ; le runtime Python reste portable.
 python -m spacy download fr_core_news_sm
 ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.2:3b en option pour le mode rapide)
 cp .env.example .env
 python serve.py            # démarre MongoDB + Ollama + le front Next.js + l'API FastAPI
-# (ancienne UI Streamlit, le temps de la parité : python serve.py --streamlit)
 ```
 
 Guide complet (modèles, GPU, gotchas par OS, **install hors-ligne / réseau
-restreint**) : **[SETUP_PORTABLE.md](SETUP_PORTABLE.md)**.
+restreint**) : **[SETUP_PORTABLE.md](docs/SETUP_PORTABLE.md)**.
 Prérequis runtime : **Ollama** + **MongoDB**.
+
+Livraison air-gap nettoyée et vérifiée : `deploy/offline.sh prepare DESTINATION`.
+Le guide unique est **[docs/INSTALLATION_HORS_LIGNE.md](docs/INSTALLATION_HORS_LIGNE.md)**.
 
 ## Points d'entrée
 
 | Commande | Rôle |
 |---|---|
-| `python serve.py` | UI cible : API FastAPI (`:8000`) + front Next.js (`:3000`) |
-| `python serve.py --streamlit` | UI Streamlit legacy (`legacy/app`), le temps de la parité |
+| `python serve.py` | API FastAPI (`:8000`) + front Next.js (`:3000`) |
 | `python -m evals.run_eval --mode retrieval` | évaluation chiffrée (retrieval) |
 | `python -m core.agent "…"` | agent ReAct en CLI |
 | `python rag_mcp_server.py` | serveur MCP (stdio) |
 | `python diagnostic.py` | état des services + routage + vector store |
-| `python -m pytest` | 154 tests unitaires (fonctions pures, hors-ligne) ; +121 pour LynX (`cd lynx && python -m pytest tests/`) |
+| `python -m pytest` | suite backend hors ligne (le total courant est affiché par pytest) |
 
 ## Structure
 
@@ -189,7 +177,6 @@ nlp/         trim de requête, NER, enrichissement de chunks
 evals/       harnais d'évaluation + golden set
 utils/       tracing, sécurité, logging
 env_config.py  config portable centralisée
-legacy/app/  UI Streamlit historique (secours le temps de la parité)
 ```
 
 ## Limites assumées
@@ -206,8 +193,8 @@ C'est un **PoC de référence**, à prendre comme tel :
   imparfait) ; l'exactitude prime sur la vitesse pour des docs de sécurité.
 - **Latence** : élevée sur petit GPU (offload CPU). Le vrai correctif est l'infra (GPU
   dédié ou modèle hébergé) ; le code (routage, streaming, abstractions) y est déjà prêt.
-- **Couche de service en migration** : une **API FastAPI** (`api/`) + un **front Next.js**
-  (`web/`) remplacent progressivement l'UI Streamlit ; conteneur / auth / multi-tenant
+- **Couche de service** : une **API FastAPI** (`api/`) + un **front Next.js** (`web/`) —
+  la migration depuis Streamlit est terminée ; conteneur / auth / multi-tenant
   restent hors périmètre du PoC (mono-poste souverain).
 
 ## Licence / contexte

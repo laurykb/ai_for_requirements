@@ -6,7 +6,7 @@
 
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE } from "@/lib/api";
+import { streamSSE } from "@/lib/sse";
 import { Hint, type Tone } from "@/components/ui";
 
 // ─── Types (miroir de l'API /api/lynx/*) ───────────────────────────────────
@@ -22,6 +22,10 @@ export type AuditFinding = { req_id: string; axis: string; severity: string; mes
                              debate?: Debate | null };
 export type AuditReport = { n: number; score: number; counts: Record<string, number>;
                             flagged_ids: string[]; n_non_audite: number;
+                            requested_n: number; audited_n: number; coverage: number;
+                            mode: "full" | "degraded" | "deterministic";
+                            degraded_reasons: string[]; score_meaningful: boolean;
+                            audited_ids: string[]; non_audited_ids: string[];
                             findings: AuditFinding[];
                             // Cartes d'audit + débat contradictoire, échanges complets.
                             exchanges: Exchange[] };
@@ -134,25 +138,10 @@ export function GlassBox({ exchanges, title }: { exchanges: Exchange[]; title: s
 export async function streamPost(path: string, body: unknown,
                                  onEvent: (ev: Record<string, unknown>) => void,
                                  signal?: AbortSignal): Promise<void> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  return streamSSE(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
-  });
-  if (!res.ok || !res.body) throw new Error(`${path} → HTTP ${res.status}`);
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames)
-      for (const line of frame.split("\n"))
-        if (line.startsWith("data: "))
-          try { onEvent(JSON.parse(line.slice(6))); } catch { /* ignorée */ }
-  }
+  }, onEvent);
 }

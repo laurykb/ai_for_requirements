@@ -61,6 +61,22 @@ class VectorStore(ABC):
         Optionnel : les backends qui ne le supportent pas gardent ce no-op
         (le nettoyage se fait alors par `reset()` + réingestion)."""
 
+    def replace_source(self, source: str, ids, documents, metadatas, embeddings) -> None:
+        """Remplace une source. Le repli historique reste non transactionnel."""
+        self.delete_source(source)
+        self.add(ids, documents, metadatas, embeddings)
+
+    def delete_version(self, source: str, version: str) -> None:
+        """Supprime une version préparée, si le backend sait la filtrer."""
+
+    def count_version(self, source: str, version: str) -> int | None:
+        """Nombre d'unités d'une version, ou None si non supporté."""
+        return None
+
+    def source_counts(self) -> dict[str, int] | None:
+        """Nombre de vecteurs par source, ou None si non supporté."""
+        return None
+
 
 class ChromaVectorStore(VectorStore):
     """Adaptateur ChromaDB persistant (le backend par défaut, embarqué)."""
@@ -111,6 +127,52 @@ class ChromaVectorStore(VectorStore):
         except Exception as e:
             logger.warning("delete_source(%s) : %s", source, e)
 
+    def delete_version(self, source: str, version: str) -> None:
+        try:
+            self._coll().delete(where={"$and": [
+                {"source": {"$eq": source}},
+                {"ingest_version": {"$eq": version}},
+            ]})
+        except Exception as e:
+            logger.warning("delete_version(%s, %s) : %s", source, version, e)
+
+    def count_version(self, source: str, version: str) -> int | None:
+        try:
+            result = self._coll().get(where={"$and": [
+                {"source": {"$eq": source}},
+                {"ingest_version": {"$eq": version}},
+            ]}, include=["metadatas"])
+            return len(result.get("ids") or [])
+        except Exception as e:
+            logger.warning("count_version(%s, %s) : %s", source, version, e)
+            return None
+
+    def replace_source(self, source: str, ids, documents, metadatas, embeddings) -> None:
+        """Ajoute la nouvelle version avant de retirer l'ancienne.
+
+        Les identifiants d'une version sont uniques. Si l'ajout échoue, les
+        vecteurs déjà ajoutés pour cette tentative sont supprimés et l'ancienne
+        version reste intacte.
+        """
+        coll = self._coll(configuration=_CHROMA_HNSW)
+        # Chroma valide strictement la liste ``include`` selon les versions.
+        # Les identifiants sont toujours renvoyés ; demander les métadonnées
+        # garde cet appel compatible avec les versions qui refusent ``[]``.
+        old = coll.get(where={"source": source}, include=["metadatas"]).get("ids", [])
+        try:
+            coll.add(ids=ids, documents=documents, metadatas=metadatas,
+                     embeddings=embeddings)
+        except Exception:
+            if ids:
+                try:
+                    coll.delete(ids=list(ids))
+                except Exception:
+                    pass
+            raise
+        obsolete = [item_id for item_id in old if item_id not in set(ids)]
+        if obsolete:
+            coll.delete(ids=obsolete)
+
     # -- lecture ---------------------------------------------------------------
     def query(self, embedding, n_results, source_filter=None) -> list[VectorHit]:
         kwargs = dict(
@@ -119,11 +181,36 @@ class ChromaVectorStore(VectorStore):
             include=["documents", "metadatas", "distances"],
         )
         srcs = normalize_sources(source_filter)
+        legacy_version_filter = None
         if srcs:
-            # `$in` couvre 1 ou N documents de façon uniforme.
-            kwargs["where"] = {"source": {"$in": srcs}}
+            # Une source versionnée reste invisible tant que son registre actif
+            # n'a pas basculé : la préparation ne perturbe jamais le chat courant.
+            if len(srcs) == 1:
+                from core.source_versions import active_version
+                version = active_version(srcs[0])
+                kwargs["where"] = ({"$and": [
+                    {"source": {"$eq": srcs[0]}},
+                    {"ingest_version": {"$eq": version}},
+                ]} if version else {"source": {"$in": srcs}})
+                if not version:
+                    from core.reserved_sources import LYNX_BASELINE_SOURCE
+                    if srcs[0] == LYNX_BASELINE_SOURCE:
+                        legacy_version_filter = srcs[0]
+                        kwargs["n_results"] = n_results * 10
+            else:
+                kwargs["where"] = {"source": {"$in": srcs}}
+        else:
+            # Recherche non scopée : les sources réservées (baseline LynX)
+            # ne doivent jamais surgir dans le monde RAG.
+            from core.reserved_sources import RESERVED_SOURCES
+            kwargs["where"] = {"source": {"$nin": list(RESERVED_SOURCES)}}
         res = self._coll().query(**kwargs)
-        return _hits_from_chroma(res)
+        hits = _hits_from_chroma(res)
+        if legacy_version_filter:
+            from core.source_versions import metadata_is_active
+            hits = [hit for hit in hits
+                    if metadata_is_active(hit.metadata, legacy_version_filter)]
+        return hits[:n_results]
 
     def count(self) -> int:
         try:
@@ -131,6 +218,19 @@ class ChromaVectorStore(VectorStore):
         except Exception as e:
             logger.debug("count() indisponible : %s", e)
             return 0
+
+    def source_counts(self) -> dict[str, int] | None:
+        try:
+            result = self._coll().get(include=["metadatas"])
+            counts: dict[str, int] = {}
+            for metadata in result.get("metadatas") or []:
+                source = str((metadata or {}).get("source") or "")
+                if source:
+                    counts[source] = counts.get(source, 0) + 1
+            return counts
+        except Exception as e:
+            logger.warning("source_counts() indisponible : %s", e)
+            return None
 
 
 def _hits_from_chroma(res) -> list[VectorHit]:

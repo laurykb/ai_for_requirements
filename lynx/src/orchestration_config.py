@@ -68,9 +68,12 @@ def save_config(cfg: dict) -> dict:
     for group, default_fns in (("deterministic", _an.DETERMINISTIC_ANALYZERS),
                                ("semantic", _an.SEMANTIC_ANALYZERS)):
         allowed = {f.__name__ for f in default_fns}
-        entries = [{"name": e["name"], "enabled": bool(e.get("enabled", True))}
-                   for e in cfg.get(group, []) if e.get("name") in allowed]
-        seen = {e["name"] for e in entries}
+        entries, seen = [], set()
+        for entry in cfg.get(group, []):
+            name = entry.get("name") if isinstance(entry, dict) else None
+            if name in allowed and name not in seen:
+                entries.append({"name": name, "enabled": bool(entry.get("enabled", True))})
+                seen.add(name)
         entries += [{"name": n, "enabled": True} for n in allowed if n not in seen]
         clean[group] = entries
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

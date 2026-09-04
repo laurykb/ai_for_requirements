@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 
-import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import type { SessionInfo } from "@/lib/types";
 
 /** Une conversation dans la barre latérale (renommage inline, suppression). */
@@ -65,6 +65,8 @@ export function SessionsSidebar({ sessions, sessionId, onNew, onOpen, refreshSes
   onOpen: (s: SessionInfo) => void;
   refreshSessions: () => void;
 }) {
+  const [error, setError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(10);
   return (
     <aside className="hidden w-56 shrink-0 flex-col gap-2 md:flex">
       <button
@@ -73,29 +75,38 @@ export function SessionsSidebar({ sessions, sessionId, onNew, onOpen, refreshSes
       >
         + Nouvelle conversation
       </button>
+      {error && <p className="rounded-md bg-bad/10 px-2 py-1 text-[11px] text-bad">{error}</p>}
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1">
-        {sessions.map((s) => (
+        {sessions.slice(0, visibleCount).map((s) => (
           <SessionRow
             key={s.id}
             s={s}
             active={s.id === sessionId}
             onOpen={() => onOpen(s)}
             onRename={async (t) => {
-              await fetch(`${API_BASE}/api/sessions/${s.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
+              const response = await apiFetch("/api/sessions/" + s.id, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ title: t }),
               }).catch(() => null);
-              refreshSessions();
+              if (!response?.ok) { setError("Renommage impossible : " + (response ? "HTTP " + response.status : "API indisponible")); return; }
+              setError(null); refreshSessions();
             }}
             onDelete={async () => {
-              await fetch(`${API_BASE}/api/sessions/${s.id}`, { method: "DELETE" })
+              const response = await apiFetch("/api/sessions/" + s.id, { method: "DELETE" })
                 .catch(() => null);
+              if (!response?.ok) { setError("Suppression impossible : " + (response ? "HTTP " + response.status : "API indisponible")); return; }
+              setError(null);
               if (s.id === sessionId) onNew();
               refreshSessions();
             }}
           />
         ))}
+        {sessions.length > visibleCount && (
+          <button onClick={() => setVisibleCount((count) => count + 10)}
+                  className="w-full cursor-pointer px-2 py-2 text-left text-[11px] text-accent-bright hover:text-foreground">
+            Afficher plus ({sessions.length - visibleCount})
+          </button>
+        )}
         {sessions.length === 0 && (
           <p className="px-2 py-1.5 text-[11px] text-fg-faint">
             Vos conversations persistées apparaîtront ici.

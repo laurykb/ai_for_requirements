@@ -9,14 +9,15 @@ import pytest
 
 from core.model_router import model_for, routing_table, llm_kwargs, ollama_options
 from env_config import (
-    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
+    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, SYNTHESIS_MODEL,
+    EXTRACTION_MODEL, JUDGE_MODEL, ENHANCEMENT_MODEL,
     NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX,
 )
 
 
 def test_routing_table_covers_all_roles():
     table = routing_table()
-    assert set(table) == {"rewrite", "agent", "planner", "generate", "judge", "enhance"}
+    assert set(table) == {"rewrite", "agent", "planner", "extract", "synthesize", "generate", "judge", "enhance"}
     assert all(isinstance(m, str) and m for m in table.values())
 
 
@@ -26,8 +27,10 @@ def test_model_for_maps_roles_to_configured_models():
     # planner : override explicite PLANNER_MODEL, sinon repli sur le modèle de l'agent.
     assert model_for("planner") == PLANNER_MODEL
     assert PLANNER_MODEL  # jamais vide : AGENT_MODEL (lui-même GEN_MODEL) en défaut
+    assert model_for("extract") == EXTRACTION_MODEL
+    assert model_for("synthesize") == SYNTHESIS_MODEL
     assert model_for("generate") == GEN_MODEL
-    assert model_for("judge") == REWRITER_MODEL  # défaut historique du juge
+    assert model_for("judge") == JUDGE_MODEL
     # enhance : override explicite ENHANCEMENT_MODEL, sinon repli sur REWRITER_MODEL.
     assert model_for("enhance") == (ENHANCEMENT_MODEL or REWRITER_MODEL)
 
@@ -48,18 +51,33 @@ def test_generate_model_runtime_override():
         set_generate_model(None)                          # garde-fou : pas de fuite d'état
 
 
+def test_complete_arsenal_can_be_applied_at_runtime():
+    from core.model_router import set_role_models
+    try:
+        set_role_models({"rewrite": "fast:latest", "planner": "plan:latest"})
+        assert model_for("rewrite") == "fast:latest"
+        assert model_for("planner") == "plan:latest"
+        assert model_for("agent") == AGENT_MODEL
+    finally:
+        set_role_models({"rewrite": "", "planner": ""})
+
+
 def test_model_for_unknown_role_raises():
     with pytest.raises(ValueError):
         model_for("does_not_exist")
 
 
-def test_generate_params_match_legacy_tuning():
+def test_generate_params_verbatim_safe_tuning():
+    """repeat_penalty 1.5 (héritage anti-boucle) mutilait les identifiants
+    d'exigences (CYB-OO1, SRT pour STR) — mesuré par run_baseline_eval
+    --generation : 5/12 -> 12/12 en repassant à 1.1. L'anti-boucle vit dans
+    api/rag._degenerate (coupe de flux), pas dans l'échantillonnage."""
     kw = llm_kwargs("generate")
     assert kw["model"] == GEN_MODEL
-    assert kw["temperature"] == 0.3
-    assert kw["top_k"] == NUM_CHUNKS
+    assert kw["temperature"] == 0.2
+    assert kw["top_k"] == 40          # plus jamais lié à NUM_CHUNKS (retrieval)
     assert kw["top_p"] == 0.8
-    assert kw["repeat_penalty"] == 1.5
+    assert kw["repeat_penalty"] == 1.1
     assert kw["num_ctx"] == LLM_NUM_CTX
     # Non-streaming : pas de keep_alive (= défaut Ollama), comme avant.
     assert "keep_alive" not in kw
@@ -92,7 +110,7 @@ def test_enhance_options_match_legacy_tuning():
 
 def test_no_role_forces_keep_alive_forever():
     # Garde-fou de non-régression : aucun rôle ne doit re-pinner un modèle « Forever ».
-    for role in ("rewrite", "agent", "planner", "generate", "judge", "enhance"):
+    for role in ("rewrite", "agent", "planner", "extract", "synthesize", "generate", "judge", "enhance"):
         assert "keep_alive" not in llm_kwargs(role)
 
 
@@ -107,7 +125,7 @@ def test_ollama_num_gpu_injecte_dans_tous_les_roles(monkeypatch):
     # override explicite de l'appelant.
     import core.model_router as mr
     monkeypatch.setattr(mr, "OLLAMA_NUM_GPU", 0)
-    for role in ("rewrite", "agent", "planner", "generate", "judge", "enhance"):
+    for role in ("rewrite", "agent", "planner", "extract", "synthesize", "generate", "judge", "enhance"):
         assert llm_kwargs(role)["num_gpu"] == 0
     assert llm_kwargs("generate", num_gpu=20)["num_gpu"] == 20
     # Non défini (défaut) : on laisse Ollama décider.

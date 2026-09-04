@@ -20,11 +20,12 @@ def _cache_key(model: str, text: str) -> str:
 
 class OllamaEmbedding:
     def __init__(self, model=EMBED_MODEL, base_url=OLLAMA_HOST, max_workers: int = 4,
-                 timeout: int = EMBED_TIMEOUT_S):
+                 timeout: int = EMBED_TIMEOUT_S, role: str = "embed"):
         self.model = model
         self.base_url = base_url
         self.max_workers = max_workers  # parallélisme pour embed_documents
         self.timeout = timeout  # tolère le swap de modèle à froid (VRAM contrainte)
+        self.role = role
         self._dim = None  # dimension auto-detectee au premier appel reussi
 
     def embed_documents(self, texts):
@@ -61,7 +62,9 @@ class OllamaEmbedding:
         last_err = None
         for attempt in range(3):
             try:
-                response = requests.post(url, json=payload, timeout=self.timeout)
+                from utils.ollama_scheduler import slot
+                with slot(self.role):
+                    response = requests.post(url, json=payload, timeout=self.timeout)
                 response.raise_for_status()
                 vec = response.json()["embedding"]
                 # Memoriser la dimension au premier succes

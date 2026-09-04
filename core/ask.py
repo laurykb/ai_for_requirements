@@ -1,8 +1,5 @@
 """Entrées principales pour interroger le pipeline RAG."""
 
-import os
-import pickle
-from pathlib import Path
 from typing import Optional, Tuple
 
 from utils.logging_config import get_logger
@@ -13,6 +10,7 @@ from env_config import (
     RRF_K,
     WEIGHT_SEMANTIC, WEIGHT_BM25,
     SELF_RAG_ENABLED, NUM_CHUNKS_PARENT_CHILD,
+    PARENT_CHILD_ENABLED,
     CE_RELEVANCE_THRESHOLD, OUT_OF_SCOPE_MESSAGE,
     USE_CROSS_ENCODER,
     LOG_LEVEL,
@@ -31,15 +29,16 @@ _vector_store = None  # magasin vectoriel (Chroma)
 _bm25_cache: dict = {}  # source_filter -> bm25_tuple (ou None si indisponible)
 
 
-def clear_retrieval_caches() -> None:
-    """Vide les caches process-level (vector store/BM25).
 
-    À appeler après une (ré)ingestion pour que les requêtes suivantes
-    rechargent les index fraîchement écrits au lieu de servir des données périmées.
-    """
+def clear_retrieval_caches() -> None:
+    """Vide les caches process-level (vector store + BM25, y compris le cache
+    BM25 fusionné de keyword_index). À appeler après une (ré)ingestion pour que
+    les requêtes suivantes rechargent les index fraîchement écrits."""
     global _vector_store
     _vector_store = None
     _bm25_cache.clear()
+    from indexing.keyword_index import invalidate_bm25_cache
+    invalidate_bm25_cache()  # vide le cache "__all__" de keyword_index
     logger.info("Caches de retrieval vidés (vector store/BM25)")
 
 def _get_vector_store():
@@ -50,45 +49,43 @@ def _get_vector_store():
     return _vector_store
 
 
-# ---------- charger un index BM25 pre-calcule ----------
-def load_bm25_cache(path: str = "data/bm25_index.pkl") -> Optional[Tuple]:
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "rb") as f:
-            bm25_tuple = pickle.load(f)
-        if isinstance(bm25_tuple, tuple) and len(bm25_tuple) == 4:
-            return bm25_tuple
-    except Exception as e:
-        logger.warning("[bm25] Impossible de charger le cache BM25 : %s", e)
-    return None
-
-
-def _bm25_fallback_path() -> Path:
-    """Chemin du fallback BM25 local (format pkl historique)."""
-    return Path(__file__).resolve().parent.parent / "data" / "bm25_index.pkl"
-
-
 def _load_bm25(source_filter=None) -> Optional[Tuple]:
-    """Charge l'index BM25 GLOBAL fusionné (multi-document), avec fallback pkl.
+    """Charge l'index BM25 global fusionné depuis MongoDB.
 
     On charge toujours l'index « tous documents » : le filtrage par `source_filter`
     (un ou plusieurs documents) est appliqué plus bas, au niveau des scores, dans
     `bm25_search` - correct sur l'index global et identique quel que soit le nombre
-    de documents sélectionnés. `source_filter` est donc ignoré ici (gardé pour la
-    signature historique). Cache process-level : sans lui, l'index était re-téléchargé
-    et dé-picklé depuis Mongo à CHAQUE requête. Appeler clear_retrieval_caches()
-    après une ré-ingestion.
+    de documents sélectionnés. `source_filter` est donc ignoré ici. Le cache évite
+    de reconstruire l'index Mongo à chaque requête ; l'ingestion l'invalide.
     """
     if "__all__" in _bm25_cache:
         return _bm25_cache["__all__"]
 
-    bm25_tuple = load_bm25_from_mongo(source_doc=None)  # None = fusion de tous les index
-    if bm25_tuple is None:
-        bm25_tuple = load_bm25_cache(str(_bm25_fallback_path()))
-
+    bm25_tuple = load_bm25_from_mongo(source_doc=None)
     _bm25_cache["__all__"] = bm25_tuple
     return bm25_tuple
+
+def _should_abstain(max_ce_score, question: str, source_filter=None) -> bool:
+    """Décide de l'abstention hors-scope. On s'abstient si le meilleur score CE
+    est sous le seuil — SAUF sur les questions exploratoires (génériques/
+    définitionnelles) où l'on veut retourner le meilleur contexte disponible,
+    et SAUF quand le périmètre est épinglé sur une source RÉSERVÉE (baseline
+    d'exigences LynX) : corpus maîtrisé, sans bruit, dont le cross-encoder —
+    calibré sur de la prose documentaire — score les énoncés au plancher. Là,
+    on retourne toujours le meilleur contexte ; le refus éventuel appartient à
+    la génération (prompt `baseline.system` : « la baseline ne couvre pas »).
+    Mesuré par evals/run_baseline_eval (abstention au niveau génération)."""
+    if not USE_CROSS_ENCODER or max_ce_score is None:
+        return False
+    if source_filter:
+        from core.reserved_sources import RESERVED_SOURCES
+        if source_filter in RESERVED_SOURCES:
+            return False
+    from retrieval.intent import is_exploratory
+    if is_exploratory(question):
+        return False
+    return max_ce_score < CE_RELEVANCE_THRESHOLD
+
 
 def _clean_query(user_q: str) -> str:
     """Nettoie la question sans LLM (politesse, espaces). Les termes - acronymes et
@@ -144,8 +141,8 @@ def process_query(user_q: str, selected_chunks=None, system_prompt=None, source_
             _rs.set("num_chunks", len(final_chunks))
 
         # -- Détection hors-scope ----------------------------------------------
-        if USE_CROSS_ENCODER and max_ce_score is not None and max_ce_score < CE_RELEVANCE_THRESHOLD:
-            logger.debug("[scope] Hors-scope détecté (max CE=%.3f < %s)", max_ce_score, CE_RELEVANCE_THRESHOLD)
+        if _should_abstain(max_ce_score, user_q, source_filter):
+            logger.debug("[scope] Hors-scope détecté (max CE=%.3f)", max_ce_score)
             _tr.set("hors_scope", True)
             return OUT_OF_SCOPE_MESSAGE, [], []
 
@@ -164,6 +161,12 @@ def process_query(user_q: str, selected_chunks=None, system_prompt=None, source_
         return rep, final_chunks, citations  # (reponse, chunks, citations)
 
 
+def _effective_topk(parent_child_on):
+    """Top-k cohérent avec le vrai gate PC. None => suit PARENT_CHILD_ENABLED."""
+    active = PARENT_CHILD_ENABLED if parent_child_on is None else parent_child_on
+    return NUM_CHUNKS_PARENT_CHILD if active else NUM_CHUNKS
+
+
 def _prepare_retrieval(user_q: str, source_filter: str = None,
                        conversation_history: list = None,
                        parent_child_on: bool = None):
@@ -179,8 +182,7 @@ def _prepare_retrieval(user_q: str, source_filter: str = None,
 
     # Quand Parent-Child est actif, on réduit le topk pour éviter un contexte trop long
     # (chaque chunk enfant -> ~4000 chars de contexte parent -> 8 chunks -> ~32K total)
-    _pc_active = parent_child_on if parent_child_on is not None else True
-    _topk = NUM_CHUNKS_PARENT_CHILD if _pc_active else NUM_CHUNKS
+    _topk = _effective_topk(parent_child_on)
 
     with span("retrieve") as _rs:
         final_chunks, max_ce_score = hybrid_retrieve(
@@ -202,8 +204,8 @@ def _prepare_retrieval(user_q: str, source_filter: str = None,
     # -- Détection hors-scope --------------------------------------------------
     # Si le cross-encoder a tourné et que son meilleur score est sous le seuil,
     # aucun chunk n'est pertinent -> on retourne un signal out_of_scope.
-    if USE_CROSS_ENCODER and max_ce_score is not None and max_ce_score < CE_RELEVANCE_THRESHOLD:
-        logger.debug("[scope] Hors-scope détecté (max CE=%.3f < %s)", max_ce_score, CE_RELEVANCE_THRESHOLD)
+    if _should_abstain(max_ce_score, user_q, source_filter):
+        logger.debug("[scope] Hors-scope détecté (max CE=%.3f)", max_ce_score)
         return q_main, [], max_ce_score  # final_chunks vide + score pour l'appelant
 
     return q_main, final_chunks
@@ -280,6 +282,73 @@ def process_query_stream(user_q: str, system_prompt=None, source_filter: str = N
         conversation_history=conversation_history, already_refined=True
     )
     return token_gen, final_chunks, citations
+
+
+def retrieve_wide(query: str, source_filter: str = None, topn: int = None):
+    """
+    Retrieval LARGE, orienté BREADTH pour le pré-filtre corpus-large (voir
+    `core.corpus.prefilter_documents`) — À NE PAS confondre avec `retrieve_only` /
+    `_prepare_retrieval` (orientés génération) qui appliquent un plancher de
+    couverture ET un plafond `MAX_CHUNKS` : sur un retrieval de génération, la
+    liste finale ne fait que ~8-15 chunks, dominés par le(s) plus gros document(s)
+    du corpus - un `[:topn]` dessus est un no-op qui ne laisse jamais entrer les
+    petits documents pourtant topiquement pertinents. Ici, PAS de plancher de
+    couverture, PAS de MAX_CHUNKS, rerank désactivé : on veut un maximum de
+    documents distincts représentés, pas la meilleure réponse à une question.
+
+    Retourne (query, chunks) où chunks est une liste de dicts
+    `{"doc": str, "meta": {..., "source": str}}`, dédupliqués par id, limitée à
+    `topn` éléments (défaut `CORPUS_PREFILTER_TOPN`). Défensif : n'utilise que
+    ce qui est disponible (BM25 et/ou sémantique) et ne lève JAMAIS - retourne
+    (query, []) en cas d'échec total.
+    """
+    from env_config import CORPUS_PREFILTER_TOPN
+    from indexing.keyword_index import bm25_search
+    from retrieval.semantic_search import run_semantic_for_query
+
+    topn = topn or CORPUS_PREFILTER_TOPN
+    chunks: list = []
+    seen_ids: set = set()
+
+    def _add(_id, doc, meta) -> None:
+        if _id is not None:
+            if _id in seen_ids:
+                return
+            seen_ids.add(_id)
+        chunks.append({"doc": doc, "meta": meta or {}})
+
+    # -- BM25 (large, tout le corpus) ------------------------------------------
+    try:
+        bm25_tuple = _load_bm25(None)
+    except Exception as e:
+        logger.warning("[retrieve_wide] Chargement BM25 impossible : %s", e)
+        bm25_tuple = None
+    if bm25_tuple:
+        try:
+            bm25_index, ids, texts, metas = bm25_tuple
+            res = bm25_search(bm25_index, ids, texts, metas, query, topn=topn, source_filter=source_filter)
+            r_ids = (res.get("ids") or [[]])[0]
+            r_docs = (res.get("documents") or [[]])[0]
+            r_metas = (res.get("metadatas") or [[]])[0]
+            for i, _id in enumerate(r_ids):
+                doc = r_docs[i] if i < len(r_docs) else None
+                meta = r_metas[i] if i < len(r_metas) else None
+                _add(_id, doc, meta)
+        except Exception as e:
+            logger.warning("[retrieve_wide] Recherche BM25 en échec : %s", e)
+
+    # -- Sémantique (large, tout le corpus) ------------------------------------
+    try:
+        store = _get_vector_store()
+        s_ids, s_lookup = run_semantic_for_query(store, query, topn=topn, source_filter=source_filter)
+        for _id in s_ids:
+            payload = s_lookup.get(_id) or {}
+            _add(_id, payload.get("doc"), payload.get("meta"))
+    except Exception as e:
+        logger.warning("[retrieve_wide] Recherche sémantique en échec : %s", e)
+
+    from core.evidence_policy import rank_chat_candidates
+    return query, rank_chat_candidates(chunks)[:topn]
 
 
 def retrieve_only(user_q: str, source_filter: str = None,

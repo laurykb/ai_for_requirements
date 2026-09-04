@@ -20,7 +20,7 @@ et détecter les **régressions** entre deux versions.
 - `keyword_hit_rate` — fraction des mots-clés attendus présents dans les top-k chunks.
 - `context_recall` / `context_precision` — couverture / pertinence des passages vs la référence.
 
-**Réponse (génération) — mode `full` :**
+**Réponse (génération) — modes `full`, `ragas`, `adaptive` et `adaptive_ragas` :**
 - `exact_match`, `f1_token` — comparaison à la réponse de référence.
 - `faithfulness`, `answer_relevance`, `context_relevance` — LLM-as-judge (style RAGAS, local).
 
@@ -38,8 +38,30 @@ python -m evals.run_eval --mode full --no-judge
 # Pipeline complet avec LLM-as-judge (lent) — fidélité / pertinence
 python -m evals.run_eval --mode full
 
-# Options : --limit N, --source-filter NOM_DOC, --no-save, --name MON_RUN
+# Politique Auto réelle : RAG, synthèse corpus ou agent selon la requête
+python -m evals.run_eval --dataset evals/golden_space_candidates_v1.json --mode adaptive --name adaptive-space-v1
+
+# Politique Auto réelle avec jugements RAGAS
+python -m evals.run_eval --dataset evals/golden_space_candidates_v1.json --mode adaptive_ragas --name adaptive-ragas-space-v1
+
+# Analyse profonde forcée avec les mêmes jugements RAGAS
+python -m evals.run_eval --dataset evals/golden_space_candidates_v1.json --mode deep_ragas --name deep-ragas-space-v1
+
+# Comparatif contrôle de couverture sur les seules requêtes structurées
+COVERAGE_REPAIR_ENABLED=false python -m evals.run_eval --dataset evals/golden_space_candidates_v1.json --mode adaptive_ragas --query-type structured_aggregate --name structured-no-repair
+
+# Options : --limit N, --query-type TYPE, --source-filter NOM_DOC, --no-save, --name MON_RUN
 ```
+
+## Politique adaptative et ventilation
+
+Chaque résultat enregistre `policy_version`, `query_type`, `strategy_mode` et `strategy_profile`. Le rapport et `last_eval.json` ventilent les métriques par type de requête, mode et profil : une amélioration globale ne peut ainsi masquer une régression sur les questions pointues, exploratoires, multi-hop ou agrégatives. Un item peut fixer `query_type` pour une annotation humaine ; sinon le contrôleur le classe automatiquement.
+
+Comparer uniquement des runs portant sur le même dataset et le même nombre de questions. Les campagnes Auto et Analyse profonde restent à exécuter; la matrice exhaustive rôle × modèle est volontairement reportée.
+
+Le dataset spatial v1 contient 11 réponses validées provisoirement par le propriétaire le 2026-07-27. Il reste à étendre à 30 questions avant promotion comme golden officiel.
+
+Le golden set doit être aligné sur le corpus indexé et ses réponses vérifiées dans les sources. Une Q/R déjà présente telle quelle dans l’index constitue une fuite de réponse et ne doit pas servir de benchmark.
 
 ## Non-régression
 

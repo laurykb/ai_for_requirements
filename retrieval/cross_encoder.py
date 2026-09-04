@@ -6,6 +6,7 @@
 from sentence_transformers import CrossEncoder
 import numpy as np
 import os
+import threading
 from utils.logging_config import get_logger
 
 logger = get_logger("rag.rerank")
@@ -19,6 +20,8 @@ def _is_oom(e: Exception) -> bool:
 _CE_MODEL = None  # Instance du modèle CrossEncoder
 _CE_PATH = None   # Chemin du modèle actuellement chargé
 _CE_DEVICE = None # Device actuellement utilisé
+_CE_REQUESTED_DEVICE = None # Device demandé avant un éventuel repli CPU
+_CE_LOCK = threading.RLock() # singleton PyTorch protégé pour les requêtes concurrentes
 
 def _sigmoid(x):
     """Normalise les scores bruts XLM-RoBERTa en [0, 1] via sigmoïde."""
@@ -34,8 +37,10 @@ def _load_cross_encoder_local(model_path, device=None):
     Returns:
         Instance CrossEncoder prête à l'emploi.
     """
-    global _CE_MODEL, _CE_PATH, _CE_DEVICE
-    if _CE_MODEL is not None and _CE_PATH == model_path and _CE_DEVICE == device:
+    global _CE_MODEL, _CE_PATH, _CE_DEVICE, _CE_REQUESTED_DEVICE
+    requested_device = device
+    if (_CE_MODEL is not None and _CE_PATH == model_path
+            and _CE_REQUESTED_DEVICE == requested_device):
         # Modèle déjà chargé sur le bon device, on le réutilise
         return _CE_MODEL
     if not os.path.isdir(model_path):
@@ -53,6 +58,7 @@ def _load_cross_encoder_local(model_path, device=None):
         _CE_MODEL = CrossEncoder(model_path, device=device)
     _CE_PATH = model_path
     _CE_DEVICE = device
+    _CE_REQUESTED_DEVICE = requested_device
     return _CE_MODEL
 
 def rerank_cross_encoder(query, items, model_path, device=None):
@@ -72,22 +78,24 @@ def rerank_cross_encoder(query, items, model_path, device=None):
     """
     if not items:
         return items
-    global _CE_MODEL
-    ce = _load_cross_encoder_local(model_path, device=device)
-    # Prépare les paires (requête, chunk) pour le modèle
-    pairs = [(query, it.get("doc", "") or "") for it in items]
-    # Prédit les scores bruts de similarité pour chaque paire
-    try:
-        raw_scores = ce.predict(pairs)
-    except RuntimeError as e:
-        # OOM à l'inférence (la VRAM s'est remplie APRÈS le chargement) :
-        # rechargement sur CPU et nouvelle prédiction, plutôt qu'un échec.
-        if not _is_oom(e):
-            raise
-        logger.warning("[rerank] OOM à l'inférence -> rechargement du Cross-Encoder sur CPU.")
-        _CE_MODEL = None
-        ce = _load_cross_encoder_local(model_path, device="cpu")
-        raw_scores = ce.predict(pairs)
+    global _CE_MODEL, _CE_REQUESTED_DEVICE
+    with _CE_LOCK:
+        ce = _load_cross_encoder_local(model_path, device=device)
+        # Prépare les paires (requête, chunk) pour le modèle
+        pairs = [(query, it.get("doc", "") or "") for it in items]
+        # Prédit les scores bruts de similarité pour chaque paire
+        try:
+            raw_scores = ce.predict(pairs)
+        except RuntimeError as e:
+            # OOM à l'inférence (la VRAM s'est remplie APRÈS le chargement) :
+            # rechargement sur CPU et nouvelle prédiction, plutôt qu'un échec.
+            if not _is_oom(e):
+                raise
+            logger.warning("[rerank] OOM à l'inférence -> rechargement du Cross-Encoder sur CPU.")
+            _CE_MODEL = None
+            ce = _load_cross_encoder_local(model_path, device="cpu")
+            _CE_REQUESTED_DEVICE = device
+            raw_scores = ce.predict(pairs)
     # bge-reranker-v2-m3 retourne des logits bruts -> normalisation sigmoïde en [0, 1]
     scores = _sigmoid(raw_scores)
     for it, sc in zip(items, scores):

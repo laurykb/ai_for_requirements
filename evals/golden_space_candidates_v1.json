@@ -1,0 +1,470 @@
+{
+  "dataset": "Menaces spatiales — golden set PROVISOIRE v1",
+  "status": "human_validated_provisional",
+  "description": "Benchmark provisoire de 11 questions ancrées dans des passages de l index spatial actif. Réponses validées par le propriétaire le 2026-07-27; à étendre à 30 questions avant promotion comme golden officiel.",
+  "items": [
+    {
+      "question": "Quelles capacités antisatellites russes sont documentées dans le corpus ?",
+      "answer": "Le corpus documente une nouvelle capacité ASAT russe signalée en 2024, potentiellement liée à un système nucléaire en orbite, des systèmes ASAT à ascension directe dont un essai en 2021, ainsi que des satellites d inspection ou de contre-espace comme Luch/Olymp et Cosmos 2576.",
+      "expected_keywords": [
+        "ASAT",
+        "2021",
+        "Luch",
+        "Cosmos 2576"
+      ],
+      "query_type": "pointed",
+      "evidence": [
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 20
+        },
+        {
+          "source": "250425_Swope_Space_Threat-clean.md",
+          "page": 45
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Quelles menaces ciblent le segment sol des systèmes spatiaux ?",
+      "answer": "Le segment sol est exposé aux attaques physiques, au piratage informatique, au brouillage des moyens TT&C et SATCOM, ainsi qu aux cyberattaques étatiques ou non étatiques. Les installations de recherche, maintenance, intégration et test sont également vulnérables.",
+      "expected_keywords": [
+        "TT&C",
+        "SATCOM",
+        "piratage",
+        "brouillage"
+      ],
+      "query_type": "pointed",
+      "evidence": [
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        },
+        {
+          "source": "CSSAnalyse343-FR-clean.md",
+          "page": 2
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Comment le brouillage et le spoofing affectent-ils les services GNSS ?",
+      "answer": "Le brouillage empêche la réception des signaux GNSS dans une zone donnée. Le spoofing trompe le récepteur en lui faisant accepter un faux signal comme authentique. Ces attaques peuvent affecter GPS, Galileo, BeiDou et GLONASS, perturber les usages civils et commerciaux et créer des risques pour la sécurité publique.",
+      "expected_keywords": [
+        "jamming",
+        "spoofing",
+        "GPS",
+        "Galileo"
+      ],
+      "query_type": "pointed",
+      "evidence": [
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 9
+        },
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 24
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Quels types d acteurs de menace contre les systèmes spatiaux sont recensés dans le corpus ?",
+      "answer": "Le corpus recense notamment les acteurs liés aux États, les cybercriminels et hackers à louer, les acteurs offensifs privés, les hacktivistes, les terroristes, ainsi que des acteurs internes, partenaires ou concurrents industriels selon le périmètre étudié.",
+      "expected_keywords": [
+        "État",
+        "cybercriminels",
+        "hacktivistes",
+        "terroristes"
+      ],
+      "query_type": "aggregate",
+      "evidence": [
+        {
+          "source": "Space_Threat_Landscape_Report_fin-clean.md",
+          "page": 33
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Compare les menaces visant le segment spatial et le segment sol.",
+      "answer": "Le segment spatial est notamment exposé aux capacités antisatellites cinétiques ou co-orbitales et aux effets susceptibles de produire des débris. Le segment sol est davantage exposé aux attaques physiques, terroristes et cyber contre les stations TT&C, SATCOM et autres infrastructures accessibles. Le corpus souligne que sol, liaison et espace doivent être protégés comme un système unique.",
+      "expected_keywords": [
+        "antisatellite",
+        "segment sol",
+        "TT&C",
+        "débris"
+      ],
+      "query_type": "multi_hop",
+      "evidence": [
+        {
+          "source": "Stratégie Spatiale de Défense-clean.md",
+          "page": 27
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 8
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Sur tous les documents que tu as en mémoire, Sur un grand système comme Galileo, je souhaite identifier les sources de risques et leurs objectifs. Plus en détail, il faut que tu sois capable d identifier et caractériser : les catégories de sources de risque et les source de risque. Puis il faut que tu sois capable d identifier les objectif visés. Plus en détail, il faut que tu sois capable de m identifier les catégories d objectif visé et les objectifs visés. Sois exhaustif, précis et rigoureux",
+      "answer": "Le corpus distingue notamment les acteurs liés aux États, cybercriminels et hackers à louer, acteurs offensifs privés, hacktivistes et terroristes. Leurs objectifs documentés comprennent l espionnage, la perturbation ou dégradation des services, le gain financier, l exposition de données et, pour certaines capacités de contre-espace, la destruction ou neutralisation d infrastructures spatiales.",
+      "expected_keywords": [
+        "acteurs liés aux États",
+        "cybercriminels",
+        "espionnage",
+        "perturbation"
+      ],
+      "expected_axes": [
+        {
+          "name": "catégories de sources de risque",
+          "keywords": [
+            "État",
+            "cybercriminel",
+            "hacktiviste"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "sources de risque",
+          "keywords": [
+            "terroriste",
+            "acteur offensif privé"
+          ],
+          "min_hits": 1
+        },
+        {
+          "name": "catégories d objectifs visés",
+          "keywords": [
+            "espionnage",
+            "gain financier",
+            "perturbation"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "objectifs visés",
+          "keywords": [
+            "destruction",
+            "dégradation",
+            "exposition de données"
+          ],
+          "min_hits": 1
+        },
+        {
+          "name": "relations source vers objectif",
+          "keywords": [
+            "État",
+            "espionnage"
+          ],
+          "min_hits": 2
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "Space_Threat_Landscape_Report_fin-clean.md",
+          "page": 33
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        },
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 8
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Catégorise moi tout les source objectif, tous les target objectives, et sort moi une table de tous les types d attaquant",
+      "answer": "Les types d attaquants recensés comprennent les acteurs étatiques, cybercriminels et hackers à louer, acteurs offensifs privés, hacktivistes et terroristes. Les objectifs associés incluent l espionnage, la perturbation, le gain financier, l exposition de données et la neutralisation ou destruction de capacités spatiales.",
+      "expected_keywords": [
+        "étatiques",
+        "cybercriminels",
+        "hacktivistes",
+        "espionnage",
+        "perturbation"
+      ],
+      "expected_axes": [
+        {
+          "name": "types d attaquants",
+          "keywords": [
+            "étatique",
+            "cybercriminel",
+            "hacktiviste",
+            "terroriste"
+          ],
+          "min_hits": 3
+        },
+        {
+          "name": "catégories d objectifs",
+          "keywords": [
+            "espionnage",
+            "gain financier",
+            "perturbation"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "objectifs visés",
+          "keywords": [
+            "destruction",
+            "neutralisation",
+            "exposition de données"
+          ],
+          "min_hits": 1
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "Space_Threat_Landscape_Report_fin-clean.md",
+          "page": 33
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        },
+        {
+          "source": "Stratégie Spatiale de Défense-clean.md",
+          "page": 27
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Établis une matrice exhaustive reliant chaque catégorie d acteur de menace spatial à ses objectifs documentés, aux segments ciblés et aux effets recherchés.",
+      "answer": "La matrice doit distinguer les acteurs étatiques, cybercriminels ou hackers à louer, acteurs offensifs privés, hacktivistes et terroristes, puis relier uniquement les objectifs et segments explicitement étayés.",
+      "expected_keywords": [
+        "étatiques",
+        "cybercriminels",
+        "espionnage",
+        "segment sol",
+        "perturbation"
+      ],
+      "expected_axes": [
+        {
+          "name": "catégories d acteurs",
+          "keywords": [
+            "étatique",
+            "cybercriminel",
+            "hacktiviste",
+            "terroriste"
+          ],
+          "min_hits": 3
+        },
+        {
+          "name": "objectifs",
+          "keywords": [
+            "espionnage",
+            "perturbation",
+            "gain financier"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "segments ciblés",
+          "keywords": [
+            "segment spatial",
+            "segment sol",
+            "liaison"
+          ],
+          "min_hits": 2
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "Space_Threat_Landscape_Report_fin-clean.md",
+          "page": 33
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        },
+        {
+          "source": "Stratégie Spatiale de Défense-clean.md",
+          "page": 27
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Dresse une table multi-documentaire des attaques contre Galileo et les autres GNSS : technique, source de risque, objectif visé, effet et segment concerné.",
+      "answer": "La table doit couvrir notamment le brouillage et le spoofing, leurs effets sur la réception ou authenticité de la position, les systèmes Galileo et GPS et les objectifs explicitement documentés.",
+      "expected_keywords": [
+        "brouillage",
+        "spoofing",
+        "Galileo",
+        "GPS",
+        "perturbation"
+      ],
+      "expected_axes": [
+        {
+          "name": "techniques",
+          "keywords": [
+            "brouillage",
+            "spoofing"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "effets",
+          "keywords": [
+            "réception",
+            "faux signal",
+            "position"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "systèmes",
+          "keywords": [
+            "Galileo",
+            "GPS"
+          ],
+          "min_hits": 2
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 9
+        },
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 24
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Recense et catégorise toutes les sources de risque visant les segments sol, spatial et liaison, puis associe à chacune les objectifs et impacts explicitement documentés.",
+      "answer": "La réponse doit séparer les capacités antisatellites visant le segment spatial, les attaques physiques et cyber sur TT&C et SATCOM visant le sol, et le brouillage des liaisons, sans inventer de relation.",
+      "expected_keywords": [
+        "antisatellite",
+        "TT&C",
+        "SATCOM",
+        "brouillage",
+        "cyber"
+      ],
+      "expected_axes": [
+        {
+          "name": "segment spatial",
+          "keywords": [
+            "antisatellite",
+            "débris"
+          ],
+          "min_hits": 1
+        },
+        {
+          "name": "segment sol",
+          "keywords": [
+            "TT&C",
+            "SATCOM",
+            "cyber"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "segment liaison",
+          "keywords": [
+            "brouillage",
+            "liaison"
+          ],
+          "min_hits": 1
+        },
+        {
+          "name": "objectifs et impacts",
+          "keywords": [
+            "perturbation",
+            "destruction",
+            "dégradation"
+          ],
+          "min_hits": 1
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 2
+        },
+        {
+          "source": "Space-System-Threats-clean.md",
+          "page": 8
+        },
+        {
+          "source": "Stratégie Spatiale de Défense-clean.md",
+          "page": 27
+        }
+      ],
+      "status": "human_validated_provisional"
+    },
+    {
+      "question": "Construis une table exhaustive des capacités antisatellites russes documentées : catégorie, système ou événement, mode action, objectif, effet potentiel et sources.",
+      "answer": "La table doit couvrir la capacité signalée en 2024 potentiellement liée à un système nucléaire en orbite, les ASAT à ascension directe dont essai de 2021 et les satellites inspection ou contre-espace Luch Olymp et Cosmos 2576.",
+      "expected_keywords": [
+        "ASAT",
+        "2021",
+        "Luch",
+        "Cosmos 2576"
+      ],
+      "expected_axes": [
+        {
+          "name": "catégories de capacités",
+          "keywords": [
+            "ascension directe",
+            "co-orbital",
+            "contre-espace"
+          ],
+          "min_hits": 1
+        },
+        {
+          "name": "systèmes et événements",
+          "keywords": [
+            "2021",
+            "Luch",
+            "Cosmos 2576"
+          ],
+          "min_hits": 2
+        },
+        {
+          "name": "objectifs et effets",
+          "keywords": [
+            "neutralisation",
+            "destruction",
+            "débris"
+          ],
+          "min_hits": 1
+        }
+      ],
+      "query_type": "structured_aggregate",
+      "evidence": [
+        {
+          "source": "240417_Swope_SpaceThreatAssessment_2024-clean.md",
+          "page": 20
+        },
+        {
+          "source": "250425_Swope_Space_Threat-clean.md",
+          "page": 45
+        }
+      ],
+      "status": "human_validated_provisional"
+    }
+  ]
+}

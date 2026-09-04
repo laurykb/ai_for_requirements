@@ -29,12 +29,6 @@
   /* ── Couche 3 · Composants ────────────────────────────────────────────── */
   /* Intro : nuit de la planète aqua. */
   --globe-night: #0b2531;
-  /* Chips de rôle des agents LynX (boîte de verre). */
-  --role-rule: #0891b2;
-  --role-vector: #0d9488;
-  --role-agent: #7c3aed;
-  --role-synthesis: #b45309;
-  --role-default: #4b5563;
   /* Visionneuse « page blanche » (Documents) : le seul îlot clair du thème. */
   --doc-bg: #f4f4f7;
   --doc-ink: #1f1f23;
@@ -220,28 +214,12 @@ body {
   margin: 8px 0;
 }
 
-/* ===== LynX (la matrice est la scène) ========================================== */
-
-/* Contrôles React Flow accordés au thème. */
-.req-graph .react-flow__controls {
-  box-shadow: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.req-graph .react-flow__controls-button {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
-  fill: var(--foreground-muted);
-}
-.req-graph .react-flow__controls-button:hover {
-  background: var(--muted);
-}
-
-/* Bannière de verdict : liseré coloré à gauche, respiration. */
-.verdict-banner {
-  border-left: 3px solid var(--fg, var(--accent));
-  padding-left: 0.9rem;
+/* Espace LynX élargi : sort du conteneur central (max-w-6xl) du layout pour
+   donner à la Matrice toute la largeur utile (plafond ~1640px, centré). */
+.lynx-wide {
+  width: 100dvw;
+  margin-left: calc(50% - 50dvw);
+  padding-inline: max(1.5rem, calc(50dvw - 820px));
 }
 
 /* ===== Chat ==================================================================== */
@@ -370,6 +348,25 @@ button.cite-marker:hover {
 }
 sup.cite-marker {
   cursor: default;
+}
+
+/* Identifiant d'exigence cité dans une réponse (chat baseline) : lien vers
+   la Matrice — même famille visuelle que les marqueurs [n], en version texte. */
+.req-link {
+  padding: 0 0.15em;
+  border: 0;
+  background: none;
+  color: var(--accent-bright);
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 0.92em;
+  text-decoration: underline dotted color-mix(in srgb, var(--accent) 60%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.req-link:hover {
+  text-decoration-style: solid;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 4px;
 }
 
 /* Affirmation non sourcée dans les documents : fond ambre discret + info-bulle. */

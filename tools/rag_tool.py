@@ -45,7 +45,8 @@ TOOL_PARAMETERS = {
 
 def tool_spec() -> dict:
     """Spécification d'outil générique (réutilisable pour MCP et agents)."""
-    return {"name": TOOL_NAME, "description": TOOL_DESCRIPTION, "parameters": TOOL_PARAMETERS}
+    return {"name": TOOL_NAME, "description": TOOL_DESCRIPTION, "parameters": TOOL_PARAMETERS,
+            "example": {"query": "exigences de chiffrement des liaisons"}}
 
 
 def openai_tool_spec() -> dict:

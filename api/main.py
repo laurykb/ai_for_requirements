@@ -1,9 +1,7 @@
 """API FastAPI (backend du nouveau front) — point d'entrée.
 
-L'UI humaine est le front Next.js (`web/`), servi par cette API. L'ancienne UI
-Streamlit (`legacy/app/main.py`) reste disponible en secours le temps d'atteindre
-la parité. Cette API n'importe jamais streamlit : elle parle directement à Mongo
-et Ollama.
+L'UI humaine est le front Next.js (`web/`), servi par cette API. Elle parle
+directement à Mongo et Ollama.
 
 Ce module ne fait QUE l'assemblage ; chaque domaine vit dans son routeur :
   - api/rag.py        couche Q&A : RAG direct + agent ReAct, streaming SSE
@@ -32,8 +30,9 @@ _ORIGINS = os.environ.get(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _ORIGINS.split(",") if o.strip()],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Accept", "Content-Type"],
+    expose_headers=["Content-Disposition"],
 )
 
 # LynX (AI for Requirements) : routeur dédié, importé paresseusement pour ne
@@ -43,12 +42,16 @@ from api.rag import router as rag_router        # noqa: E402
 from api.sessions import router as sessions_router  # noqa: E402
 from api.documents import router as documents_router  # noqa: E402
 from api.system import router as system_router  # noqa: E402
+from api.prompts import router as prompts_router  # noqa: E402
+from api.lynx_chat import router as lynx_chat_router  # noqa: E402
 
 app.include_router(lynx_router)
+app.include_router(lynx_chat_router)
 app.include_router(rag_router)
 app.include_router(sessions_router)
 app.include_router(documents_router)
 app.include_router(system_router)
+app.include_router(prompts_router)
 
 
 def _port_open(port: int, host: str = "127.0.0.1") -> bool:
@@ -63,10 +66,16 @@ def _port_open(port: int, host: str = "127.0.0.1") -> bool:
 @app.get("/health")
 def health() -> dict:
     """Sonde de vivacité + état des services locaux (affiché par le front)."""
+    mongo_host = os.environ.get("MONGO_HOST", "127.0.0.1")
+    mongo_port = int(os.environ.get("MONGO_PORT", "27017"))
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    from urllib.parse import urlparse
+    ollama_url = urlparse(ollama_host)
     return {
         "status": "ok",
         "services": {
-            "mongo": _port_open(27017),
-            "ollama": _port_open(11434),
+            "mongo": _port_open(mongo_port, mongo_host),
+            "ollama": _port_open(ollama_url.port or 11434,
+                                 ollama_url.hostname or "127.0.0.1"),
         },
     }

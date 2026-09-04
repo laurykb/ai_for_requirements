@@ -23,6 +23,12 @@ class _Doc:
     """Adaptateur minimal : build_embeddings n'exige que page_content/metadata.
     Chroma n'accepte que des scalaires en métadonnées : on filtre le record
     Mongo (None écartés, listes jointes, dicts aplatis en str)."""
+    # Listes que build_embeddings sait sanitiser lui-même (jointes en str pour
+    # Chroma). On les préserve en LISTE ici pour que build_embedding_units lise
+    # `questions` comme une liste (HyPE = 1 vecteur/question) et que la
+    # métadonnée finale soit identique à une ingestion normale.
+    _KEEP_LIST = ("questions", "keywords", "entities_flat")
+
     def __init__(self, record: dict):
         self.page_content = record.get("content", "")
         meta: dict = {}
@@ -32,7 +38,7 @@ class _Doc:
             if isinstance(v, (str, int, float, bool)):
                 meta[k] = v
             elif isinstance(v, list):
-                meta[k] = ", ".join(str(x) for x in v)
+                meta[k] = v if k in self._KEEP_LIST else ", ".join(str(x) for x in v)
             else:
                 meta[k] = str(v)
         meta["id"] = record["_id"]

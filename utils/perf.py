@@ -15,7 +15,10 @@ _BUFFER: deque[dict] = deque(maxlen=200)
 
 
 def record(model: str, gen_tokens: int, gen_s: float, prompt_tokens: int,
-           total_s: float, ttft_s: float | None, ts: float) -> None:
+           total_s: float, ttft_s: float | None, ts: float,
+           task_id: str | None = None, role: str | None = None,
+           prompt_eval_s: float = 0.0, load_s: float = 0.0,
+           ollama_total_s: float = 0.0) -> None:
     """Enregistre une génération. `gen_s` = durée de décodage (s) renvoyée par Ollama."""
     _BUFFER.append({
         "model": model,
@@ -23,9 +26,14 @@ def record(model: str, gen_tokens: int, gen_s: float, prompt_tokens: int,
         "gen_s": gen_s,
         "tok_per_s": (gen_tokens / gen_s) if gen_s else None,
         "prompt_tokens": prompt_tokens,
+        "prompt_eval_s": prompt_eval_s,
+        "load_s": load_s,
+        "ollama_total_s": ollama_total_s,
         "total_s": total_s,
         "ttft_s": ttft_s,
         "ts": ts,
+        "task_id": task_id,
+        "role": role,
     })
 
 
@@ -66,3 +74,28 @@ def gpu_memory() -> list[tuple[float, float]]:
         return gpus
     except Exception:
         return []
+
+
+def hardware_profile() -> dict:
+    """Profil central utilisé par l API et les diagnostics de concurrence."""
+    gpus = gpu_memory()
+    total_mib = int(sum(total for _used, total in gpus))
+    if len(gpus) >= 2 and total_mib >= 80 * 1024:
+        name, slots = "dual_high_vram", 4
+    elif total_mib >= 32 * 1024:
+        name, slots = "high_vram", 2
+    else:
+        name, slots = "constrained", 1
+    return {
+        "name": name, "gpu_count": len(gpus), "total_vram_mib": total_mib,
+        "recommendations": {
+            "ollama_sched_spread": len(gpus) >= 2,
+            "ollama_num_parallel": slots,
+            "ollama_max_loaded_models": 4 if name == "dual_high_vram" else 2,
+            "corpus_map_concurrency": slots,
+            "ragas_judge_concurrency": slots,
+            "eval_question_concurrency": 2 if name == "dual_high_vram" else 1,
+            "enhance_max_workers": slots,
+            "ce_device": "cuda:0" if gpus else "cpu",
+        },
+    }

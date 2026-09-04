@@ -132,4 +132,7 @@ def test_flux_sain_sans_coupure(client, monkeypatch):
     kinds = [e["type"] for e in events]
     assert "error" not in kinds
     assert kinds.count("token") == 3
-    assert kinds[-1] in ("done", "eval", "attribution")
+    assert kinds[-1] == "task_metrics"
+    metrics = events[-1]["metrics"]
+    assert metrics["status"] == "completed"
+    assert metrics["outcome"]["completion"] == "technical_success"

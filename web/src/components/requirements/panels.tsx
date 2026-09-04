@@ -4,13 +4,14 @@
  * d'exigence fille et section Audit de la matrice. La logique (analyse,
  * audit) reste dans index.tsx et arrive par props. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Dot, Hint, Meter, Pill, Spinner, type Tone } from "@/components/ui";
-import { type Req } from "@/components/req-graph";
+import { type Req } from "@/components/req-explorer";
+import { getJSON } from "@/lib/api";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
-  type AuditFinding, type AuditReport, type Exchange, type FixItem, type FixProgress, type FixRecap,
+  type AuditReport, type FixItem, type FixProgress, type FixRecap,
 } from "@/components/requirements/blocks";
 
 /** Statuts finaux de la correction en lot (miroir de lynx/src/autofix.py). */
@@ -27,14 +28,28 @@ const isSelectable = (it: FixItem) =>
   it.statut !== "echec_suggestion" && it.statut !== "inchangee";
 
 /** Formulaire d'ajout de lien DERIVE (mère au niveau N-1 ou fille au niveau N+1). */
-export function LinkForm({ sel, corpus, disabled, onLink }: {
-  sel: Req; corpus: Req[]; disabled: boolean;
+export function LinkForm({ sel, disabled, onLink }: {
+  sel: Req; disabled: boolean;
   onLink: (action: Record<string, unknown>) => void;
 }) {
   const [direction, setDirection] = useState<"mere" | "fille">("mere");
   const [other, setOther] = useState("");
-  const candidates = corpus.filter((r) =>
-    r.id !== sel.id && r.niveau === sel.niveau + (direction === "mere" ? -1 : 1));
+  const [search, setSearch] = useState("");
+  const [candidates, setCandidates] = useState<Req[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const targetLevel = sel.niveau + (direction === "mere" ? -1 : 1);
+    const timer = setTimeout(() => {
+      if (targetLevel < 0) { setCandidates([]); return; }
+      setLoading(true);
+      const params = new URLSearchParams({ level: String(targetLevel), page_size: "30" });
+      if (search.trim()) params.set("query", search.trim());
+      getJSON<{ items: Req[] }>("/api/lynx/requirements?" + params.toString())
+        .then((result) => setCandidates(result.items.filter((req) => req.id !== sel.id)))
+        .catch(() => setCandidates([])).finally(() => setLoading(false));
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [direction, search, sel.id, sel.niveau]);
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-edge pt-2">
       <select value={direction}
@@ -43,9 +58,12 @@ export function LinkForm({ sel, corpus, disabled, onLink }: {
         <option value="mere">Rattacher à une mère (L{sel.niveau - 1})</option>
         <option value="fille">Adopter une fille (L{sel.niveau + 1})</option>
       </select>
+      <input value={search} onChange={(e) => { setSearch(e.target.value); setOther(""); }}
+             placeholder="Rechercher un identifiant…"
+             className="min-w-44 rounded-md border border-edge bg-surface px-2 py-1 text-[11px] text-foreground" />
       <select value={other} onChange={(e) => setOther(e.target.value)}
               className="rounded-md border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-foreground">
-        <option value="">choisir…</option>
+        <option value="">{loading ? "recherche…" : "choisir…"}</option>
         {candidates.map((r) => (
           <option key={r.id} value={r.id}>{r.id}</option>
         ))}
@@ -127,140 +145,6 @@ export function CreateChildForm({ sel, disabled, onCreate }: {
 
 // ─── Génération descendante de filles (L n+1) ──────────────────────────────
 
-export type GenFille = { id_propose: string; texte: string; justification: string;
-                         aspect_couvert: string; findings_restants: AuditFinding[];
-                         statut: string };
-export type GenRecap = { filles: GenFille[]; aspects_non_couverts: string[];
-                         niveau_filles: number; exchanges?: Exchange[] };
-export type GenProgress = { phase: string; passe?: number; done?: number;
-                            total?: number; req_id?: string | null };
-
-const GEN_STATUT_STYLE: Record<string, { label: string; tone: Tone }> = {
-  conforme: { label: "conforme", tone: "good" },
-  ...STATUT_STYLE,
-};
-
-function genPhaseLabel(p: GenProgress): string {
-  if (p.phase === "generation") return "l'agent propose des exigences filles…";
-  if (p.phase === "reecriture")
-    return `réécriture des filles signalées (passe ${p.passe ?? 1}) — ${p.done ?? 0}/${p.total ?? 0}`;
-  return `auto-audit de la matrice candidate — ${p.done ?? 0}/${p.total ?? 0} exigences`;
-}
-
-/** Bouton + progression + récap sélectif de la génération de filles :
- * même gestuelle que la correction en lot (rien n'est créé sans validation). */
-export function GenerateChildrenBlock({ sel, llmOk, disabled, genRunning, genProgress,
-                                        genRecap, genError, onRun, onCancel, onApply,
-                                        onClose }: {
-  sel: Req; llmOk: boolean; disabled: boolean;
-  genRunning: boolean; genProgress: GenProgress | null;
-  genRecap: GenRecap | null; genError: string | null;
-  onRun: () => void; onCancel: () => void;
-  onApply: (items: { id: string; texte: string; niveau: number }[]) => void;
-  onClose: () => void;
-}) {
-  const [unchecked, setUnchecked] = useState<Set<string>>(new Set());
-  const plafond = sel.niveau >= 5;
-  const selection = (genRecap?.filles ?? []).filter((f) => !unchecked.has(f.id_propose));
-  return (
-    <div className="space-y-2">
-      {!genRunning && !genRecap && (
-        <p className="flex items-center gap-1.5">
-          <button onClick={onRun} disabled={disabled || plafond || !llmOk}
-                  title={plafond ? "Niveau plancher L5 : une L5 ne se décline pas." : undefined}
-                  className="cursor-pointer rounded-md border border-accent/50 px-2 py-1 text-[11px] text-accent-bright transition-colors hover:bg-accent/10 disabled:opacity-40">
-            Générer des exigences filles (L{Math.min(sel.niveau + 1, 5)})
-          </button>
-          <Hint text="Un agent propose 2 à 7 exigences filles qui déclinent la sélection (en évitant la redondance avec les filles existantes). Elles sont auto-auditées sur une copie de la matrice — débat contradictoire inclus — et réécrites si signalées, avant validation sélective. Rien n'est créé sans votre accord." />
-        </p>
-      )}
-      {genRunning && (
-        <p className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
-          <Spinner /> {genProgress ? genPhaseLabel(genProgress) : "démarrage…"}
-          <button onClick={onCancel} className={btnGhost}>Annuler</button>
-        </p>
-      )}
-      {genError && <p className="text-xs text-bad">{genError}</p>}
-      {genRecap && !genRunning && (
-        <div className="rise-in space-y-2">
-          <p className="text-xs font-semibold text-foreground">
-            {genRecap.filles.length} fille(s) proposée(s) — niveau L{genRecap.niveau_filles}
-          </p>
-          {genRecap.filles.map((f) => {
-            const s = GEN_STATUT_STYLE[f.statut] ?? { label: f.statut, tone: "neutral" as Tone };
-            return (
-              <div key={f.id_propose}
-                   className="rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-xs">
-                <p className="flex flex-wrap items-center gap-2">
-                  <input type="checkbox" checked={!unchecked.has(f.id_propose)}
-                         onChange={(e) => setUnchecked((prev) => {
-                           const next = new Set(prev);
-                           if (e.target.checked) next.delete(f.id_propose);
-                           else next.add(f.id_propose);
-                           return next;
-                         })}
-                         className="accent-(--accent)" />
-                  <span className="font-mono text-foreground">{f.id_propose}</span>
-                  <Pill tone={s.tone}>{s.label}</Pill>
-                  {f.aspect_couvert && (
-                    <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-fg-faint">
-                      {f.aspect_couvert}
-                    </span>
-                  )}
-                </p>
-                <p className="mt-1.5 leading-relaxed text-foreground">{f.texte}</p>
-                {f.findings_restants.length > 0 && (
-                  <ul className="mt-1 space-y-0.5 text-[11px] text-fg-muted">
-                    {f.findings_restants.map((fd, i) => (
-                      <li key={i}>
-                        <span className="rounded bg-muted px-1 py-px font-mono text-[10px] text-fg-faint">
-                          {fd.axis}
-                        </span>{" "}
-                        {fd.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {f.justification && (
-                  <details className="chat-details mt-1.5">
-                    <summary>Justification de l&apos;agent</summary>
-                    <p className="mt-1 flex items-start gap-2 text-[11px] leading-relaxed text-fg-muted">
-                      <RoleChip role="IA" />
-                      <span>{f.justification}</span>
-                    </p>
-                  </details>
-                )}
-              </div>
-            );
-          })}
-          {genRecap.aspects_non_couverts.length > 0 && (
-            <p className="text-[11px] text-warn">
-              Aspects de la mère non couverts (transparence de couverture) :{" "}
-              {genRecap.aspects_non_couverts.join(" · ")}
-            </p>
-          )}
-          {genRecap.exchanges && genRecap.exchanges.length > 0 && (
-            <GlassBox exchanges={genRecap.exchanges}
-                      title="Comment LynX a généré ces filles — boîte de verre" />
-          )}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <button
-              onClick={() => onApply(selection.map((f) => ({
-                id: f.id_propose, texte: f.texte, niveau: genRecap.niveau_filles })))}
-              disabled={selection.length === 0}
-              className={btnPrimary}
-            >
-              Valider la sélection ({selection.length})
-            </button>
-            <button onClick={onClose} className={btnGhost}>Annuler</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** L'audit : jauge + défauts détaillés, conformes comptés, correction en lot. */
 export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, onRun, onSelect,
                              llmOk, fixing, fixProgress, fixRecap, onFix, onCancelFix,
                              onApplyFix, onCloseRecap }: {
@@ -317,17 +201,18 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
           <div className="flex flex-wrap items-end gap-6">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-fg-faint">
-                Score de santé
+                Score de l’audit
               </p>
               <p className="font-mono text-3xl font-bold tabular-nums"
-                 style={{ color: audit.score >= 80 ? "var(--good)"
+                 style={{ color: !audit.score_meaningful ? "var(--fg-faint)"
+                          : audit.score >= 80 ? "var(--good)"
                           : audit.score >= 50 ? "var(--warn)" : "var(--bad)" }}>
-                {audit.score}
-                <span className="text-sm text-fg-faint">/100</span>
+                {audit.score_meaningful ? audit.score : "—"}
+                {audit.score_meaningful && <span className="text-sm text-fg-faint">/100</span>}
               </p>
             </div>
             <div className="min-w-44 flex-1">
-              <Meter label="Santé de la matrice" value={audit.score / 100} invert
+              <Meter label="Résultat de l’audit" value={audit.score / 100} invert
                      hint="100 − pénalités (BLOQUANT −9, ATTENTION −3)." />
             </div>
             <p className="text-[11px] text-fg-faint">
@@ -335,10 +220,17 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
               {deep ? ` · ${audit.n} audits IA` : ""} ▸ Score
             </p>
           </div>
+          {audit.degraded_reasons.length > 0 && (
+            <ul className="rounded-lg border border-warn/30 bg-warn/5 p-2 text-xs text-fg-muted">
+              {audit.degraded_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+            </ul>
+          )}
           {audit.flagged_ids.length === 0 ? (
             <p className="flex items-center gap-2 text-xs text-fg-muted">
-              <Dot tone="good" /> Aucune exigence signalée —{" "}
-              <span className="font-mono tabular-nums">{audit.n}</span> conformes.
+              <Dot tone={audit.n_non_audite ? "neutral" : "good"} />
+              {audit.n_non_audite
+                ? `Aucun défaut démontré · ${audit.n_non_audite} exigence(s) non auditée(s).`
+                : <><span className="font-mono tabular-nums">{audit.n}</span> exigence(s) auditée(s), aucun constat.</>}
             </p>
           ) : (
             <>
@@ -347,9 +239,9 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
                 <span className="font-mono tabular-nums">{audit.flagged_ids.length}</span>
                 exigence(s) en défaut —{" "}
                 <span className="font-mono tabular-nums">
-                  {audit.n - audit.flagged_ids.length}
+                  {Math.max(0, audit.n - audit.flagged_ids.length - audit.n_non_audite)}
                 </span>{" "}
-                conformes
+                auditée(s) sans constat
                 {audit.n_non_audite > 0 && ` · ${audit.n_non_audite} non auditées`}
               </p>
               <div className="space-y-1.5">

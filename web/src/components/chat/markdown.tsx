@@ -64,6 +64,13 @@ const citeLink = (n: number): Element => ({
   children: [text(String(n))],
 });
 
+const reqLink = (id: string): Element => ({
+  type: "element",
+  tagName: "a",
+  properties: { href: `#req-${id}` },
+  children: [text(id)],
+});
+
 const unsourcedMark = (value: string): Element => ({
   type: "element",
   tagName: "mark",
@@ -74,12 +81,19 @@ const unsourcedMark = (value: string): Element => ({
   children: [text(value)],
 });
 
-/** Plugin rehype : surligne les affirmations non sourcées puis transforme
- * les marqueurs [n] (1 ≤ n ≤ maxCite) en liens internes #src-n. */
-function rehypeAttribution(maxCite: number, unsourced: string[]) {
+/** Plugin rehype : surligne les affirmations non sourcées, transforme les
+ * marqueurs [n] (1 ≤ n ≤ maxCite) en liens internes #src-n, puis (chat
+ * baseline) les identifiants d'exigences cités en liens vers la Matrice. */
+function rehypeAttribution(maxCite: number, unsourced: string[], reqIds: string[]) {
   const patterns = unsourced
     .map(claimPattern)
     .filter((p): p is RegExp => p !== null);
+  // Identifiants les plus longs d'abord (REQ-10 avant REQ-1) ; frontières
+  // strictes pour ne jamais couper un identifiant voisin.
+  const reqRe = reqIds.length
+    ? new RegExp(`(?<![\\w-])(?:${[...reqIds].sort((a, b) => b.length - a.length)
+        .map(escapeRe).join("|")})(?![\\w-])`, "g")
+    : null;
   return () => (tree: Root) => {
     // 1) Fond ambre sur les affirmations non sourcées (au plus une fois
     //    chacune ; une affirmation coupée par de la mise en forme n'est pas
@@ -127,10 +141,31 @@ function rehypeAttribution(maxCite: number, unsourced: string[]) {
         return out;
       });
     }
+    // 3) Identifiants d'exigences (chat baseline) -> liens #req-<id> vers la
+    //    Matrice. Seuls les identifiants réellement présents dans les
+    //    passages de la réponse sont liés (jamais de lien fantôme).
+    if (reqRe) {
+      walkTexts(tree, (value) => {
+        reqRe.lastIndex = 0;
+        if (!reqRe.test(value)) return null;
+        reqRe.lastIndex = 0;
+        const out: HastChild[] = [];
+        let last = 0;
+        let m: RegExpExecArray | null;
+        while ((m = reqRe.exec(value)) !== null) {
+          if (m.index > last) out.push(text(value.slice(last, m.index)));
+          out.push(reqLink(m[0]));
+          last = m.index + m[0].length;
+        }
+        if (last < value.length) out.push(text(value.slice(last)));
+        return out;
+      });
+    }
   };
 }
 
-export function AnswerMarkdown({ content, maxCite = 0, affirmations, onCiteClick }: {
+export function AnswerMarkdown({ content, maxCite = 0, affirmations, onCiteClick,
+                                 reqIds, onReqClick }: {
   content: string;
   /** Nombre de passages numérotés (contrat marqueur↔passage : [n] valide si n ≤ maxCite). */
   maxCite?: number;
@@ -138,13 +173,17 @@ export function AnswerMarkdown({ content, maxCite = 0, affirmations, onCiteClick
   affirmations?: Affirmation[];
   /** Clic sur un marqueur [n] — absent pendant le streaming (puces non cliquables). */
   onCiteClick?: (n: number) => void;
+  /** Chat baseline : identifiants d'exigences des passages — cités dans le
+   * texte, ils deviennent des liens vers la Matrice. */
+  reqIds?: string[];
+  onReqClick?: (id: string) => void;
 }) {
   const unsourced = (affirmations ?? [])
     .filter((a) => a.statut === "non_sourcee")
     .map((a) => a.texte);
   return (
     <ReactMarkdown
-      rehypePlugins={[rehypeAttribution(maxCite, unsourced)]}
+      rehypePlugins={[rehypeAttribution(maxCite, unsourced, onReqClick ? (reqIds ?? []) : [])]}
       components={{
         a: ({ node, href, children, ...rest }) => {
           void node;
@@ -163,6 +202,20 @@ export function AnswerMarkdown({ content, maxCite = 0, affirmations, onCiteClick
                 onClick={() => onCiteClick(n)}
               >
                 {n}
+              </button>
+            );
+          }
+          const r = /^#req-(.+)$/.exec(href ?? "");
+          if (r && onReqClick) {
+            const id = decodeURIComponent(r[1]);
+            return (
+              <button
+                type="button"
+                className="req-link"
+                title={`Ouvrir ${id} dans la Matrice`}
+                onClick={() => onReqClick(id)}
+              >
+                {id}
               </button>
             );
           }

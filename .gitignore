@@ -4,6 +4,7 @@ venv/
 .venv/
 env/
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.pyo
 *.pyd
@@ -39,6 +40,7 @@ models/
 out_clean_md/
 data/out_clean_md/
 *.log
+nohup.out
 *.tmp
 *.bak
 ask.py.bak
@@ -64,3 +66,13 @@ secrets.toml
 .claude/
 .vscode/
 .idea/
+
+# Baseline LynX sérialisée pour le chat (régénérée à chaque synchronisation)
+docs/out/baseline-exigences-lynx.md
+.worktrees/
+.playwright-cli/
+
+# État métier et staging locaux (export uniquement sur opt-in explicite)
+docs/.ingest-staging/
+lynx/corpus/drafts/
+lynx/corpus/versions/

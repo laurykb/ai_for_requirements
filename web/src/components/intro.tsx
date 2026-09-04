@@ -5,7 +5,7 @@
  * loger sous le A de THALES (elle DEVIENT le point aqua du logo), les lettres
  * apparaissent, l'accueil se révèle.
  *
- * Jouée à CHAQUE retour à l'accueil, passée d'un clic,
+ * Jouée une fois par session, passée d’un clic,
  * `prefers-reduced-motion` : pas d'animation du tout. */
 
 import { useEffect, useRef, useState } from "react";
@@ -54,19 +54,25 @@ function Globe({ size }: { size: number }) {
   );
 }
 
-export function Intro() {
+export function Intro({ onDone }: { onDone?: () => void } = {}) {
   const [show, setShow] = useState<boolean | null>(null);
   const [docking, setDocking] = useState(false);
   const logoRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
-    // Décision différée d'un tick (la règle set-state-in-effect n'aime pas
+    // Décision différée d’un tick (la règle set-state-in-effect n’aime pas
     // les setState synchrones, même pour un choix ne dépendant pas du rendu).
     timers.push(setTimeout(() => {
+      if (window.sessionStorage.getItem("ai-for-ssh:intro-seen")) {
+        setShow(false);
+        return;
+      }
+      window.sessionStorage.setItem("ai-for-ssh:intro-seen", "true");
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       if (reduced) {
         setShow(false);
+        onDone?.();
         return;
       }
       setShow(true);
@@ -85,10 +91,13 @@ export function Intro() {
         }
         setDocking(true);
       }, DOCK_MS));
-      timers.push(setTimeout(() => setShow(false), TOTAL_MS));
+      timers.push(setTimeout(() => {
+        setShow(false);
+        onDone?.();
+      }, TOTAL_MS));
     }, 0));
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [onDone]);
 
   if (!show) return null;
 
@@ -96,7 +105,10 @@ export function Intro() {
   return (
     <div
       className="intro-overlay fixed inset-0 z-50 flex items-center justify-center"
-      onClick={() => setShow(false)}
+      onClick={() => {
+        setShow(false);
+        onDone?.();
+      }}
       role="presentation"
     >
       {/* Voile : opaque pendant le voyage, s'efface pendant le docking. */}

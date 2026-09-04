@@ -6,15 +6,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { API_BASE, getJSON } from "@/lib/api";
+import { apiFetch, getJSON } from "@/lib/api";
 import { loadPrefs, savePrefs, type Prefs } from "@/lib/prefs";
 import { Banner, Hint, Spinner } from "@/components/ui";
 
 type Settings = {
-  values: Record<string, string | number | boolean>;
+  values: Record<string, string | number | boolean | null>;
   default_system_prompt: string;
 };
-type Models = { models: string[]; routing: Record<string, string>; vectors: number | null };
+type Models = { models: string[]; generation_models: string[]; embedding_models: string[]; routing: Record<string, string>; vectors: number | null };
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -30,6 +30,18 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 
 const inputCls =
   "rounded-lg border border-edge bg-surface px-2 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none";
+
+const MODEL_ROLES = [
+  ["EMBED_MODEL", "Embedding", "Vectorisation multilingue. Changer ce modèle impose de réindexer le corpus."],
+  ["REWRITER_MODEL", "Réécriture", "Reformulation des requêtes et Self-RAG."],
+  ["AGENT_MODEL", "Agent maître", "Orchestration ReAct et appels outils."],
+  ["PLANNER_MODEL", "Planification / sous-agents", "Plans JSON et découpage multi-hop."],
+  ["EXTRACTION_MODEL", "Extraction documentaire", "Passe MAP : extraction factuelle document par document."],
+  ["SYNTHESIS_MODEL", "Synthèse multi-documents", "Passe REDUCE : croisement et fusion sur gros corpus."],
+  ["GEN_MODEL", "Rédaction finale", "Réponse RAG finale en français."],
+  ["JUDGE_MODEL", "Juge / attribution", "Évaluation et attribution des affirmations."],
+  ["ENHANCEMENT_MODEL", "Enrichissement ingestion", "Mots-clés, questions et résumés RAPTOR."],
+] as const;
 
 /** Toggle trois états pour les options par requête : défaut (.env) / oui / non. */
 function TriToggle({ value, onChange }: { value: boolean | null;
@@ -60,6 +72,71 @@ export function SettingsView() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [arsenalBusy, setArsenalBusy] = useState<"load" | "unload" | null>(null);
+
+  const currentRouting = () => {
+    const keyToRole: Record<string, string> = {
+      REWRITER_MODEL: "rewrite", AGENT_MODEL: "agent", PLANNER_MODEL: "planner",
+      EXTRACTION_MODEL: "extract", SYNTHESIS_MODEL: "synthesize",
+      GEN_MODEL: "generate", JUDGE_MODEL: "judge", ENHANCEMENT_MODEL: "enhance",
+    };
+    return Object.fromEntries(Object.entries(keyToRole)
+      .map(([key, role]) => [role, (env[key] ?? "").trim()])
+      .filter(([, model]) => Boolean(model)));
+  };
+
+  const refreshModels = async () => {
+    setStatus(null);
+    try {
+      const next = await getJSON<Models>("/api/models");
+      setModels(next);
+      setStatus(`${next.models.length} modèle(s) Ollama détecté(s).`);
+    } catch (e) {
+      setStatus(`Actualisation impossible : ${String(e)}`);
+    }
+  };
+
+  const applyArsenal = async () => {
+    const routing = currentRouting();
+    setStatus(null);
+    try {
+      const res = await apiFetch(`/api/models/routing`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routing }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload.detail ?? `HTTP ${res.status}`);
+      setModels((current) => current ? { ...current, routing: payload.routing } : current);
+      setStatus("Nouvel arsenal appliqué immédiatement aux prochaines tâches.");
+    } catch (e) {
+      setStatus(`Chargement impossible : ${String(e)}`);
+    }
+  };
+
+  const manageArsenal = async (action: "load" | "unload") => {
+    setStatus(null);
+    setArsenalBusy(action);
+    try {
+      const res = await apiFetch(`/api/models/arsenal`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, routing: currentRouting(), embedding_model: env.EMBED_MODEL }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = payload.detail;
+        const failed = detail?.failures?.map((f: { model: string }) => f.model).join(", ");
+        throw new Error(failed ? `échec pour ${failed}` : (typeof detail === "string" ? detail : `HTTP ${res.status}`));
+      }
+      setModels((current) => current ? { ...current, routing: payload.routing } : current);
+      setStatus(action === "load"
+        ? `Arsenal chargé : ${payload.models.length} modèle(s) distinct(s).`
+        : `Arsenal déchargé : ${payload.models.length} modèle(s) distinct(s).`);
+    } catch (e) {
+      setStatus(`${action === "load" ? "Chargement" : "Déchargement"} impossible : ${String(e)}`);
+    } finally {
+      setArsenalBusy(null);
+    }
+  };
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -71,7 +148,7 @@ export function SettingsView() {
         ]);
         setSettings(s);
         setModels(m);
-        setEnv(Object.fromEntries(Object.entries(s.values).map(([k, v]) => [k, String(v)])));
+        setEnv(Object.fromEntries(Object.entries(s.values).map(([k, v]) => [k, v == null ? "" : String(v)])));
       } catch {
         setError("API hors ligne — lancer python serve.py --web");
       }
@@ -84,12 +161,15 @@ export function SettingsView() {
   const act = async (path: string, body: unknown, okMsg: string) => {
     setStatus(null);
     try {
-      const res = await fetch(`${API_BASE}${path}`, {
+      const res = await apiFetch(`${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail.detail ?? ("HTTP " + res.status));
+      }
       setStatus(okMsg);
     } catch (e) {
       setStatus(`Échec : ${String(e)}`);
@@ -105,6 +185,8 @@ export function SettingsView() {
     );
 
   const genModel = env.GEN_MODEL ?? "";
+  const optionsFor = (selected: string, embedding = false) =>
+    Array.from(new Set([selected, ...(embedding ? models.embedding_models : models.generation_models)].filter(Boolean)));
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -134,30 +216,45 @@ export function SettingsView() {
 
       {/* Modèles : à chaud. */}
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Modèles</h3>
+        <h3 className="text-sm font-semibold text-foreground">Arsenal Ollama par tâche</h3>
+        <p className="text-[11px] text-fg-faint">Chaque étape peut utiliser un modèle différent. Actualisez la liste après avoir ajouté un modèle dans Ollama, puis appliquez l’arsenal sans redémarrer.</p>
+        <button onClick={refreshModels}
+                className="cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs text-fg-muted hover:text-foreground">
+          Actualiser les modèles Ollama
+        </button>
+        <Row label="Hôte Ollama"><input value={env.OLLAMA_HOST ?? ""} onChange={(e) => setEnv({ ...env, OLLAMA_HOST: e.target.value })} className={inputCls + " w-56 font-mono"} /></Row>
+        <Row label="Fenêtre de contexte"><input type="number" min={2048} step={1024} value={env.LLM_NUM_CTX ?? ""} onChange={(e) => setEnv({ ...env, LLM_NUM_CTX: e.target.value })} className={inputCls + " w-28"} /></Row>
+        <div className="space-y-2 rounded-xl border border-edge bg-surface/40 p-3">
+          {MODEL_ROLES.filter(([key]) => key !== "GEN_MODEL").map(([key, label, hint]) => (
+            <Row key={key} label={label} hint={hint}>
+              <select value={env[key] ?? ""} onChange={(e) => setEnv({ ...env, [key]: e.target.value })} className={inputCls + " max-w-64"}>
+                {!env[key] && <option value="">Modèle hérité (défaut)</option>}
+                {optionsFor(env[key] ?? "", key === "EMBED_MODEL").map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </Row>
+          ))}
+        </div>
         <Row label="Modèle de génération"
-             hint="Sert aux prochaines réponses. « Charger » l'épingle en VRAM et l'active à chaud.">
+             hint="Sert aux prochaines réponses et fait partie de l’arsenal chargé en bloc.">
           <select value={genModel} onChange={(e) => setEnv({ ...env, GEN_MODEL: e.target.value })}
                   className={inputCls}>
-            {(models.models.length ? models.models : [genModel]).map((m) => (
+            {optionsFor(genModel).map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
         </Row>
-        <div className="flex gap-2">
-          <button
-            onClick={() => act("/api/models/generate", { model: genModel, action: "load" },
-                               `Modèle « ${genModel} » chargé et activé.`)}
-            className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-background hover:bg-accent-bright"
-          >
-            Charger le LLM (VRAM)
+        <div className="flex flex-wrap gap-2">
+          <button onClick={applyArsenal}
+                  className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-background hover:bg-accent-bright">
+            Appliquer l’arsenal maintenant
           </button>
-          <button
-            onClick={() => act("/api/models/generate", { model: genModel, action: "unload" },
-                               "Modèle déchargé de la VRAM.")}
-            className="cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs text-fg-muted hover:text-foreground"
-          >
-            Décharger (VRAM)
+          <button disabled={arsenalBusy !== null} onClick={() => manageArsenal("load")}
+            className="cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs text-fg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50">
+            {arsenalBusy === "load" ? "Chargement de l’arsenal…" : "Charger tout l’arsenal (VRAM)"}
+          </button>
+          <button disabled={arsenalBusy !== null} onClick={() => manageArsenal("unload")}
+            className="cursor-pointer rounded-lg border border-edge px-3 py-1.5 text-xs text-fg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50">
+            {arsenalBusy === "unload" ? "Déchargement de l’arsenal…" : "Décharger tout l’arsenal"}
           </button>
         </div>
         <details className="chat-details">
@@ -260,6 +357,7 @@ export function SettingsView() {
           Réinitialiser le prompt
         </button>
       </section>
+
 
       {/* Zone dangereuse. */}
       <section className="space-y-2">

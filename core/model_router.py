@@ -26,9 +26,12 @@ Le routage = « quel modèle/quels paramètres pour quel rôle », indépendamme
 """
 from __future__ import annotations
 
+import os
+
 from utils.logging_config import get_logger
 from env_config import (
-    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, ENHANCEMENT_MODEL,
+    REWRITER_MODEL, GEN_MODEL, AGENT_MODEL, PLANNER_MODEL, SYNTHESIS_MODEL,
+    EXTRACTION_MODEL, JUDGE_MODEL, ENHANCEMENT_MODEL,
     NUM_CHUNKS, LLM_NUM_CTX, ENHANCE_NUM_CTX, OLLAMA_NUM_GPU,
 )
 
@@ -39,6 +42,7 @@ logger = get_logger("rag.router")
 # None -> on retombe sur GEN_MODEL (.env). Le résolveur paresseux ci-dessous le lit à
 # chaque génération, donc le changement est immédiat pour les requêtes suivantes.
 _GENERATE_OVERRIDE: str | None = None
+_ROLE_OVERRIDES: dict[str, str] = {}
 
 
 def set_generate_model(name: str | None) -> None:
@@ -52,19 +56,40 @@ def get_generate_model() -> str:
     return _GENERATE_OVERRIDE or GEN_MODEL
 
 
+def set_role_models(models: dict[str, str]) -> None:
+    """Applique un arsenal de modèles au process courant.
+
+    Les valeurs vides retirent l'override. L'embedding reste volontairement hors
+    de ce mécanisme : le changer exige une réindexation du corpus.
+    """
+    unknown = set(models) - set(_ROLE_MODELS)
+    if unknown:
+        raise ValueError("Rôles LLM inconnus : " + ", ".join(sorted(unknown)))
+    for role, model in models.items():
+        value = str(model).strip()
+        if value:
+            _ROLE_OVERRIDES[role] = value
+        else:
+            _ROLE_OVERRIDES.pop(role, None)
+    if "generate" in models:
+        set_generate_model(models["generate"])
+
+
 # Table de routage : rôle -> modèle. Résolveurs paresseux (lambda) pour refléter la
 # config courante au moment de l'appel plutôt que figer à l'import.
 _ROLE_MODELS = {
-    "rewrite":  lambda: REWRITER_MODEL,
-    "agent":    lambda: AGENT_MODEL,
+    "rewrite":  lambda: _ROLE_OVERRIDES.get("rewrite", REWRITER_MODEL),
+    "agent":    lambda: _ROLE_OVERRIDES.get("agent", AGENT_MODEL),
     # Planificateur multi-hop du mode agent : plan JSON + révision (PLANNER_MODEL,
     # défaut = AGENT_MODEL).
-    "planner":  lambda: PLANNER_MODEL,
-    "generate": lambda: _GENERATE_OVERRIDE or GEN_MODEL,
-    "judge":    lambda: REWRITER_MODEL,
+    "planner":  lambda: _ROLE_OVERRIDES.get("planner", PLANNER_MODEL),
+    "extract":  lambda: _ROLE_OVERRIDES.get("extract", EXTRACTION_MODEL),
+    "synthesize": lambda: _ROLE_OVERRIDES.get("synthesize", SYNTHESIS_MODEL),
+    "generate": lambda: _ROLE_OVERRIDES.get("generate", _GENERATE_OVERRIDE or GEN_MODEL),
+    "judge":    lambda: _ROLE_OVERRIDES.get("judge", JUDGE_MODEL),
     # ENHANCEMENT_MODEL est l'override explicite (historique, .env) ; à défaut on
     # réutilise le modèle de réécriture (léger, sans « thinking »), inchangé.
-    "enhance":  lambda: ENHANCEMENT_MODEL or REWRITER_MODEL,
+    "enhance":  lambda: _ROLE_OVERRIDES.get("enhance", ENHANCEMENT_MODEL or REWRITER_MODEL),
 }
 
 # Hyperparamètres par défaut par rôle - reproduisent le tuning qui était dispersé
@@ -84,10 +109,23 @@ _ROLE_PARAMS = {
     "agent":    {"temperature": 0.1, "num_ctx": LLM_NUM_CTX},
     # Plans courts et structurés : température nulle, contexte modéré (question +
     # observations résumées), sortie plafonnée (un plan JSON tient en ~300 tokens).
-    "planner":  {"temperature": 0.0, "num_ctx": 8192, "num_predict": 600},
-    "generate": {"temperature": 0.3, "top_k": NUM_CHUNKS, "top_p": 0.8,
-                 "repeat_penalty": 1.5, "num_ctx": LLM_NUM_CTX},
-    "judge":    {"temperature": 0.0, "num_ctx": 8192},
+    "planner":  {"temperature": 0.0, "num_ctx": 8192, "num_predict": 600, "think": False},
+    "extract":  {"temperature": 0.0, "num_ctx": LLM_NUM_CTX, "num_predict": 2048, "think": False},
+    # Réduction riche mais bornée afin de réserver du budget à la fusion finale.
+    "synthesize": {"temperature": 0.15, "num_ctx": LLM_NUM_CTX,
+                   "num_predict": 4096, "think": False},
+    # repeat_penalty : 1.5 (héritage anti-boucle) MUTILAIT les identifiants
+    # d'exigences — CYB-001 répète « CYB- », « 00 »… que la pénalité force à
+    # éviter (CYB-OO1, SRT pour STR). Mesuré par evals/run_baseline_eval
+    # --generation. L'anti-boucle est déjà assuré par la coupe de flux
+    # (api/rag._degenerate). top_k était lié par erreur à NUM_CHUNKS
+    # (constante de retrieval). Knobs élastiques (.env) :
+    "generate": {"temperature": float(os.environ.get("GEN_TEMPERATURE", "0.2")),
+                 "top_k": int(os.environ.get("GEN_TOP_K", "40")),
+                 "top_p": 0.8,
+                 "repeat_penalty": float(os.environ.get("GEN_REPEAT_PENALTY", "1.1")),
+                 "num_ctx": LLM_NUM_CTX},
+    "judge":    {"temperature": 0.0, "num_ctx": 8192, "num_predict": 32, "think": False},
     # Enrichissement : très factuel, réponse courte plafonnée (anciennement codé en
     # dur dans nlp/chunk_enhancer._call_ollama). Consommé par ollama_options().
     # num_ctx plafonné : les prompts d'enrichissement = 1 chunk (~1 Ko) + consignes.
@@ -153,4 +191,15 @@ def build_llm(role: str, **overrides):
     model = kw.pop("model")
     keep_alive = kw.pop("keep_alive", None)
     logger.debug("LLM rôle=%s -> modèle=%s", role, model)
-    return OllamaClient(model=model, options=kw, keep_alive=keep_alive)
+    return OllamaClient(model=model, options=kw, keep_alive=keep_alive, role=role)
+
+
+def unload_model(model: str) -> None:
+    """Libère best-effort un modèle Ollama chargé pour un traitement exceptionnel."""
+    try:
+        import requests
+        from env_config import OLLAMA_HOST
+        requests.post(f"{OLLAMA_HOST}/api/generate",
+                      json={"model": model, "keep_alive": 0}, timeout=15)
+    except Exception:
+        pass

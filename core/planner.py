@@ -27,6 +27,7 @@ import time
 
 from utils.logging_config import get_logger
 from utils.tracing import start_trace, span
+from utils.task_metrics import operation
 from env_config import PLANNER_MODEL
 
 from core.agent import (
@@ -103,8 +104,17 @@ def validate_plan(obj, min_steps: int = MIN_PLAN_STEPS,
     return steps[:max_steps], []
 
 
+_PLANNER_INSTRUCTIONS = (
+    "Décompose la demande complexe en recherches documentaires autonomes, "
+    "complémentaires et orientées vers une synthèse finale exhaustive."
+)
+
+
 def _plan_prompt(question: str, history_block: str = "") -> str:
+    from core.prompt_registry import get_prompt
+    instructions = get_prompt("planner.plan", _PLANNER_INSTRUCTIONS)
     return (
+        instructions + "\n\n" +
         "Tu prépares un plan de recherche documentaire pour répondre à une question "
         "complexe sur des documents techniques (cibles de sécurité ANSSI / Critères "
         "Communs). Découpe la question en 2 à 5 sous-questions AUTONOMES : chacune doit "
@@ -168,12 +178,14 @@ class PlannerAgent:
     repli silencieux sur l'agent ReAct. Mêmes injections que ReActAgent."""
 
     def __init__(self, llm=None, tool_runner=None, max_steps: int = MAX_TOTAL_STEPS,
-                 synthesizer=None, stream_synthesizer=None, fallback=None):
+                 synthesizer=None, stream_synthesizer=None, fallback=None,
+                 tool_specs: list[dict] | None = None):
         if tool_runner is None:
             from tools.rag_tool import run_tool
             tool_runner = run_tool
         self._llm = llm
         self.tool_runner = tool_runner
+        self.tool_specs = tool_specs  # None = spec rag_search seule (défaut ReAct)
         self.max_steps = max(1, int(max_steps))
         self.synthesizer = synthesizer or _synthesize
         self.stream_synthesizer = stream_synthesizer or _synthesize_stream
@@ -192,6 +204,7 @@ class PlannerAgent:
         if self._fallback is None:
             self._fallback = ReActAgent(
                 tool_runner=self.tool_runner,
+                tool_specs=self.tool_specs,
                 synthesizer=self.synthesizer if self.synthesizer is not _synthesize else None,
                 stream_synthesizer=(self.stream_synthesizer
                                     if self.stream_synthesizer is not _synthesize_stream else None),
@@ -236,7 +249,7 @@ class PlannerAgent:
 
         t0 = time.perf_counter()
         with start_trace("rag.planner", question=question, model=PLANNER_MODEL) as tr:
-            with span("plan"):
+            with span("plan"), operation("plan"):
                 plan = build_plan(question, self.llm, history_block)
             if plan is None:
                 # REPLI silencieux : comportement agent historique, événements inclus.
@@ -394,7 +407,8 @@ class PlannerAgent:
             "Réponds UNIQUEMENT avec la requête, sur une seule ligne, sans commentaire."
         )
         try:
-            out = self.llm.invoke(prompt)
+            with operation("refine"):
+                out = self.llm.invoke(prompt)
         except Exception as e:
             logger.warning("[planner] Affinage de sous-question impossible : %s", e)
             return None
@@ -406,8 +420,9 @@ class PlannerAgent:
                 budget: int) -> list[dict] | None:
         """Révision des étapes restantes (validation souple : 1 étape suffit)."""
         try:
-            raw = _llm_json_call(self.llm, _replan_prompt(question, notes,
-                                                          failed_step, budget))
+            with operation("replan"):
+                raw = _llm_json_call(self.llm, _replan_prompt(question, notes,
+                                                              failed_step, budget))
         except Exception as e:
             logger.warning("[planner] Re-planification impossible : %s", e)
             return None

@@ -1,14 +1,87 @@
 {
-  "run_name": "retrieval-v2-readme",
-  "timestamp": "2026-07-02T13:40:30",
-  "mode": "retrieval",
-  "dataset": "golden_qa_anssi_v2.json",
-  "num_questions": 30,
+  "dataset": "Menaces spatiales — golden set PROVISOIRE v1",
+  "mode": "adaptive_ragas",
+  "run_name": "ragas-space-auto-structured-no-coverage-repair-20260727",
+  "num_questions": 6,
   "aggregate": {
-    "keyword_hit_rate": 0.6444,
-    "context_recall": 0.532,
-    "context_precision": 0.2933,
-    "latency_s": 0.2247,
-    "num_chunks_retrieved": 7.7333
+    "keyword_hit_rate": 0.8917,
+    "context_recall": 0.3333,
+    "context_precision": 0.7211,
+    "exact_match": null,
+    "f1_token": null,
+    "faithfulness": 0.3056,
+    "answer_relevance": null,
+    "answer_relevancy": 0.435,
+    "context_relevance": null,
+    "taux_affirmations_sourcees": null,
+    "precision_attribution": null,
+    "structured_axis_coverage": 0.7,
+    "latency_s": 563.5333,
+    "num_chunks_retrieved": 13.6667
+  },
+  "breakdown": {
+    "by_query_type": {
+      "structured_aggregate": {
+        "num_questions": 6,
+        "aggregate": {
+          "keyword_hit_rate": 0.8917,
+          "context_recall": 0.3333,
+          "context_precision": 0.7211,
+          "exact_match": null,
+          "f1_token": null,
+          "faithfulness": 0.3056,
+          "answer_relevance": null,
+          "answer_relevancy": 0.435,
+          "context_relevance": null,
+          "taux_affirmations_sourcees": null,
+          "precision_attribution": null,
+          "structured_axis_coverage": 0.7,
+          "latency_s": 563.5333,
+          "num_chunks_retrieved": 13.6667
+        }
+      }
+    },
+    "by_strategy_mode": {
+      "synth": {
+        "num_questions": 6,
+        "aggregate": {
+          "keyword_hit_rate": 0.8917,
+          "context_recall": 0.3333,
+          "context_precision": 0.7211,
+          "exact_match": null,
+          "f1_token": null,
+          "faithfulness": 0.3056,
+          "answer_relevance": null,
+          "answer_relevancy": 0.435,
+          "context_relevance": null,
+          "taux_affirmations_sourcees": null,
+          "precision_attribution": null,
+          "structured_axis_coverage": 0.7,
+          "latency_s": 563.5333,
+          "num_chunks_retrieved": 13.6667
+        }
+      }
+    },
+    "by_strategy_profile": {
+      "corpus_coverage": {
+        "num_questions": 6,
+        "aggregate": {
+          "keyword_hit_rate": 0.8917,
+          "context_recall": 0.3333,
+          "context_precision": 0.7211,
+          "exact_match": null,
+          "f1_token": null,
+          "faithfulness": 0.3056,
+          "answer_relevance": null,
+          "answer_relevancy": 0.435,
+          "context_relevance": null,
+          "taux_affirmations_sourcees": null,
+          "precision_attribution": null,
+          "structured_axis_coverage": 0.7,
+          "latency_s": 563.5333,
+          "num_chunks_retrieved": 13.6667
+        }
+      }
+    }
   }
 }

@@ -127,12 +127,28 @@ def main():
     # 6b. MAGASIN VECTORIEL
     # ----------------------------------------------------------
     print_header("6b. Magasin vectoriel (ChromaDB)")
+    rag_consistency = None
     try:
         from retrieval.vector_store import get_vector_store
         n = get_vector_store().count()
         print_status("   Vecteurs indexés", f"{n:,}", n > 0)
         if n == 0:
             print(f"    Collection vide -> lancez une ingestion (onglet Documents).")
+        from core.index_consistency import rag_index_consistency
+        rag_consistency = rag_index_consistency()
+        if rag_consistency.get("available"):
+            totals = rag_consistency.get("totals", {})
+            bad = [row for row in rag_consistency["sources"] if not row["in_sync"]]
+            print_status(
+                "   Cohérence RAG Mongo/BM25/Chroma",
+                f"{len(rag_consistency['sources']) - len(bad)}/{len(rag_consistency['sources'])} sources complètes",
+                rag_consistency["in_sync"],
+            )
+            print_status("   Chunks RAG indexables / vecteurs",
+                         f"{totals.get('indexable', 0):,} / {totals.get('vectors', 0):,}",
+                         totals.get("vectors", 0) >= totals.get("indexable", 0))
+            print_status("   Vecteurs orphelins", str(totals.get("orphan_vectors", 0)),
+                         totals.get("orphan_vectors", 0) == 0)
     except Exception as e:
         print_status("   Vecteurs indexés", f"indisponible : {e}", False)
 
@@ -158,6 +174,8 @@ def main():
         issues.append("MongoDB offline")
     if ce_enabled and not ce_exists:
         issues.append("CE model missing")
+    if rag_consistency is not None and not rag_consistency.get("in_sync", False):
+        issues.append("RAG indexes inconsistent (Mongo/BM25/Chroma)")
     
     if issues:
         print(f"   {len(issues)} issue(s) detected:")

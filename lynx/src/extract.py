@@ -38,7 +38,7 @@ _FAMILY = {
     "A": ("courant", 1.0), "mA": ("courant", 0.001),
     "Hz": ("freq", 1.0), "kHz": ("freq", 1e3), "MHz": ("freq", 1e6), "GHz": ("freq", 1e9),
     "%": ("ratio", 1.0), "EUR": ("monnaie", 1.0), "dB": ("dB", 1.0),
-    "bar": ("pression", 1.0), "Pa": ("pression", 1.0),
+    "bar": ("pression", 100000.0), "Pa": ("pression", 1.0),
     "ko": ("donnee", 1e3), "Mo": ("donnee", 1e6), "Go": ("donnee", 1e9), "To": ("donnee", 1e12),
     "kB": ("donnee", 1e3), "MB": ("donnee", 1e6), "GB": ("donnee", 1e9), "TB": ("donnee", 1e12),
 }
@@ -61,7 +61,7 @@ def from_base(value_base: float, unit: str) -> Optional[float]:
 # « exced » -> excéder / n'excédant / excède ; « inferieur » -> inférieur(e) ;
 # « limit » -> limite / limiter. Les exigences réelles disent « n'excédant pas X »,
 # « inférieure ou égale à X », « doit limiter … à X » — qu'un mot exact raterait.
-_MAX_KW = ["exced", "depass", "inferieur", "maxim", "au plus", "plafon",
+_MAX_KW = ["exced", "depass", "inferieur", "maxim", "max", "au plus", "plafon",
            "limit", "fixee a", "fixe a", "borne sup", "sous le seuil", "sous la barre"]
 _MIN_KW = ["au moins", "minim", "superieur", "au minimum", "pas moins", "borne inf"]
 _MEASURE_KW = ["mesur", "constate", "releve", "pese", "vaut", "estimee a"]
@@ -77,6 +77,7 @@ class Quantity:
     unit: Optional[str]
     kind: str          # "max" | "min" | "measure" | "range"
     raw: str
+    upper_value: Optional[float] = None
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"Quantity({self.value}{self.unit or ''}, {self.kind})"
@@ -90,6 +91,7 @@ def _strip_accents(text: str) -> str:
 _UNIT_PAT = (r"%|kg|km|cm|mm|ms|mw|kw|kv|ma|ko|mo|go|to|kb|mb|gb|tb|"
              r"ghz|mhz|khz|hz|db|bar|pa|tonnes?|euros?|eur|[gtmwvash]")
 _NUM_RE = re.compile(rf"(?P<num>\d+(?:[.,]\d+)?)\s*(?P<unit>{_UNIT_PAT})(?![a-z])", re.IGNORECASE)
+_RANGE_RE = re.compile(rf"(?:entre|de)\s+(?P<low>\d+(?:[.,]\d+)?)\s*(?:(?P<low_unit>{_UNIT_PAT})\s*)?(?:et|a|à|-)\s*(?P<high>\d+(?:[.,]\d+)?)\s*(?P<unit>{_UNIT_PAT})(?![A-Za-z0-9_])", re.IGNORECASE)
 # Recolle les séparateurs de milliers seulement s'ils sont suivis (décimale optionnelle
 # comprise) d'une unité reconnue — évite de fusionner « version 2 014 ».
 _THOUSANDS_RE = re.compile(
@@ -102,13 +104,13 @@ def _normalize(text: str) -> str:
     return _THOUSANDS_RE.sub(lambda m: m.group(0).replace(" ", ""), norm)
 
 
-_CLAUSE_SEP = ".;:,"
+_CLAUSE_SEP = ".;"
 
 
 def _clause(text: str, pos: int) -> str:
-    """Proposition contenant la position ``pos`` (bornée par . ; : ,)."""
+    """Contexte local sans contamination par une contrainte ultérieure."""
     start = max((text.rfind(c, 0, pos) for c in _CLAUSE_SEP), default=-1)
-    ends = [e for e in (text.find(c, pos) for c in _CLAUSE_SEP) if e != -1]
+    ends = [e for e in (text.find(c, pos) for c in ".;:,") if e != -1]
     end = min(ends) if ends else len(text)
     return text[start + 1:end]
 
@@ -139,10 +141,25 @@ def extract_quantities(text: str) -> List[Quantity]:
         return []
     found: List[Quantity] = []
     norm = _normalize(text)
+    range_spans = []
+    for range_match in _RANGE_RE.finditer(_strip_accents(norm)):
+        raw_unit = (range_match.group("unit") or "").lower()
+        low_unit = (range_match.group("low_unit") or raw_unit).lower()
+        unit = _UNITS.get(raw_unit)
+        if unit is None or _UNITS.get(low_unit) != unit:
+            continue
+        low = float(range_match.group("low").replace(",", "."))
+        high = float(range_match.group("high").replace(",", "."))
+        found.append(Quantity(value=min(low, high), upper_value=max(low, high), unit=unit, kind="range", raw=range_match.group(0).strip()))
+        range_spans.append(range_match.span())
     for match in _NUM_RE.finditer(norm):
+        if any(start <= match.start() < end for start, end in range_spans):
+            continue
         raw_unit = (match.group("unit") or "").lower()
         unit = _UNITS.get(raw_unit)
         if unit is None:
+            continue
+        if raw_unit == "a" and match.group("unit") != "A" and not re.search(r"(?:courant|amp[eè]re)", _clause(norm, match.start()), re.IGNORECASE):
             continue
         value = float(match.group("num").replace(" ", "").replace(",", "."))
         kind = _classify_kind(_clause(norm, match.start()))
@@ -187,17 +204,20 @@ def allocation_rollup(parent_text: str, children: List[Tuple[str, str]]) -> Opti
     total_base = 0.0
     contributions: List[Tuple[str, float]] = []
     non_comparables: List[str] = []
+    partiels: List[str] = []
     for cid, ctext in children:
         qs = extract_quantities(ctext)
         same = [q for q in qs if same_family(q.unit, budget.unit) and q.kind in {"measure", "max"}]
         if same:
-            q = sorted(same, key=lambda x: 0 if x.kind == "measure" else 1)[0]
-            vb = to_base(q.value, q.unit)
-            total_base += vb
-            contributions.append((cid, round(from_base(vb, budget.unit), 4)))
+            for q in same:
+                vb = to_base(q.value, q.unit)
+                total_base += vb
+                contributions.append((cid, round(from_base(vb, budget.unit), 4)))
+        elif any(same_family(q.unit, budget.unit) and q.kind in {"min", "range"} for q in qs):
+            partiels.append(cid)
         elif any(q.unit and not same_family(q.unit, budget.unit) for q in qs):
             non_comparables.append(cid)
     return {
         "budget": budget, "budget_base": budget_base, "total_base": total_base,
-        "contributions": contributions, "non_comparables": non_comparables,
+        "contributions": contributions, "non_comparables": non_comparables, "partiels": partiels,
     }
