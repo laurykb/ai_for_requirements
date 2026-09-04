@@ -1,4 +1,4 @@
-# Architecture — AI for SSH
+# Architecture — AI for Requirements
 
 Carte de lecture du dépôt. Objectif : qu'un ingénieur situe **où vit quoi** en
 une page, sans lire tous les docstrings. Application **100 % locale, mono-poste**
