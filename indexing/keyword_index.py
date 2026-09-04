@@ -104,14 +104,17 @@ def bm25_search(bm25, ids, texts, metadatas, query, topn=10, source_filter=None)
 #  BM25 multi-document : stockage / chargement dans MongoDB
 # -----------------------------------------------------------------------------
 
-def save_bm25_to_mongo(bm25_tuple, source_doc: str,
+def save_bm25_to_mongo(bm25_tuple, source_doc: str, ingest_version: str | None = None,
                        db_name="ragdb", collection_name="bm25_indexes"):
     """Sérialise l'index BM25 d'un document dans MongoDB (upsert par source_doc)."""
     col = _get_collection(collection_name)
     blob = pickle.dumps(bm25_tuple)
+    key = {"source_doc": source_doc}
+    if ingest_version is not None:
+        key["ingest_version"] = ingest_version
     col.update_one(
-        {"source_doc": source_doc},
-        {"$set": {"source_doc": source_doc, "index_blob": blob}},
+        key,
+        {"$set": {**key, "index_blob": blob}},
         upsert=True
     )
     logger.info("[bm25] Index sauvegardé dans MongoDB pour '%s'", source_doc)
@@ -161,6 +164,14 @@ def _load_bm25_from_mongo_impl(source_doc: str = None,
     query = {"source_doc": source_doc} if source_doc else {}
     docs = list(col.find(query))
 
+    # Pour la baseline LynX, une seule version devient visible à la fois.
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    from core.source_versions import active_version
+    version = active_version(LYNX_BASELINE_SOURCE)
+    docs = [d for d in docs if d.get("source_doc") != LYNX_BASELINE_SOURCE
+            or (d.get("ingest_version") == version if version
+                else not d.get("ingest_version"))]
+
     if not docs:
         return None
 
@@ -188,6 +199,14 @@ def _load_bm25_from_mongo_impl(source_doc: str = None,
     corpus_tokens = [_tokenize(t) for t in enriched]
     bm25 = BM25Okapi(corpus_tokens)
     return bm25, all_ids, all_texts, all_metas
+
+
+def delete_bm25_version(source_doc: str, version: str,
+                        collection_name="bm25_indexes") -> int:
+    invalidate_bm25_cache()
+    return _get_collection(collection_name).delete_many(
+        {"source_doc": source_doc, "ingest_version": version}
+    ).deleted_count
 
 
 def list_bm25_sources(db_name="ragdb", collection_name="bm25_indexes"):

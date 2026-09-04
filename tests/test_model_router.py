@@ -51,6 +51,17 @@ def test_generate_model_runtime_override():
         set_generate_model(None)                          # garde-fou : pas de fuite d'état
 
 
+def test_complete_arsenal_can_be_applied_at_runtime():
+    from core.model_router import set_role_models
+    try:
+        set_role_models({"rewrite": "fast:latest", "planner": "plan:latest"})
+        assert model_for("rewrite") == "fast:latest"
+        assert model_for("planner") == "plan:latest"
+        assert model_for("agent") == AGENT_MODEL
+    finally:
+        set_role_models({"rewrite": "", "planner": ""})
+
+
 def test_model_for_unknown_role_raises():
     with pytest.raises(ValueError):
         model_for("does_not_exist")

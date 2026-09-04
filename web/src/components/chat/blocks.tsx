@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { displaySourceName } from "@/lib/api";
+import { apiFetch, displaySourceName } from "@/lib/api";
 import { fmt } from "@/lib/format";
 import type { AnalysisArtifact, AnswerValidation, Attribution, ChatMessage, ChunkView, Citation, EvalResult, TaskProgress } from "@/lib/types";
 import { Banner, Dot, Hint } from "@/components/ui";
@@ -270,8 +270,33 @@ export function ProcessingTraceBlock({ trace, route, live = false }: {
   );
 }
 
-export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
+function SemanticVerify({ question, message }: { question: string; message: ChatMessage }) {
+  const [result, setResult] = useState<EvalResult | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!message.chunks?.length || message.stopped || message.error) return null;
+  return <div className="mt-2">
+    <button disabled={checking} onClick={async () => {
+      setChecking(true); setError(null);
+      const response = await apiFetch("/api/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, answer: message.content, chunks: message.chunks }),
+      }).catch(() => null);
+      if (!response?.ok) setError(response ? "HTTP " + response.status : "API indisponible");
+      else setResult(await response.json());
+      setChecking(false);
+    }} className="cursor-pointer text-[11px] text-fg-faint hover:text-foreground disabled:opacity-50">
+      {checking ? "Vérification sémantique…" : "Vérifier le soutien réel des citations"}
+    </button>
+    {error && <p className="text-[11px] text-bad">Vérification impossible : {error}</p>}
+    {result && <EvalBlock e={result} />}
+  </div>;
+}
+
+
+export function AssistantMessage({ m, question, expert, canRegenerate, onRegenerate }: {
   m: ChatMessage; expert: boolean;
+  question?: string;
   canRegenerate?: boolean;
   onRegenerate?: (selected: ChunkView[]) => void;
 }) {
@@ -320,6 +345,7 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
           <Banner tone="bad">{m.error}</Banner>
         </div>
       )}
+      {m.persistenceWarning && <Banner tone="warn">{m.persistenceWarning}</Banner>}
       {m.answerValidation && <AnswerValidationBlock validation={m.answerValidation} />}
       {m.analysisArtifact && <AnalysisResultsBlock artifact={m.analysisArtifact} />}
       {/* Chat baseline (lynxNav présent) : Sources masquées — la source est
@@ -333,6 +359,7 @@ export function AssistantMessage({ m, expert, canRegenerate, onRegenerate }: {
                      canRegenerate={canRegenerate} onRegenerate={onRegenerate}
                      focus={focus} />
       )}
+      <SemanticVerify question={question ?? ""} message={m} />
       {m.eval && <EvalBlock e={m.eval} attribution={m.attribution} />}
       {m.taskMetrics && <details className="chat-details mt-2"><summary>Exécution {m.taskMetrics.status === "completed" ? "terminée" : m.taskMetrics.status === "budget_exceeded" ? "arrêtée par le budget" : m.taskMetrics.status} · {m.taskMetrics.trajectory.llm_calls} appel(s) LLM · {m.taskMetrics.latency_s}s</summary><div className="mt-2 grid gap-2 text-xs text-fg-muted sm:grid-cols-3"><span>Trajectoire : {m.taskMetrics.trajectory.steps} étape(s), {m.taskMetrics.trajectory.tool_calls} outil(s), {m.taskMetrics.trajectory.replans} replan</span><span>Calcul : {m.taskMetrics.efficiency.total_tokens} tokens, {m.taskMetrics.trajectory.llm_time_s}s LLM</span><span>Charge LLM relative : {Math.round((m.taskMetrics.trajectory.llm_share ?? 0) * 100)} % du temps mur (peut dépasser 100 % en parallèle)</span></div></details>}
     </div>

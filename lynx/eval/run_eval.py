@@ -28,7 +28,7 @@ _DIR = Path(__file__).parent
 
 def _load_default_corpus() -> list:
     # Chargé au niveau module (import) : un corpus_eval.json absent/corrompu
-    # ne doit PAS casser l'import de run_eval (importé par l'API POST /eval).
+    # ne doit pas casser l’import du harnais CLI ou des tests.
     try:
         raw = json.loads((_DIR / "corpus_eval.json").read_text(encoding="utf-8"))
         return raw.get("exigences", []) if isinstance(raw, dict) else []
@@ -97,6 +97,27 @@ REFERENCE_CASES = [
      ],
      "action": {"action_type": "UPDATE", "target_id": "IL-A",
                 "new_text": "La liaison de données descendante utilise un nouveau protocole de chiffrement propriétaire, différent du standard."}},
+    {"name": "rpp_conversion_bar_kpa", "expected": ["ALLOCATION"],
+     "corpus": [
+         {"id": "RPP-P", "niveau": 0, "texte": "La pression ne doit pas dépasser 2 bar.", "parent_id": None},
+         {"id": "RPP-C", "niveau": 1, "texte": "La pression mesurée est de 250 kPa.", "parent_id": "RPP-P"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "RPP-C",
+                "new_text": "La pression mesurée est de 250 kPa."}},
+    {"name": "rpp_allocations_multiples", "expected": ["ALLOCATION"],
+     "corpus": [
+         {"id": "M-P", "niveau": 0, "texte": "La masse totale ne doit pas dépasser 4 kg.", "parent_id": None},
+         {"id": "M-C", "niveau": 1, "texte": "Les modules pèsent 2 kg et 3 kg.", "parent_id": "M-P"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "M-C",
+                "new_text": "Les modules pèsent 2 kg et 3 kg."}},
+    {"name": "rpp_plage_partielle_non_sommee", "expected": [],
+     "corpus": [
+         {"id": "PL-P", "niveau": 0, "texte": "La masse totale ne doit pas dépasser 20 kg.", "parent_id": None},
+         {"id": "PL-C", "niveau": 1, "texte": "La masse autorisée est entre 5 et 10 kg.", "parent_id": "PL-P"},
+     ],
+     "action": {"action_type": "UPDATE", "target_id": "PL-C",
+                "new_text": "La masse autorisée est entre 5 et 10 kg."}},
 ]
 
 

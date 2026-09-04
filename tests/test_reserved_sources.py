@@ -62,6 +62,7 @@ def test_list_indexed_sources_excludes_reserved(monkeypatch):
 
 def test_vector_store_unscoped_query_filters_reserved(monkeypatch):
     from retrieval import vector_store as vs
+    monkeypatch.setattr("core.source_versions.active_version", lambda _source: None)
 
     captured: dict = {}
 

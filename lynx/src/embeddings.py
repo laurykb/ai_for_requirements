@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections import OrderedDict
 from typing import Dict, List, Optional
 
 import httpx
 import numpy as np
 
-from .config import EMBED_BASE_URL, EMBED_DISABLED, EMBED_DUP_THRESHOLD, EMBED_MODEL, LLM_API_KEY, LLM_TIMEOUT_SECONDS
+from .config import EMBED_BASE_URL, EMBED_CACHE_MEMORY_MAX, EMBED_DISABLED, EMBED_DUP_THRESHOLD, EMBED_MODEL, LLM_API_KEY, LLM_TIMEOUT_SECONDS
 
-_cache: Dict[str, List[float]] = {}
+_cache: OrderedDict[str, List[float]] = OrderedDict()
 _available: Dict[str, object] = {}
 _AVAILABLE_TTL = 10  # s
 
@@ -39,6 +40,13 @@ def embeddings_available() -> bool:
             _available["ok"] = False
         _available["ts"] = now
     return bool(_available["ok"])
+
+
+def _remember(key: str, vector: List[float]) -> None:
+    _cache[key] = vector
+    _cache.move_to_end(key)
+    while len(_cache) > max(1, EMBED_CACHE_MEMORY_MAX):
+        _cache.popitem(last=False)
 
 
 def _key(text: str) -> str:
@@ -78,7 +86,7 @@ def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
                 k = _key(t)
                 if k in disk:
                     out[missing_idx[pos]] = disk[k]
-                    _cache[k] = disk[k]
+                    _remember(k, disk[k])
                 else:
                     kept_idx.append(missing_idx[pos])
                     kept_txt.append(t)
@@ -99,7 +107,7 @@ def get_embeddings(texts: List[str]) -> Optional[List[List[float]]]:
                 vec = item["embedding"]
                 out[missing_idx[k]] = vec
                 key = _key(missing_txt[k])
-                _cache[key] = vec
+                _remember(key, vec)
                 new_vecs[key] = vec
             from . import embed_store
             embed_store.put_many(new_vecs)  # persiste les nouveaux (survit au process)

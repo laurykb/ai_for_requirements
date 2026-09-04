@@ -6,8 +6,11 @@ sous peine d'import circulaire : il ne dépend que de la config et de Mongo.
 from __future__ import annotations
 
 import json
+from fastapi import HTTPException, UploadFile
 
 from utils.mongo import get_db
+
+_UPLOAD_CHUNK_SIZE = 1024 * 1024
 
 
 def _chunks_col():
@@ -32,3 +35,19 @@ def _trim_chunk(c: dict) -> dict:
 def _sse(payload: dict) -> str:
     """Encode une trame Server-Sent Events (une ligne `data:` + ligne vide)."""
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def read_upload_limited(upload: UploadFile, max_bytes: int) -> bytes:
+    """Lit un upload par blocs et refuse dès que la limite est dépassée."""
+    chunks: list[bytes] = []
+    size = 0
+    while chunk := await upload.read(_UPLOAD_CHUNK_SIZE):
+        size += len(chunk)
+        if size > max_bytes:
+            raise HTTPException(
+                413,
+                f"{upload.filename or 'Fichier'} dépasse la limite de "
+                f"{max_bytes // (1024 * 1024)} Mo.",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)

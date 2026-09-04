@@ -60,7 +60,7 @@ streamé, avec citation de la preuve. Un audit global note la matrice entière.
 
 LynX est un **module embarqué** d'AI for SSH : ses dépendances sont dans le
 `requirements.txt` **à la racine** (une seule commande, voir
-[SETUP_PORTABLE.md](../SETUP_PORTABLE.md)). Modèles : `ollama pull
+[SETUP_PORTABLE.md](../docs/SETUP_PORTABLE.md)). Modèles : `ollama pull
 mistral-small3.2` (jugement) et `ollama pull bge-m3` (redondance).
 
 ## Lancement

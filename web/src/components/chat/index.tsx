@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, LYNX_BASELINE_SOURCE, displaySourceName, getJSON,
+import { apiFetch, getJSON,
          type SourcesResponse } from "@/lib/api";
 import { streamAsk } from "@/lib/sse";
 import { loadPrefs } from "@/lib/prefs";
@@ -25,6 +25,8 @@ import { AssistantMessage, NOT_FOUND_MESSAGE, ProcessingTraceBlock } from "@/com
 import { AnswerMarkdown } from "@/components/chat/markdown";
 import { SessionsSidebar } from "@/components/chat/sessions-sidebar";
 import { Composer, type Mode } from "@/components/chat/composer";
+import { downloadConversation } from "@/components/chat/export-conversation";
+import { useDocumentAttachment } from "@/components/chat/use-document-attachment";
 
 const EXAMPLES = [
   "Quelles sont les exigences de chiffrement ?",
@@ -81,24 +83,15 @@ export function Chat({ scope, prefill }: {
   // Édition du dernier prompt : le texte revient dans le champ, l'envoi
   // remplace l'échange précédent (fil + session persistée).
   const [editing, setEditing] = useState(false);
-  /** Indexation d'une pièce jointe : { name, pct, step } — bloque l'envoi. */
-  const [attach, setAttach] = useState<{ name: string; pct: number; step: string } | null>(null);
-  const [attachError, setAttachError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const expert = useExpert();
   const busy = phase !== "idle";
-  const attaching = attach !== null;
   /** Moteur local sondé en continu : Ollama arrêté (ex. redémarrage du
    * service) => envoi suspendu, bannière avec le délai, reprise auto. */
   const engine = useEngineHealth();
   const engineDown = engine.kind === "down";
   const downFor = useElapsedLabel(engineDown ? engine.since : null);
-
-  // Nettoyage du poll d'ingestion au démontage.
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   // Pré-remplissage externe (pont Matrice -> Chat) : consommé une fois par
   // objet, différé d'un tick (règle set-state-in-effect).
@@ -119,13 +112,19 @@ export function Chat({ scope, prefill }: {
     getJSON<SourcesResponse>("/api/sources")
       .then((s) => setDocs(s.sources)).catch(() => setDocs([]));
   }, [scopeSource]);
+  const {
+    attachment: attach,
+    attaching,
+    error: attachError,
+    dismissError: dismissAttachError,
+    fileRef,
+    attachFiles,
+  } = useDocumentAttachment(Boolean(scopeSource), refreshDocs);
   // Chaque monde ne liste que SES conversations : celles de la baseline LynX
   // (source réservée) restent invisibles du chat RAG, et réciproquement.
   const refreshSessions = useCallback(() => {
-    getJSON<{ sessions: SessionInfo[] }>("/api/sessions")
-      .then((s) => setSessions(s.sessions.filter((sess) => scopeSource
-        ? sess.source_filter === scopeSource
-        : sess.source_filter !== LYNX_BASELINE_SOURCE)))
+    getJSON<{ sessions: SessionInfo[] }>("/api/sessions?scope=" + (scopeSource ? "lynx" : "rag"))
+      .then((s) => setSessions(s.sessions))
       .catch(() => setSessions([]));
   }, [scopeSource]);
 
@@ -133,16 +132,16 @@ export function Chat({ scope, prefill }: {
     const t = setTimeout(() => {
       refreshDocs();
       refreshSessions();
-      getJSON<{ models: string[]; routing: Record<string, string> }>("/api/models")
+      getJSON<{ models: string[]; generation_models: string[]; routing: Record<string, string> }>("/api/models")
         .then((m) => {
           const gen = m.routing?.generate ?? m.models[0] ?? "";
-          setModels(m.models);
+          setModels(m.generation_models ?? m.models);
           setGenModel(gen);
           // Préchauffage : épingle le modèle de génération en VRAM dès
           // l'ouverture du chat — le premier token n'attend plus le
           // chargement du modèle (la génération domine la latence).
           if (gen) {
-            fetch(`${API_BASE}/api/models/generate`, {
+            apiFetch(`/api/models/generate`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ model: gen, action: "load" }),
@@ -157,7 +156,7 @@ export function Chat({ scope, prefill }: {
   const loadModel = async (model: string) => {
     setGenModel(model);
     setModelStatus("chargement…");
-    const res = await fetch(`${API_BASE}/api/models/generate`, {
+    const res = await apiFetch(`/api/models/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, action: "load" }),
@@ -290,6 +289,9 @@ export function Chat({ scope, prefill }: {
           draft.content += ev.text;
           setPartial(draft.content);
         } else if (ev.type === "sources") draft.citations = ev.citations;
+        else if (ev.type === "persistence" && !ev.saved) {
+          draft.persistenceWarning = ev.message ?? "Conversation non sauvegardée.";
+        }
         else if (ev.type === "attribution") {
           // Attribution par affirmation : arrive APRÈS done (passe post-hoc)
           // -> mise à jour du dernier message (marqueurs déjà affichés).
@@ -375,55 +377,20 @@ export function Chat({ scope, prefill }: {
   const lastUserIndex = messages.reduce(
     (acc, m, i) => (m.role === "user" ? i : acc), -1);
 
-  /** Export de la conversation en rapport Markdown : questions, réponses
-   * (marqueurs [n] conservés), sources et identifiants d'exigences — le
-   * chaînon vers le livrable (dossier de sécurité). */
-  const exportConversation = () => {
-    const title = scope ? "Chat baseline d'exigences (LynX)" : "Outil RAG";
-    const lines: string[] = [
-      `# ${title} — conversation`,
-      `_Exportée le ${new Date().toLocaleString("fr-FR")} · AI for SSH (100 % local)_`,
-      "",
-    ];
-    messages.forEach((m) => {
-      if (m.role === "user") {
-        lines.push(`## ${m.content}`, "");
-        return;
-      }
-      lines.push(m.content.trim(), "");
-      const reqs = [...new Set((m.chunks ?? [])
-        .map((c) => c.meta.req_id).filter(Boolean))];
-      if (reqs.length) lines.push(`**Exigences citées** : ${reqs.join(", ")}`, "");
-      if (m.citations?.length) {
-        lines.push("**Sources**", "");
-        m.citations.forEach((c) => lines.push(
-          `- [${c.idx}] ${displaySourceName(c.source)}` +
-          (c.heading ?? c.breadcrumb ? ` – ${c.heading ?? c.breadcrumb}` : "") +
-          (c.page ? ` – p. ${c.page}` : "")));
-        lines.push("");
-      }
-      lines.push("---", "");
-    });
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `conversation-${scope ? "baseline" : "rag"}-${stamp}.md`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-
   /** Envoi : en mode édition, l'échange précédent (question + réponse) est
    * retiré du fil ET de la session persistée avant de re-poser la question. */
   const send = useCallback(async (q: string) => {
     if (!editing) return ask(q);
-    setEditing(false);
     const base = lastUserIndex >= 0 ? messages.slice(0, lastUserIndex) : messages;
     if (sessionId) {
-      // Attendre la troncature : /api/ask ré-appendra la question éditée.
-      await fetch(`${API_BASE}/api/sessions/${sessionId}/last-exchange`,
-                  { method: "DELETE" }).catch(() => null);
+      const response = await apiFetch("/api/sessions/" + sessionId + "/last-exchange",
+                                   { method: "DELETE" }).catch(() => null);
+      if (!response?.ok) {
+        setModelStatus("Modification impossible : " + (response ? "HTTP " + response.status : "API indisponible"));
+        return;
+      }
     }
+    setEditing(false);
     return ask(q, base);
   }, [editing, ask, lastUserIndex, messages, sessionId]);
 
@@ -433,14 +400,15 @@ export function Chat({ scope, prefill }: {
     setPhase("generate");
     setPartial("");
     try {
-      const res = await fetch(`${API_BASE}/api/regenerate`, {
+      const res = await apiFetch(`/api/regenerate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: lastUser.content, chunks: selectedChunks,
                                system_prompt: loadPrefs().systemPrompt,
                                session_id: sessionId }),
       });
-      const d = await res.json();
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(d.detail ?? "HTTP " + res.status));
       setMessages((ms) => {
         const i = ms.map((m) => m.role).lastIndexOf("assistant");
         if (i < 0) return ms;
@@ -452,86 +420,8 @@ export function Chat({ scope, prefill }: {
                     attribution: undefined };
         return next;
       });
-    } catch { /* silencieux : le message existant reste */ }
+    } catch (cause) { setModelStatus("Régénération impossible : " + String(cause)); }
     setPhase("idle");
-  };
-
-  /** Pièce jointe façon chatbot : réglages par défaut, barre de progression
-   * visible, envoi BLOQUÉ tant que l'indexation tourne, puis le périmètre est
-   * automatiquement fixé sur le document ajouté — via son NOM DE SOURCE réel
-   * en base (un PDF devient <nom>-clean.md). Réglages fins : onglet
-   * Documents. Suit TOUT le lot déposé ; abandon propre si l'API redémarre. */
-  const attachFiles = async (files: FileList | null) => {
-    if (scope || !files?.length || attaching) return; // pas d'upload en périmètre verrouillé
-    const names = Array.from(files).map((f) => f.name);
-    const label = names.length > 1 ? `${names[0]} (+${names.length - 1})` : names[0];
-    setAttachError(null);
-    setAttach({ name: label, pct: 0, step: "Dépôt du document…" });
-    const d = await getJSON<{ params: Record<string, unknown> }>("/api/ingest/defaults")
-      .catch(() => null);
-    const p = d?.params ?? { nkw: 5, nq: 3, mode: "technical", raptor: true, enh_model: "" };
-    const fd = new FormData();
-    Array.from(files).forEach((f) => fd.append("files", f));
-    fd.append("nkw", String(p.nkw));
-    fd.append("nq", String(p.nq));
-    fd.append("mode", String(p.mode));
-    fd.append("raptor", String(p.raptor));
-    fd.append("enh_model", String(p.enh_model ?? ""));
-    const res = await fetch(`${API_BASE}/api/documents`, { method: "POST", body: fd })
-      .catch(() => null);
-    if (fileRef.current) fileRef.current.value = "";
-    if (!res?.ok) {
-      setAttach(null);
-      setAttachError(`Dépôt impossible pour « ${label} » — type non accepté ou API indisponible.`);
-      return;
-    }
-    // Suivi de TOUTES les tâches du lot jusqu'au bout.
-    let misses = 0;
-    type Job = { name: string; status: string; pct: number; step: string;
-                 message: string | null; source_name: string | null };
-    pollRef.current = setInterval(async () => {
-      const s = await getJSON<{ active: boolean; jobs: Job[] }>("/api/ingest/status")
-        .catch(() => null);
-      const jobs = names
-        .map((n) => s?.jobs.filter((j) => j.name === n).at(-1))
-        .filter((j): j is Job => !!j);
-      if (!s || jobs.length < names.length) {
-        // File en mémoire disparue (API redémarrée ?) : ne pas bloquer à vie.
-        if (++misses >= 5) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setAttach(null);
-          setAttachError(
-            "Suivi d'indexation perdu (API redémarrée ?) — vérifiez l'onglet Documents.");
-        }
-        return;
-      }
-      misses = 0;
-      const pending = jobs.filter((j) => j.status === "queued" || j.status === "running");
-      if (pending.length) {
-        const cur = pending.find((j) => j.status === "running") ?? pending[0];
-        const done = jobs.length - pending.length;
-        const pct = Math.round((100 * done + cur.pct) / jobs.length);
-        setAttach({ name: label, pct, step: cur.step });
-        return;
-      }
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = null;
-      setAttach(null);
-      const ok = jobs.filter((j) => j.status === "success");
-      const failed = jobs.filter((j) => j.status === "error");
-      if (ok.length) {
-        // L'ingestion n'impose PAS le périmètre : on rafraîchit la liste des
-        // documents, mais on laisse le périmètre courant (« Tous » par défaut)
-        // pour que l'utilisateur ne reste jamais « collé » au dernier document.
-        refreshDocs();
-      }
-      if (failed.length) {
-        setAttachError(failed
-          .map((j) => `Indexation de « ${j.name} » échouée : ${j.message ?? "erreur."}`)
-          .join(" — "));
-      }
-    }, 1200);
   };
 
   return (
@@ -550,7 +440,7 @@ export function Chat({ scope, prefill }: {
         {messages.length > 0 && (
           <div className="mb-1 flex justify-end">
             <button
-              onClick={exportConversation}
+              onClick={() => downloadConversation(messages, Boolean(scope))}
               title="Télécharge la conversation en rapport Markdown : questions, réponses, sources et identifiants d'exigences."
               className="cursor-pointer text-[11px] text-fg-faint transition-colors hover:text-foreground"
             >
@@ -601,6 +491,7 @@ export function Chat({ scope, prefill }: {
               <div key={i} className="rounded-2xl border border-edge bg-surface px-4 py-3">
                 <AssistantMessage
                   m={m} expert={expert}
+                  question={messages.slice(0, i).reverse().find((item) => item.role === "user")?.content}
                   canRegenerate={i === messages.length - 1 && !busy}
                   onRegenerate={regenerate}
                 />
@@ -727,7 +618,7 @@ export function Chat({ scope, prefill }: {
           disabled={engineDown}
           busy={busy} attaching={attaching}
           attach={attach} attachError={attachError}
-          onDismissError={() => setAttachError(null)}
+          onDismissError={dismissAttachError}
           onAsk={send}
           onStop={() => abortRef.current?.abort()}
           fileRef={fileRef} onAttachFiles={attachFiles}

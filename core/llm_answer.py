@@ -6,13 +6,18 @@ Système de citations [1], [2]... pour la traçabilité des sources.
 """
 from env_config import (
     NUM_CHUNKS, MAX_CHUNK_LENGTH, GEN_NUM_CHUNKS,
-    CONTEXT_DEDUP, CONTEXT_DEDUP_THRESHOLD, CONTEXT_REORDER,
+    CONTEXT_DEDUP, CONTEXT_DEDUP_THRESHOLD, CONTEXT_REORDER, LLM_NUM_CTX,
 )
 from core.model_router import build_llm
 from utils.logging_config import get_logger
 import os
 
 logger = get_logger("rag.generation")
+
+CONTEXT_MAX_CHARS = max(
+    8_000,
+    min(NUM_CHUNKS * MAX_CHUNK_LENGTH, max(2_000, LLM_NUM_CTX - 4_096) * 4),
+)
 
 
 def _cap_gen_chunks(chunks: list[dict]) -> list[dict]:
@@ -38,7 +43,32 @@ def _refine_chunks(chunks: list[dict]) -> list[dict]:
     chunks = _cap_gen_chunks(chunks)
     if CONTEXT_REORDER:
         chunks = reorder_long_context(chunks)
-    return chunks
+    return fit_chunks_to_context(chunks)
+
+
+def fit_chunks_to_context(chunks: list[dict], max_chars: int = CONTEXT_MAX_CHARS) -> list[dict]:
+    """Retourne les seuls passages réellement transmissibles au modèle.
+
+    Le budget est appliqué avant la numérotation : le contexte, les citations,
+    les passages affichés et ceux persistés reposent sur la même liste.
+    """
+    accepted: list[dict] = []
+    for chunk in chunks:
+        candidate = [*accepted, chunk]
+        if len(build_context(candidate, max_chars=None)) <= max_chars:
+            accepted.append(chunk)
+            continue
+        if accepted:
+            break
+        copied = {**chunk, "meta": {**(chunk.get("meta") or {})}}
+        doc = str(chunk.get("doc") or "")
+        overhead = len(build_context([{**copied, "doc": "X"}], max_chars=None)) - 1
+        copied["doc"] = doc[:max(0, max_chars - overhead)]
+        copied["meta"]["context_truncated"] = True
+        if copied["doc"]:
+            accepted.append(copied)
+        break
+    return accepted
 
 
 def refine_for_generation(chunks: list[dict]) -> list[dict]:
@@ -152,6 +182,46 @@ factuelle sans son marqueur ; si aucun passage ne la soutient, ne l'écris pas.
 
 """.strip()
 
+# Le prompt historique ci-dessus reste lisible pour les migrations, mais le
+# produit RAG général ne doit pas traiter chaque document comme une matrice
+# d'exigences. Le contrat spécialisé est désormais choisi par question.
+LEGACY_REQUIREMENTS_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT
+DEFAULT_SYSTEM_PROMPT = """[RÔLE]
+Assistant documentaire technique fiable.
+
+[RÈGLES]
+- Réponds uniquement à partir du contexte fourni ; n'utilise aucune connaissance externe.
+- Appose [n] après chaque affirmation factuelle, où n désigne le passage qui la soutient.
+- Conserve exactement les identifiants, valeurs, unités, dates et noms propres.
+- Signale les contradictions sans les arbitrer.
+- Si les passages ne permettent pas de répondre, dis-le explicitement.
+- Réponds dans la langue de la question, directement et sans préambule inutile.
+""".strip()
+
+_RESPONSE_CONTRACTS = {
+    "comparison": "Compare point par point. Sépare convergences, divergences et informations absentes, avec une citation pour chaque document concerné.",
+    "summary": "Produis une synthèse structurée, hiérarchisée par thèmes, sans transformer les hypothèses en faits.",
+    "requirements": "Restitue les exigences dans l'ordre documentaire. Préserve leurs identifiants, conditions, seuils et unités ; utilise un tableau si plusieurs exigences sont comparables.",
+    "extraction": "Extrais tous les éléments demandés sous forme de liste ou tableau, sans commentaire qui ne soit pas soutenu par les passages.",
+    "factual": "Donne d'abord la réponse factuelle courte, puis les précisions nécessaires et leurs citations.",
+}
+
+
+def response_contract(question: str) -> tuple[str, str]:
+    """Sélection déterministe et explicable du format de réponse."""
+    q = question.casefold()
+    if any(word in q for word in ("compare", "comparaison", "différence", "versus", " vs ")):
+        kind = "comparison"
+    elif any(word in q for word in ("résume", "resume", "synthèse", "synthese", "vue d'ensemble")):
+        kind = "summary"
+    elif any(word in q for word in ("exigence", "requirement", "shall")):
+        kind = "requirements"
+    elif any(word in q for word in ("liste", "recense", "extrais", "tableau")):
+        kind = "extraction"
+    else:
+        kind = "factual"
+    return kind, _RESPONSE_CONTRACTS[kind]
+
 # Prompt ÉPURÉ pour le mode rapide (petits modèles). Le prompt détaillé ci-dessus
 # (MODE LISTE/EXPLICATION) a été tuné pour un 8B ; il NOIE un modèle 3B (qui répond
 # « je ne sais pas » à des questions pourtant traitables). Ce prompt court et direct
@@ -187,7 +257,7 @@ def _chunk_source_label(chunk: dict, idx: int) -> str:
     return label
 
 
-def build_context(chunks, max_chars=NUM_CHUNKS * MAX_CHUNK_LENGTH) -> str:
+def build_context(chunks, max_chars: int | None = None) -> str:
     """
     Construit le contexte en numérotant chaque chunk [1], [2], ...
     avec sa source et son numéro de page.
@@ -208,8 +278,8 @@ def build_context(chunks, max_chars=NUM_CHUNKS * MAX_CHUNK_LENGTH) -> str:
         parts.append(f"<<<DOCUMENT {i}>>>\n{label}\n{note}{doc}\n<<<FIN DOCUMENT {i}>>>")
 
     context = "\n\n".join(parts)
-    if len(context) > max_chars:
-        context = context[:max_chars] + "\n\n[Contexte tronqué]"
+    if max_chars is not None and len(context) > max_chars:
+        return context[:max_chars]
     return context
 
 
@@ -341,6 +411,8 @@ def _prepare_generation(question: str, chunks: list[dict], gpu_ids="0",
     # Utilise le system_prompt fourni ou le default
     if system_prompt is None:
         system_prompt = get_system_prompt()
+    contract_kind, contract = response_contract(question)
+    system_prompt += f"\n\n[CONTRAT DE RÉPONSE : {contract_kind}]\n{contract}"
 
     history_block = _build_history_block(conversation_history or [])
 

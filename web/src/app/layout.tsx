@@ -22,6 +22,7 @@ export const metadata: Metadata = {
   description:
     "RAG documentaire et vérification d'exigences, 100 % local : " +
     "vos documents ne quittent pas cette machine.",
+  icons: { icon: "/thales.svg" },
 };
 
 export default function RootLayout({

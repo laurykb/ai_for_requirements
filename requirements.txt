@@ -1,7 +1,7 @@
 # ===================================================================
 # Requirements — UNIQUE et CROSS-PLATFORM (Linux / macOS / Windows, CPU)
 # ===================================================================
-# UNE seule commande installe tout (RAG + LynX + dev), partout, sans GPU :
+# Dépendances d'exécution (RAG + LynX), partout, sans GPU :
 #
 #     python -m venv .venv
 #     # Linux/macOS :  source .venv/bin/activate
@@ -9,15 +9,14 @@
 #     pip install -r requirements.txt
 #     python -m spacy download fr_core_news_sm   # modèle NER français
 #
-# ACCÉLÉRATION GPU NVIDIA (optionnelle, ~10× sur la génération/rerank) :
-#     pip install -r requirements-gpu.txt        # builds CUDA de torch/onnxruntime
+# L'accélération de génération est fournie par Ollama. Le cross-encoder utilise
+# automatiquement CUDA lorsque le PyTorch installé et le matériel le permettent.
 #
 # Python 3.11+ recommandé. Services requis au runtime : Ollama + MongoDB.
 # Guide complet (dont install HORS-LIGNE / réseau restreint) : SETUP_PORTABLE.md.
-# Reproduction exacte de la machine de référence : requirements.lock.txt.
 # ===================================================================
 
-# ─────────────── Deep Learning (CPU par défaut ; GPU via requirements-gpu.txt) ───────────────
+# ─────────────── Deep Learning (runtime portable) ───────────────
 torch>=2.2
 torchvision>=0.17
 transformers>=4.45.0
@@ -47,14 +46,14 @@ semantic-text-splitter>=0.27.0
 # ─────────────── Base de données ───────────────
 pymongo>=4.10.0
 
-# ─────────────── Agentique (serveur MCP) ───────────────
-mcp>=1.0.0                # expose le RAG comme outil via Model Context Protocol (stdio)
-
 # ─────────────── Interface Web ───────────────
 # API du front Next.js (web/) — `python serve.py`
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9   # upload de fichiers (FastAPI Form/File)
+openpyxl>=3.1.0           # lecture des matrices de traçabilité XLSX (LynX)
+httpx>=0.28               # clients locaux Ollama/vLLM du moteur LynX
+pydantic>=2.10            # contrats API et sorties structurées
 
 # ─────────────── Utilitaires ───────────────
 joblib>=1.3.0
@@ -65,10 +64,3 @@ python-dotenv>=1.0.0  # configuration portable via .env
 # pydantic et httpx sont déjà tirés transitivement (fastapi, mcp).
 # L'UI Streamlit standalone de LynX (lynx/app.py) n'est PAS installée par
 # défaut : `pip install streamlit streamlit-agraph` si besoin ponctuel.
-
-# ─────────────── Dev : tests & notebooks ───────────────
-pytest>=8.0
-nbformat>=5.9
-nbconvert>=7.0
-ipykernel>=6.0
-jupyterlab>=4.0

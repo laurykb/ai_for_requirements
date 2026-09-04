@@ -44,7 +44,7 @@ class Scope(str, Enum):
 
 
 class VerifMethod(str, Enum):
-    """Méthode de vérification IADT (EN9100)."""
+    """Métadonnée de vérification conservée lorsqu’elle est fournie par la source."""
 
     INSPECTION = "I"
     ANALYSE = "A"
@@ -85,11 +85,20 @@ class Requirement(BaseModel):
     # Liens typés transverses (en plus du parent_id).
     links: List[Link] = Field(default_factory=list)
     # Attributs EN9100 (optionnels).
-    verification: Optional[str] = Field(None, description="Méthode IADT : I, A, D ou T")
+    verification: Optional[str] = Field(None, description="Méthode déclarée dans la source, sans inférence")
     source: Optional[str] = Field(None, description="Origine / document amont")
+    occurrences: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Occurrences documentaires conservées avec leur provenance",
+    )
+    collision_variants: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Formulations concurrentes du même identifiant à arbitrer",
+    )
     rationale: Optional[str] = Field(None, description="Justification du besoin")
     criticite: Optional[str] = Field(None, description="cle | majeure | mineure")
-    version: Optional[str] = Field(None, description="Version de l'exigence")
+    version: Optional[str] = Field(None, description="Version de l’exigence")
+    root_declared: bool = Field(False, description="Racine métier déclarée intentionnelle")
 
     def short(self) -> Dict[str, Any]:
         return {"id": self.id, "niveau": self.niveau, "texte": self.texte}

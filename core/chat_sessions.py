@@ -60,13 +60,13 @@ def get_session(session_id: str) -> Optional[dict]:
     return doc
 
 
-def list_sessions(limit: int = 50) -> list[dict]:
+def list_sessions(limit: int = 50, query: dict | None = None) -> list[dict]:
     """
     Retourne les sessions triées par date décroissante (sans les messages)
     pour affichage dans la barre latérale.
     """
     sessions = []
-    for doc in _col().find({}, {"messages": 0}).sort("updated_at", DESCENDING).limit(limit):
+    for doc in _col().find(query or {}, {"messages": 0}).sort("updated_at", DESCENDING).limit(limit):
         doc["_id"] = str(doc["_id"])
         sessions.append(doc)
     return sessions

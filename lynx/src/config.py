@@ -21,6 +21,7 @@ LLM_API_KEY = os.environ.get("LLM_API_KEY", "ollama")  # ignoré par Ollama/vLLM
 LLM_TIMEOUT_SECONDS = int(os.environ.get("LLM_TIMEOUT_SECONDS", "120"))
 # Concurrence des appels LLM : à monter selon le serveur (vLLM batch >> Ollama).
 LLM_MAX_CONCURRENCY = int(os.environ.get("LLM_MAX_CONCURRENCY", "16"))
+AUDIT_BATCH_SIZE = int(os.environ.get("AUDIT_BATCH_SIZE", "64"))
 # Cache des réponses LLM (reproductibilité : mêmes entrées -> même verdict).
 LLM_CACHE = os.environ.get("LLM_CACHE", "1") != "0"
 # Cache disque en plus du cache mémoire : survit au process, donc une éval
@@ -60,6 +61,8 @@ LLM_DISABLED = os.environ.get("LLM_DISABLE", os.environ.get("OLLAMA_DISABLE", ""
 # Survit au process : au redémarrage, on relit les vecteurs du disque au lieu de
 # tout ré-embedder. EMBED_CACHE_DISK=0 pour couper (LynX reste fonctionnel).
 EMBED_CACHE_DISK = os.environ.get("EMBED_CACHE_DISK", "1") != "0"
+EMBED_CACHE_MEMORY_MAX = int(os.environ.get("EMBED_CACHE_MEMORY_MAX", "10000"))
+EMBED_CACHE_DISK_MAX = int(os.environ.get("EMBED_CACHE_DISK_MAX", "100000"))
 EMBED_CACHE_DB = Path(os.environ.get("EMBED_CACHE_DB", DATA_DIR / "lynx_store.sqlite"))
 
 # --- Niveaux du cycle en V ------------------------------------------------

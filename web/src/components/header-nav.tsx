@@ -30,8 +30,10 @@ const RAG_PREFIXES = [
 
 // Monde LynX : les onglets de l'outil, en barre de menu (liens ?tab=).
 const LYNX_TABS = [
-  { tab: "matrice", label: "Matrice" },
+  { tab: "pilotage", label: "Pilotage" },
+  { tab: "conversion", label: "Conversion" },
   { tab: "exigences", label: "Exigences" },
+  { tab: "qualite", label: "Audit" },
   { tab: "chat", label: "Chat" },
   { tab: "suivi", label: "Suivi" },
   { tab: "parametres", label: "Paramètres" },
@@ -48,7 +50,7 @@ export function HeaderNav() {
   const links = inRag
     ? [...RAG_LINKS, ...RAG_TAIL, ...(expert ? RAG_EXPERT : [])]
     : [];
-  const activeTab = inLynx ? (params.get("tab") ?? "matrice") : null;
+  const activeTab = inLynx ? (params.get("tab") ?? "pilotage") : null;
 
   // Un SEUL chemin vers l'accueil : le logo AI for SSH (à gauche du header).
   return (
@@ -56,7 +58,7 @@ export function HeaderNav() {
       {inLynx && LYNX_TABS.map((t) => (
         <Link
           key={t.tab}
-          href={t.tab === "matrice" ? "/requirements" : `/requirements?tab=${t.tab}`}
+          href={t.tab === "pilotage" ? "/requirements" : `/requirements?tab=${t.tab}`}
           replace scroll={false}
           aria-current={activeTab === t.tab ? "page" : undefined}
           className={`transition-colors hover:text-foreground ${

@@ -1,5 +1,7 @@
 """Génération d'embeddings et indexation dans le magasin vectoriel."""
 
+import os
+
 from nlp.ollama_embedding import OllamaEmbedding
 from env_config import COLLECTION_NAME, HYPE_ENABLED, HYPE_MAX_QUESTIONS, CONTEXT_HEADERS_ENABLED
 from retrieval.vector_store import get_vector_store
@@ -10,6 +12,9 @@ logger = get_logger("rag.embedding")
 # Au-delà de ce ratio d'embeddings invalides, on considère un problème systémique
 # (Ollama indisponible, modèle cassé) et on abandonne plutôt que de tronquer le doc.
 _INVALID_EMBED_ABORT_RATIO = 0.5
+_INVALID_EMBED_RETRIES = 2
+_MAX_EMBED_TEXT_CHARS = max(1000, int(os.environ.get("EMBED_MAX_TEXT_CHARS", "8000")))
+_ADAPTIVE_RETRY_MIN_CHARS = 1000
 
 
 def _sanitize_chroma_metadata(meta):
@@ -26,7 +31,9 @@ def _sanitize_chroma_metadata(meta):
         "quality_reasons": ", ",
     }
     for key, value in list(sanitized.items()):
-        if isinstance(value, dict):
+        if value is None:
+            sanitized.pop(key, None)
+        elif isinstance(value, dict):
             if key == "entities":
                 from nlp.ner_extractor import entities_to_str
                 sanitized[key] = entities_to_str(value)
@@ -44,6 +51,28 @@ def _prefix_header(text, breadcrumb):
         return text
     tag = f"[{breadcrumb}]"
     return text if tag in text else f"{tag}\n{text}"
+
+
+def _fit_embedding_text(text):
+    """Borne l'entrée modèle sans tronquer le document restitué au retrieval."""
+    if len(text) <= _MAX_EMBED_TEXT_CHARS:
+        return text, False
+    separator = "\n[… contenu intermédiaire omis pour l'embedding …]\n"
+    budget = _MAX_EMBED_TEXT_CHARS - len(separator)
+    head = int(budget * 0.75)
+    return text[:head] + separator + text[-(budget - head):], True
+
+
+def _adaptive_retry_text(text: str, attempt: int) -> str:
+    """Réduit une entrée refusée par le modèle sans modifier le document source."""
+    if len(text) <= _ADAPTIVE_RETRY_MIN_CHARS:
+        return text
+    ratio = max(0.5, 0.875 - (0.125 * attempt))
+    target = max(_ADAPTIVE_RETRY_MIN_CHARS, int(len(text) * ratio))
+    separator = "\n[… entrée réduite après refus du modèle d'embedding …]\n"
+    budget = max(1, target - len(separator))
+    head = int(budget * 0.75)
+    return text[:head] + separator + text[-(budget - head):]
 
 
 def build_embedding_units(docs, hype_enabled=None, hype_max_questions=None):
@@ -64,10 +93,14 @@ def build_embedding_units(docs, hype_enabled=None, hype_max_questions=None):
         meta = dict(d.metadata)
         cid = meta["id"]
         breadcrumb = meta.get("breadcrumb", "")
+        embed_text, truncated = _fit_embedding_text(_prefix_header(content, breadcrumb))
+        if truncated:
+            meta["embedding_truncated"] = True
+            meta["embedding_original_chars"] = len(content)
         units.append({
             "id": cid,
             "document": content,
-            "embed_text": _prefix_header(content, breadcrumb),
+            "embed_text": embed_text,
             "metadata": meta,
         })
         if hype_enabled:
@@ -77,10 +110,16 @@ def build_embedding_units(docs, hype_enabled=None, hype_max_questions=None):
                 hmeta["chunk_type"] = "hype_question"
                 hmeta["parent_id"] = cid
                 hmeta["id"] = cid  # résout vers le parent en aval
+                embed_text, truncated = _fit_embedding_text(
+                    _prefix_header(q.strip(), breadcrumb)
+                )
+                if truncated:
+                    hmeta["embedding_truncated"] = True
+                    hmeta["embedding_original_chars"] = len(q.strip())
                 units.append({
                     "id": f"{cid}::hype::{i}",
                     "document": content,
-                    "embed_text": _prefix_header(q.strip(), breadcrumb),
+                    "embed_text": embed_text,
                     "metadata": hmeta,
                 })
     return units
@@ -110,7 +149,7 @@ def build_embeddings(docs, hype_enabled=None, hype_max_questions=None):
             - metadatas (list[dict]): Métadonnées associées à chaque unité
             - ids (list[str]): Identifiants uniques de chaque unité (Chroma)
     """
-    model = OllamaEmbedding()
+    model = OllamaEmbedding(role="embed_ingest")
 
     # Filtrer les documents vides (pas de texte = pas d'embedding utile)
     docs = [d for d in docs if d.page_content.strip()]
@@ -127,7 +166,29 @@ def build_embeddings(docs, hype_enabled=None, hype_max_questions=None):
     vecs = model.embed_documents(texts_to_embed)
 
     # Détecter les embeddings invalides (vides ou tout-zéro = échec côté modèle).
-    invalid_idx = [i for i, vec in enumerate(vecs) if not vec or all(v == 0.0 for v in vec)]
+    def _invalid(vec):
+        return not vec or all(v == 0.0 for v in vec)
+
+    invalid_idx = [i for i, vec in enumerate(vecs) if _invalid(vec)]
+    # Une requête isolée peut échouer pendant un chargement de modèle ou sous
+    # pression VRAM alors que le reste du lot réussit. Retenter uniquement ces
+    # unités évite de publier un index LynX partiel et de recalculer les milliers
+    # de vecteurs déjà valides.
+    for attempt in range(_INVALID_EMBED_RETRIES):
+        if not invalid_idx:
+            break
+        logger.warning(
+            "Nouvelle tentative d'embedding pour %d unité(s) invalide(s) (%d/%d)",
+            len(invalid_idx), attempt + 1, _INVALID_EMBED_RETRIES,
+        )
+        for i in invalid_idx:
+            retry_text = _adaptive_retry_text(texts_to_embed[i], attempt)
+            vecs[i] = model.embed_query(retry_text)
+            if not _invalid(vecs[i]) and retry_text != texts_to_embed[i]:
+                raw_metadatas[i]["embedding_adaptive_retry"] = attempt + 1
+                raw_metadatas[i]["embedding_retry_chars"] = len(retry_text)
+        invalid_idx = [i for i in invalid_idx if _invalid(vecs[i])]
+
     if invalid_idx:
         ratio = len(invalid_idx) / max(1, len(vecs))
         sample_ids = [raw_metadatas[i].get("id", "<unknown>") for i in invalid_idx[:10]]
@@ -183,15 +244,13 @@ def index_chroma(ids, texts, metadatas, embeddings, collection_name=COLLECTION_N
     store = get_vector_store(collection_name)
     if clean_collection:
         store.reset()  # supprime + recrée (métrique cosine), anti-doublons
-    elif replace_source:
-        store.delete_source(replace_source)
     if not ids:
         # Ne jamais appeler add([]) : Chroma lève « Expected Embeddings to be
         # non-empty list ». Rien à indexer -> on s'arrête là, sans casser.
         logger.warning("index_chroma : aucun embedding à indexer (ids vides).")
         return store
-    store.add(ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings)
+    if replace_source:
+        store.replace_source(replace_source, ids, texts, metadatas, embeddings)
+    else:
+        store.add(ids=ids, documents=texts, metadatas=metadatas, embeddings=embeddings)
     return store
-
-
-

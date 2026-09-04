@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 import time
+import hashlib
+import json
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from env_config import MONGO_DB
 from core import ingest_queue
-from api.common import _chunks_col
+from api.common import _chunks_col, read_upload_limited
 from utils.mongo import get_client, get_db
 
 router = APIRouter()
@@ -35,10 +37,34 @@ def sources() -> dict:
         ]))
     except Exception:
         return {"available": False, "sources": []}
+    from core.index_consistency import rag_index_consistency
+    consistency = rag_index_consistency()
+    by_name = {row["name"]: row for row in consistency.get("sources", [])}
     return {
         "available": True,
-        "sources": [{"name": r["_id"], "chunks": r["chunks"], "quality": {"accepted": r.get("accepted", 0), "degraded": r.get("degraded", 0), "quarantined": r.get("quarantined", 0)}} for r in rows],
+        "in_sync": consistency.get("in_sync", False),
+        "consistency_available": consistency.get("available", False),
+        "orphans": consistency.get("orphans", []),
+        "sources": [{
+            "name": r["_id"],
+            "chunks": r["chunks"],
+            "quality": {"accepted": r.get("accepted", 0),
+                        "degraded": r.get("degraded", 0),
+                        "quarantined": r.get("quarantined", 0)},
+            "index": by_name.get(r["_id"], {
+                "mongo": r["chunks"], "indexable": r["chunks"],
+                "bm25": False, "vectors": 0, "in_sync": False,
+                "degraded_reasons": ["État des index indisponible."],
+            }),
+        } for r in rows],
     }
+
+
+@router.get("/api/index/consistency")
+def index_consistency() -> dict:
+    from core.index_consistency import rag_index_consistency
+    return rag_index_consistency()
+
 
 
 @router.post("/api/documents/{name}/summary")
@@ -80,22 +106,46 @@ async def upload_documents(
     """Dépose un LOT de documents et le met en file d'ingestion séquentielle.
     Les options sont choisies AU MOMENT de l'upload (règle produit) et
     partagées par le lot."""
-    ingest_queue.DOCS_OUT.mkdir(parents=True, exist_ok=True)
-    ingest_queue.DOCS_PDF.mkdir(parents=True, exist_ok=True)
+    if not 0 <= nkw <= 10 or not 0 <= nq <= 10:
+        raise HTTPException(422, "nkw et nq doivent être compris entre 0 et 10.")
+    if mode not in ("technical", "naive"):
+        raise HTTPException(422, "Mode d ingestion invalide.")
+    if len(files) > 50:
+        raise HTTPException(413, "Un dépôt est limité à 50 documents.")
+    params = {"nkw": nkw, "nq": nq, "mode": mode,
+              "raptor": raptor, "enh_model": enh_model.strip()[:200]}
+    ingest_queue.DOCS_STAGING.mkdir(parents=True, exist_ok=True)
     items = []
+    skipped = []
+    seen_versions: set[tuple[str, str]] = set()
+    total_size = 0
     for up in files:
         name = (up.filename or "document").replace("/", "_").replace("\\", "_")
         if name.split(".")[-1].lower() not in ingest_queue.UPLOAD_TYPES:
             raise HTTPException(400, f"Type non accepté : {name}")
-        # Documents source -> docs/PDF ; markdown déjà converti -> docs/out.
-        target = (ingest_queue.DOCS_OUT / name if name.lower().endswith(".md")
-                  else ingest_queue.DOCS_PDF / name)
-        target.write_bytes(await up.read())
-        items.append({"name": name, "path": str(target)})
-    params = {"nkw": nkw, "nq": nq,
-              "mode": mode if mode in ("technical", "naive") else "technical",
-              "raptor": raptor, "enh_model": enh_model.strip()}
-    return {"added": ingest_queue.enqueue(items, params)}
+        content = await read_upload_limited(up, 200 * 1024 * 1024)
+        if not content:
+            skipped.append({"name": name, "reason": "fichier vide"})
+            continue
+        total_size += len(content)
+        if total_size > 500 * 1024 * 1024:
+            raise HTTPException(413, "Le dépôt dépasse la limite totale de 500 Mo.")
+        content_hash = hashlib.sha256(content).hexdigest()
+        version_id = hashlib.sha256(
+            (content_hash + json.dumps(params, sort_keys=True)).encode("utf-8")
+        ).hexdigest()[:20]
+        version_key = (name, version_id)
+        if version_key in seen_versions or ingest_queue.version_exists(name, version_id):
+            skipped.append({"name": name, "reason": "version déjà ingérée ou en file"})
+            continue
+        seen_versions.add(version_key)
+        version_dir = ingest_queue.DOCS_STAGING / version_id
+        version_dir.mkdir(parents=True, exist_ok=True)
+        target = version_dir / name
+        target.write_bytes(content)
+        items.append({"name": name, "path": str(target),
+                      "content_hash": content_hash, "version_id": version_id})
+    return {"added": ingest_queue.enqueue(items, params), "skipped": skipped}
 
 
 @router.get("/api/ingest/status")
@@ -138,6 +188,7 @@ def delete_document(name: str) -> dict:
         client = get_client()
         n = client[MONGO_DB]["chunks"].delete_many({"source": name}).deleted_count
         client[MONGO_DB]["bm25_indexes"].delete_many({"source_doc": name})
+        client[MONGO_DB]["document_versions"].delete_many({"source_name": name})
     except Exception as e:
         raise HTTPException(503, f"Mongo injoignable : {e}")
     try:

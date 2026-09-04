@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Literal
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.common import _sse, _trim_chunk
 
@@ -114,39 +115,59 @@ def _synthesize_corpus(question, **kwargs):
     return synthesize_corpus(question, **kwargs)
 
 
+class HistoryMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+def _validate_chunks(chunks: list[dict]) -> list[dict]:
+    if len(json.dumps(chunks, ensure_ascii=False, default=str)) > 600_000:
+        raise ValueError("La sélection de passages dépasse 600 000 caractères.")
+    if any(len(str(chunk.get("doc") or chunk.get("content") or "")) > 50_000
+           for chunk in chunks):
+        raise ValueError("Un passage dépasse 50 000 caractères.")
+    return chunks
+
+
 class AskBody(BaseModel):
     """Requête du chat : question + périmètre (un document, ou null = tous)
     + historique + options par requête (None = défaut .env) + mode de
     traitement (auto : le routeur décide ; rag/agent : forcé) + session
     persistée (None = en créer une)."""
-    question: str
-    source: str | None = None
-    history: list[dict] = []
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=20_000)
+    source: str | None = Field(default=None, max_length=500)
+    history: list[HistoryMessage] = Field(default_factory=list, max_length=20)
     parent_child: bool | None = None
     self_rag: bool | None = None
-    system_prompt: str | None = None
-    mode: str = "auto"                # auto | rag | agent | synth
-    session_id: str | None = None
+    system_prompt: str | None = Field(default=None, max_length=200_000)
+    mode: Literal["auto", "rag", "agent", "synth", "deep"] = "auto"
+    session_id: str | None = Field(default=None, min_length=1, max_length=80,
+                                   pattern=r"^[A-Za-z0-9_-]+$")
 
 
 def _persist_exchange(session_id: str | None, source: str | None, question: str,
                       answer: str, citations: list, reasoning: str | None,
                       chunks: list, evidence_dossier: dict | None = None,
                       answer_validation: dict | None = None,
-                      analysis_artifact: dict | None = None) -> None:
+                      analysis_artifact: dict | None = None) -> dict:
     """Enregistre l'échange dans la session Mongo (comme le Streamlit)."""
     if not session_id:
-        return
+        return {"saved": False, "message": "Conversation non sauvegardée : stockage indisponible."}
     try:
-        from core.chat_sessions import add_message, update_session_source
+        from core.chat_sessions import add_message, get_session, update_session_source
+        if not get_session(session_id):
+            return {"saved": False, "message": "Conversation non sauvegardée : session introuvable."}
         update_session_source(session_id, source)
         add_message(session_id, "user", question)
         add_message(session_id, "assistant", answer, citations=citations or [],
                     reasoning=reasoning, chunks=[_trim_chunk(c) for c in (chunks or [])],
                     evidence_dossier=evidence_dossier, answer_validation=answer_validation,
                     analysis_artifact=analysis_artifact)
-    except Exception:
-        pass  # la persistance est un bonus : ne jamais casser la réponse
+        return {"saved": True, "message": None}
+    except Exception as exc:
+        return {"saved": False, "message": f"Conversation non sauvegardée : {str(exc)[:160]}"}
 
 
 def _run_attribution(question: str, answer_txt: str, chunks: list,
@@ -168,7 +189,8 @@ def _run_attribution(question: str, answer_txt: str, chunks: list,
         affirmations.append({"texte": sentence, "passages": passages,
                              "statut": "sourcee" if passages else "non_sourcee"})
     n_sourcees = sum(item["statut"] == "sourcee" for item in affirmations)
-    attribution = {"ok": True, "affirmations": affirmations,
+    attribution = {"ok": True, "verification_level": "markers_only",
+                   "semantic_support": None, "affirmations": affirmations,
                    "n_affirmations": len(affirmations), "n_sourcees": n_sourcees,
                    "n_completees": 0,
                    "n_non_sourcees": len(affirmations) - n_sourcees, "error": None}
@@ -179,20 +201,6 @@ def _run_attribution(question: str, answer_txt: str, chunks: list,
         except Exception:
             pass
     return attribution
-
-
-def _run_quality(question: str, answer_txt: str, chunks: list,
-                 session_id: str | None) -> dict:
-    """Évaluation post-hoc sans référence : 3 axes observables, persistés."""
-    from core.evaluation import verify_answer
-    quality = verify_answer(question, answer_txt, chunks or []) or {}
-    if session_id:
-        try:
-            from core.chat_sessions import set_last_assistant_eval
-            set_last_assistant_eval(session_id, quality)
-        except Exception:
-            pass
-    return quality
 
 
 def _baseline_system_prompt(source: str | None) -> str | None:
@@ -389,8 +397,9 @@ def ask(body: AskBody) -> StreamingResponse:
                             yield _sse({"type": "retrieved",
                                         "chunks": [_trim_chunk(c) for c in chunks]})
                         yield _sse({"type": "sources", "citations": citations})
-                        _persist_exchange(session_id, body.source, body.question,
+                        persistence = _persist_exchange(session_id, body.source, body.question,
                                           answer_txt, citations, None, chunks, dossier, validation, artifact)
+                        yield _sse({"type": "persistence", **(persistence or {"saved": True, "message": None})})
                         yield _sse({"type": "done", "found": bool(answer_txt)})
                 return
 
@@ -399,7 +408,7 @@ def ask(body: AskBody) -> StreamingResponse:
                 result: dict = {}
                 answer_txt = ""
                 for frame, trace, res in _agent_events(body.question, body.source,
-                                                       body.history or []):
+                                                       [message.model_dump() for message in body.history]):
                     reasoning_parts = trace
                     result = res
                     if frame["type"] == "_done":
@@ -422,8 +431,9 @@ def ask(body: AskBody) -> StreamingResponse:
                 yield _sse({"type": "answer_contract", "dossier": dossier})
                 yield _sse({"type": "answer_validation", "validation": validation})
                 yield _sse({"type": "sources", "citations": citations})
-                _persist_exchange(session_id, body.source, body.question, answer_txt,
+                persistence = _persist_exchange(session_id, body.source, body.question, answer_txt,
                                   citations, "\n\n".join(reasoning_parts), chunks, dossier, validation)
+                yield _sse({"type": "persistence", **(persistence or {"saved": True, "message": None})})
                 yield _sse({"type": "done", "found": True})
                 # Attribution par affirmation sur la SYNTHÈSE de l'agent (les
                 # chunks sont la liste numérotée de la synthèse — même contrat
@@ -443,7 +453,7 @@ def ask(body: AskBody) -> StreamingResponse:
             token_gen, chunks, citations = process_query_stream(
                 body.question,
                 source_filter=body.source,
-                conversation_history=body.history or [],
+                conversation_history=[message.model_dump() for message in body.history],
                 parent_child_on=strategy["retrieval"]["parent_child"],
                 self_rag_enabled=strategy["retrieval"]["self_rag"],
                 system_prompt=body.system_prompt or _baseline_system_prompt(body.source),
@@ -476,8 +486,9 @@ def ask(body: AskBody) -> StreamingResponse:
             yield _sse({"type": "sources", "citations": citations or []})
             # Persistance AVANT `done` : le front rafraîchit la liste des
             # conversations sur `done` (le titre auto doit déjà être posé).
-            _persist_exchange(session_id, body.source, body.question, answer_txt,
+            persistence = _persist_exchange(session_id, body.source, body.question, answer_txt,
                               citations or [], None, chunks or [], dossier, validation)
+            yield _sse({"type": "persistence", **(persistence or {"saved": True, "message": None})})
             yield _sse({"type": "done", "found": bool(chunks)})
 
             # Attribution par affirmation (post-hoc, APRÈS `done` : la réponse
@@ -558,10 +569,14 @@ def ask(body: AskBody) -> StreamingResponse:
 
 class RegenerateBody(BaseModel):
     """Régénération avec une SÉLECTION de passages (cochés par l'utilisateur)."""
-    question: str
-    chunks: list[dict]
-    system_prompt: str | None = None
-    session_id: str | None = None
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=20_000)
+    chunks: list[dict] = Field(min_length=1, max_length=50)
+    system_prompt: str | None = Field(default=None, max_length=200_000)
+    session_id: str | None = Field(default=None, min_length=1, max_length=80,
+                                   pattern=r"^[A-Za-z0-9_-]+$")
+
+    _chunks_size = field_validator("chunks")(_validate_chunks)
 
 
 @router.post("/api/regenerate")
@@ -585,10 +600,13 @@ def regenerate(body: RegenerateBody) -> dict:
 
 
 class VerifyBody(BaseModel):
-    question: str
-    answer: str
-    chunks: list[dict]
-    task_id: str | None = None
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=20_000)
+    answer: str = Field(min_length=1, max_length=50_000)
+    chunks: list[dict] = Field(min_length=1, max_length=50)
+    task_id: str | None = Field(default=None, max_length=100)
+
+    _chunks_size = field_validator("chunks")(_validate_chunks)
 
 
 @router.post("/api/verify")

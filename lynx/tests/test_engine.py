@@ -96,6 +96,29 @@ def test_range_excluded_from_rollup():
     assert [c[0] for c in roll["contributions"]] == ["C2"]
 
 
+def test_range_conserve_ses_deux_bornes_et_unite():
+    from src.extract import extract_quantities
+    quantity = extract_quantities("plage entre 5 et 10 kg")[0]
+    assert quantity.value == 5.0
+    assert quantity.upper_value == 10.0
+    assert quantity.unit == "kg"
+
+
+def test_conversion_pression_et_ampere_contextuel():
+    from src.extract import extract_quantities, to_base
+    assert to_base(1, "bar") == 100000.0
+    assert extract_quantities("prévoir 3 a faire demain") == []
+    assert extract_quantities("courant maximal : 3 A")[0].kind == "max"
+
+
+def test_rollup_somme_toutes_les_allocations_et_signale_les_plages():
+    from src.extract import allocation_rollup
+    roll = allocation_rollup("Budget max 10 kg", [("A", "2 kg mesurés et 3 kg mesurés"), ("B", "entre 1 et 2 kg")])
+    assert roll["total_base"] == 5.0
+    assert [item[0] for item in roll["contributions"]] == ["A", "A"]
+    assert roll["partiels"] == ["B"]
+
+
 def test_unit_conversion_in_allocation():
     # parent en kg, enfants en g/kg : conversion correcte (1200 g + 0.5 kg = 1.7 kg < 2 kg)
     from src.extract import allocation_rollup

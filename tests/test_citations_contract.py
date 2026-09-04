@@ -10,7 +10,12 @@ import re
 
 import core.ask
 import core.llm_answer
-from core.llm_answer import build_citation_map, build_context, refine_for_generation
+from core.llm_answer import (
+    build_citation_map,
+    build_context,
+    fit_chunks_to_context,
+    refine_for_generation,
+)
 from core.planner import PlannerAgent
 
 
@@ -53,6 +58,31 @@ def test_contexte_et_citations_alignes_sur_la_liste_affinee():
         assert int(m.group(2)) == chunk["meta"]["page_number"]
         assert citations[i - 1]["source"] == chunk["meta"]["source"]
         assert citations[i - 1]["page"] == chunk["meta"]["page_number"]
+
+
+def test_budget_contexte_exclut_les_citations_non_transmises():
+    chunks = [
+        {"doc": "A" * 100, "meta": {"source": "a.md"}},
+        {"doc": "B" * 100, "meta": {"source": "b.md"}},
+    ]
+    fitted = fit_chunks_to_context(chunks, max_chars=180)
+    context = build_context(fitted)
+    citations = build_citation_map(fitted)
+
+    assert len(fitted) == len(citations) == 1
+    assert "a.md" in context
+    assert "b.md" not in context
+    assert citations[0]["source"] == "a.md"
+
+
+def test_premier_chunk_trop_long_est_copie_et_marque():
+    original = {"doc": "X" * 2_000, "meta": {"source": "long.md"}}
+    fitted = fit_chunks_to_context([original], max_chars=300)
+
+    assert len(build_context(fitted)) <= 300
+    assert fitted[0]["meta"]["context_truncated"] is True
+    assert fitted[0]["doc"] != original["doc"]
+    assert "context_truncated" not in original["meta"]
 
 
 def test_process_query_stream_renvoie_la_liste_numerotee(monkeypatch):

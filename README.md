@@ -108,7 +108,7 @@ GPU contraint (un modèle 8B + grand contexte déborde la VRAM → offload CPU).
 ## Architecture
 
 Carte de lecture complète (couches, UI, points d'entrée, flux) :
-**[ARCHITECTURE.md](ARCHITECTURE.md)**.
+**[ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ```mermaid
 flowchart LR
@@ -137,7 +137,9 @@ Couches agentiques au-dessus : `tools/rag_tool.py` (RAG-comme-outil) → `rag_mc
 ```bash
 # 1. Récupérer le code (USB) puis se placer à la racine du projet
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\Activate.ps1
-pip install -r requirements.txt                      # TOUT (RAG + LynX + dev) ; + requirements-gpu.txt si GPU NVIDIA
+pip install -r requirements.txt                      # runtime RAG + LynX
+# Développement : pip install -r requirements-dev.txt
+# L'accélération GPU est gérée par Ollama ; le runtime Python reste portable.
 python -m spacy download fr_core_news_sm
 ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.2:3b en option pour le mode rapide)
 cp .env.example .env
@@ -145,8 +147,11 @@ python serve.py            # démarre MongoDB + Ollama + le front Next.js + l'AP
 ```
 
 Guide complet (modèles, GPU, gotchas par OS, **install hors-ligne / réseau
-restreint**) : **[SETUP_PORTABLE.md](SETUP_PORTABLE.md)**.
+restreint**) : **[SETUP_PORTABLE.md](docs/SETUP_PORTABLE.md)**.
 Prérequis runtime : **Ollama** + **MongoDB**.
+
+Livraison air-gap nettoyée et vérifiée : `deploy/offline.sh prepare DESTINATION`.
+Le guide unique est **[docs/INSTALLATION_HORS_LIGNE.md](docs/INSTALLATION_HORS_LIGNE.md)**.
 
 ## Points d'entrée
 
@@ -157,7 +162,7 @@ Prérequis runtime : **Ollama** + **MongoDB**.
 | `python -m core.agent "…"` | agent ReAct en CLI |
 | `python rag_mcp_server.py` | serveur MCP (stdio) |
 | `python diagnostic.py` | état des services + routage + vector store |
-| `python -m pytest` | 154 tests unitaires (fonctions pures, hors-ligne) ; +121 pour LynX (`cd lynx && python -m pytest tests/`) |
+| `python -m pytest` | suite backend hors ligne (le total courant est affiché par pytest) |
 
 ## Structure
 

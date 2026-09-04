@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "description": "Référence revue pour la reconstruction des exigences Word multi-familles. Ne pas régénérer automatiquement.",
+  "documents": {
+    "04-PIDS/PIDS-CGT_61775282_306_J.doc": {
+      "requirements": 35,
+      "links": 59,
+      "table_occurrences": 35,
+      "collisions": 0,
+      "samples": {
+        "PIDS-CGT-REQ-001": "Le service de supervision centrale est rendu par le COTS SNMPc",
+        "PIDS-CGT-REQ-060": "Configuration des services propres au CGT"
+      }
+    },
+    "04-PIDS/PIDS_OPL_TMSC_62450308_306-D.doc": {
+      "requirements": 76,
+      "links": 117,
+      "table_occurrences": 119,
+      "collisions": 0,
+      "samples": {
+        "PIDS-OPL_TMSC-REQ-1": "L’outil de conversion OPL TMS-C utilise",
+        "PIDS-OPL_TMSC-REQ-76": "Le code source de l’outil de conversion OPL TMS-C est fourni"
+      }
+    },
+    "03-IRS système/IRS_62466621_506_D (PXSMTP).doc": {
+      "requirements": 16,
+      "links": 0,
+      "table_occurrences": 0,
+      "collisions": 0,
+      "samples": {
+        "PXSMTP1-0": "Le protocole PXSMTP permet la transmission d'unités de données PXSMTP.",
+        "PXSMTP9-4": "Le récepteur reconstitue le message"
+      }
+    },
+    "03-IRS système/IRS_61777231_506_F (GEOGEO).doc": {
+      "requirements": 9,
+      "links": 0,
+      "table_occurrences": 0,
+      "collisions": 0,
+      "samples": {
+        "GEO0-0": "Les positions des unités géo localisées sont agrégées",
+        "PRECUEIL0-1": "Le protocole PRECUEIL RADIO décrit"
+      }
+    },
+    "02-ICD/ICD_61563710_558_15_-L.doc": {
+      "requirements": 79,
+      "links": 61,
+      "table_occurrences": 0,
+      "collisions": 0,
+      "samples": {
+        "ICD-XSMTP-75": "Pour être accepté par le service de messagerie du CS-E",
+        "ICD-XSMTP-56": "En tant que serveur SMTP, le CS-E adhère aux réponses standards"
+      }
+    }
+  }
+}

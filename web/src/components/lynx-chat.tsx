@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { API_BASE, getJSON, type LynxChatStatus } from "@/lib/api";
+import { apiFetch, getJSON, type LynxChatStatus } from "@/lib/api";
 import { Chat, type ChatScope } from "@/components/chat";
 import { useLynxNav } from "@/components/lynx-nav";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
@@ -128,6 +128,7 @@ export function LynxChat({ prefill }: {
   // reconstruire (indexed_chunks retombe à 0 quelques secondes) — le chat en
   // cours ne doit pas être démonté (perte du fil affiché) pendant ce laps.
   const [everReady, setEverReady] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState<string | null>(null);
 
   // Auto-resynchronisation : dérive confirmée sur 2 polls consécutifs (~8 s,
   // laisse passer une rafale d'éditions de l'arbre) -> resync déclenchée
@@ -146,7 +147,7 @@ export function LynxChat({ prefill }: {
         driftPolls.current = drifting ? driftPolls.current + 1 : 0;
         if (driftPolls.current === 2) {
           driftPolls.current = 0;
-          void fetch(`${API_BASE}/api/lynx/chat/sync`, { method: "POST" }).catch(() => null);
+          void apiFetch(`/api/lynx/chat/sync`, { method: "POST" }).catch(() => null);
         }
       })
       .catch(() => setError("API locale injoignable — lancer : python serve.py"));
@@ -170,7 +171,7 @@ export function LynxChat({ prefill }: {
 
   const sync = async () => {
     setError(null);
-    const res = await fetch(`${API_BASE}/api/lynx/chat/sync`, { method: "POST" })
+    const res = await apiFetch(`/api/lynx/chat/sync`, { method: "POST" })
       .catch(() => null);
     if (!res) { setError("API locale injoignable."); return; }
     if (!res.ok) {
@@ -179,6 +180,25 @@ export function LynxChat({ prefill }: {
       return;
     }
     refresh();
+  };
+
+  const restoreVersion = async (versionId: string) => {
+    if (!window.confirm(`Réactiver la version ${versionId.slice(0, 8)} de l’index du chat ?`)) return;
+    setRestoreBusy(versionId);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/lynx/chat/versions/restore`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: versionId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail ?? `HTTP ${res.status}`);
+      refresh();
+    } catch (e) {
+      setError(`Restauration impossible : ${String(e)}`);
+    } finally {
+      setRestoreBusy(null);
+    }
   };
 
   if (!status) {
@@ -245,6 +265,38 @@ export function LynxChat({ prefill }: {
       {error && <Banner tone="bad">{error}</Banner>}
       {!status.available && (
         <Banner tone="warn">MongoDB injoignable — l&apos;état de l&apos;index est inconnu.</Banner>
+      )}
+
+      {status.available && (status.active_version || (status.versions ?? []).length > 0) && (
+        <details className="chat-details mb-3 rounded-xl border border-edge bg-surface px-3 py-2">
+          <summary className="text-xs">État et versions de l’index du chat</summary>
+          <div className="mt-2 space-y-2 text-xs text-fg-muted">
+            <p>
+              Version active : <span className="font-mono text-foreground">
+                {status.active_version?.slice(0, 12) ?? "index historique"}
+              </span>
+              {status.preparing_version && <> · préparation : <span className="font-mono">{status.preparing_version.slice(0, 12)}</span></>}
+            </p>
+            {status.index_counts && (
+              <p>Contrôles publiés : {status.index_counts.mongo} chunks Mongo · {status.index_counts.bm25} BM25 · {status.index_counts.vectors} vecteurs.</p>
+            )}
+            {(status.versions ?? []).map((version) => (
+              <div key={version.version_id} className="flex flex-wrap items-center gap-2 border-t border-edge pt-2">
+                <span className="font-mono text-foreground">{version.version_id.slice(0, 12)}</span>
+                <span>{version.n_exigences} exigence(s)</span>
+                <span className={version.status === "failed" ? "text-bad" : version.status === "active" ? "text-good" : "text-fg-faint"}>
+                  {version.status === "active" ? "active" : version.status === "ready" ? "disponible" : version.status === "preparing" ? "en préparation" : "échec"}
+                </span>
+                {version.status === "ready" && (
+                  <button disabled={restoreBusy !== null} onClick={() => void restoreVersion(version.version_id)}
+                          className="ml-auto cursor-pointer rounded border border-edge px-2 py-1 text-[11px] hover:text-foreground disabled:cursor-wait disabled:opacity-50">
+                    {restoreBusy === version.version_id ? "Restauration…" : "Réactiver"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {ready && <CoveragePanel />}

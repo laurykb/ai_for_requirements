@@ -1,23 +1,20 @@
 "use client";
 
-/** LynX — AI for Requirements. La matrice est la scène : le graphe occupe
- * l'espace, l'inspecteur d'exigence vit à sa droite, le verdict se joue en
- * dessous (bannière colorée + boîte de verre), l'audit ferme la page avec sa
- * jauge. Boîte de verre partout, signal > bruit, un seul CTA par zone.
+/** LynX — AI for Requirements. L’explorateur occupe l’espace principal,
+ * l’inspecteur d’exigence vit à sa droite, puis viennent le verdict et l’audit. Boîte de verre partout, signal > bruit, un seul CTA par zone.
  *
  * Ce fichier porte l'état et l'orchestration (analyse SSE, apply, audit) ;
  * l'affichage est découpé : blocks.tsx (types, boîte de verre, styles),
  * panels.tsx (liens, création fille, panneau d'audit). */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, getJSON } from "@/lib/api";
+import { apiFetch, getJSON } from "@/lib/api";
 import { useLynxNav } from "@/components/lynx-nav";
 import { Banner, Dot, Hint, Spinner } from "@/components/ui";
-import { type Req } from "@/components/req-graph";
-import { couleurNiveau, maxNiveau, type NiveauCat } from "@/components/req-levels";
+import { ReqExplorer, type Req, type ReqQueueItem } from "@/components/req-explorer";
+import { couleurNiveau } from "@/components/req-levels";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnDanger, btnGhost, btnPrimary, inputCls, streamPost,
   type AuditReport, type Exchange, type Finding, type FixProgress, type FixRecap,
@@ -26,34 +23,33 @@ import {
 import {
   AuditPanel, CreateChildForm, LinkForm,
 } from "@/components/requirements/panels";
-
-const ReqGraph = dynamic(() => import("@/components/req-graph").then((m) => m.ReqGraph), {
-  ssr: false,
-  loading: () => <div className="h-[520px] rounded-xl border border-edge bg-surface" />,
-});
-// Vue 3D en bascule : three.js n'est chargé que si l'utilisateur l'active.
-const ReqGraph3D = dynamic(() => import("@/components/req-graph-3d").then((m) => m.ReqGraph3D), {
-  ssr: false,
-  loading: () => <div className="h-[520px] rounded-xl border border-edge bg-surface" />,
-});
+import { TraceabilityPanel, type Traceability } from "@/components/requirements/traceability-panel";
 
 const EMPTY_IDS = new Set<string>();
 const VERDICT_COLOR: Record<string, string> = {
   VALIDE: "var(--good)", ATTENTION: "var(--warn)", BLOQUANT: "var(--bad)" };
 
-export function Requirements({ focusReq }: {
+export function Requirements({ focusReq, active = true, section = "catalogue" }: {
   /** Exigence à ouvrir depuis l'extérieur (citation du chat baseline) —
    * objet recréé à chaque demande : son identité déclenche la sélection.
    * `edit` : focalise aussi l'éditeur (préparer une modification). */
   focusReq?: { id: string; edit?: boolean } | null;
+  /** Recharge le corpus à chaque retour depuis Conversion. */
+  active?: boolean;
+  section?: "catalogue" | "quality";
 } = {}) {
-  const [corpus, setCorpus] = useState<Req[] | null>(null);
-  const [niveaux, setNiveaux] = useState<NiveauCat[]>([]);
+  const [ready, setReady] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [sel, setSel] = useState<Req | null>(null);
+  const [traceability, setTraceability] = useState<Traceability | null>(null);
+  const [selectionLoading, setSelectionLoading] = useState(false);
   const [llmOk, setLlmOk] = useState(false);
   const [model, setModel] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [editing, setEditing] = useState(false);
   const [semantic, setSemantic] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,6 +71,16 @@ export function Requirements({ focusReq }: {
   const [auditProgress, setAuditProgress] = useState<[number, number] | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [deep, setDeep] = useState(true);
+  const [impactScope, setImpactScope] = useState<string[]>([]);
+  const [queueItems, setQueueItems] = useState<ReqQueueItem[]>([]);
+  const [auditTargeted, setAuditTargeted] = useState(true);
+  const auditStates = useMemo(() => {
+    const states: Record<string, "audited" | "flagged" | "not_audited"> = {};
+    for (const id of audit?.audited_ids ?? []) states[id] = "audited";
+    for (const id of audit?.non_audited_ids ?? []) states[id] = "not_audited";
+    for (const id of audit?.flagged_ids ?? []) states[id] = "flagged";
+    return states;
+  }, [audit]);
 
   const [fixing, setFixing] = useState(false);
   const [fixProgress, setFixProgress] = useState<FixProgress | null>(null);
@@ -84,49 +90,63 @@ export function Requirements({ focusReq }: {
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
 
-  // Vue du graphe : 2D par niveaux (défaut, scannable) ou 3D en couches.
-  const [graphView, setGraphView] = useState<"2d" | "3d">("2d");
-
-
-  const fileRef = useRef<HTMLInputElement>(null);
   const verdictRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const c = await getJSON<{ n: number; exigences: Req[]; niveaux?: NiveauCat[];
-                                llm: { available: boolean; model: string } }>("/api/lynx/corpus");
-      setCorpus(c.exigences);
-      setNiveaux(c.niveaux ?? []);
+      const c = await getJSON<{ n: number; llm: { available: boolean; model: string } }>("/api/lynx/corpus/status");
+      setTotal(c.n);
       setLlmOk(c.llm.available);
       setModel(c.llm.model);
+      setReady(true);
+      setCatalogRevision((value) => value + 1);
       setError(null);
+      getJSON<{ impacted: string[] }>("/api/lynx/corpus/impact")
+        .then((impact) => setImpactScope(impact.impacted ?? [])).catch(() => setImpactScope([]));
+      getJSON<{ items: ReqQueueItem[] }>("/api/lynx/corpus/issues")
+        .then((queue) => setQueueItems(queue.items ?? [])).catch(() => setQueueItems([]));
     } catch {
       setError("API hors ligne — lancer python serve.py --web");
     }
   }, []);
 
   useEffect(() => {
+    if (!active) return;
     const t = setTimeout(() => {
       refresh();
       getJSON<{ models: string[] }>("/api/models")
         .then((m) => setModels(m.models)).catch(() => setModels([]));
     }, 0);
     return () => clearTimeout(t);
-  }, [refresh]);
+  }, [refresh, active]);
 
-  const sel = corpus?.find((r) => r.id === selected) ?? null;
-
-  // Référence vivante du corpus : `select` garde une identité stable (le
-  // graphe memoïsé ne se reconstruit pas à chaque rendu).
-  const corpusRef = useRef<Req[] | null>(null);
-  useEffect(() => {
-    corpusRef.current = corpus;
-  }, [corpus]);
-  const select = useCallback((id: string) => {
+  const selectedQueue = queueItems.find((item) => item.req_id === selected) ?? null;
+  const selectionRequest = useRef(0);
+  const select = useCallback(async (id: string) => {
+    const request = ++selectionRequest.current;
     setSelected(id);
-    const r = corpusRef.current?.find((x) => x.id === id);
-    setEditText(r?.texte ?? "");
+    setSelectionLoading(true);
+    setTraceability(null);
     setSuggestion(null);
+    try {
+      const [requirement, relations] = await Promise.all([
+        getJSON<Req>("/api/lynx/requirements/" + encodeURIComponent(id)),
+        getJSON<Traceability & { requirement: Req }>("/api/lynx/requirements/" + encodeURIComponent(id) + "/relations"),
+      ]);
+      if (request !== selectionRequest.current) return;
+      setSel(requirement);
+      setTraceability({ upstream: relations.upstream, downstream: relations.downstream, path: relations.path });
+      setEditText(requirement.texte ?? "");
+      setEditing(false);
+      setError(null);
+    } catch {
+      if (request === selectionRequest.current) {
+        setSel(null);
+        setError(`Exigence ${id} introuvable.`);
+      }
+    } finally {
+      if (request === selectionRequest.current) setSelectionLoading(false);
+    }
   }, []);
 
   // Ouverture externe (citation du chat baseline -> arbre) : consommée une
@@ -137,40 +157,27 @@ export function Requirements({ focusReq }: {
   const consumedFocus = useRef<object | null>(null);
   const editRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (!focusReq || consumedFocus.current === focusReq || !corpus) return;
-    if (!corpus.some((r) => r.id === focusReq.id)) return;
+    if (!focusReq || consumedFocus.current === focusReq || !ready) return;
     consumedFocus.current = focusReq;
     const t = setTimeout(() => {
       select(focusReq.id);
       if (focusReq.edit) {
+        setEditing(true);
         // Après le rendu du panneau de la sélection : éditeur prêt à taper.
         setTimeout(() => editRef.current?.focus(), 80);
       }
     }, 0);
     return () => clearTimeout(t);
-  }, [focusReq, corpus, select]);
+  }, [focusReq, ready, select]);
 
-  // Identités STABLES pendant le streaming (sinon le graphe se reconstruit à
-  // chaque token et React Flow devient instable).
-  const impacted = useMemo(() => new Set(verdict?.impacted ?? []), [verdict?.impacted]);
-  /** Signalées par l'audit, avec leur pire sévérité (rouge/ambre). */
-  const flaggedSev = useMemo(() => {
-    const m = new Map<string, "bad" | "warn">();
-    for (const f of audit?.findings ?? []) {
-      if (f.severity === "BLOQUANT") m.set(f.req_id, "bad");
-      else if (m.get(f.req_id) !== "bad") m.set(f.req_id, "warn");
-    }
-    return m;
-  }, [audit?.findings]);
+  // Les exigences citées ne sont recalculées qu’après la fin du streaming.
   /** Exigences CITÉES par la synthèse LLM — calculées seulement une fois le
    * flux terminé (identité stable pendant le streaming). */
   const synthesis = running ? "" : (verdict?.message ?? "");
   const mentioned = useMemo(() => {
-    if (!synthesis || !corpus) return EMPTY_IDS;
-    const s = new Set<string>();
-    for (const r of corpus) if (synthesis.includes(r.id)) s.add(r.id);
-    return s;
-  }, [synthesis, corpus]);
+    if (!synthesis) return EMPTY_IDS;
+    return new Set(synthesis.match(/\b[A-Z0-9]+(?:[-_.][A-Z0-9]+){2,}\b/g) ?? []);
+  }, [synthesis]);
 
   const analyze = useCallback(async (action: Record<string, unknown>) => {
     if (running) return;
@@ -182,7 +189,6 @@ export function Requirements({ focusReq }: {
     setPendingAction(action);
     setRationale("");
     setFeedbackDone(false);
-    setTimeout(() => verdictRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
     const v: Verdict = { verdict: "", message: "", findings: [], impacted: [], exchanges: [] };
     try {
       await streamPost("/api/lynx/analyze", { action, semantic }, (ev) => {
@@ -219,24 +225,49 @@ export function Requirements({ focusReq }: {
 
   const apply = async () => {
     if (!pendingAction || applying) return;
+    const actionType = String(pendingAction.action_type);
+    const selectedBeforeApply = selected;
     setApplying(true);
-    await fetch(`${API_BASE}/api/lynx/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: pendingAction, rationale }),
-    }).catch(() => null);
-    setVerdict(null);
-    setPendingAction(null);
-    setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
-    setFixRecap(null);
+    setError(null);
+    try {
+      const response = await apiFetch("/api/lynx/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: pendingAction, rationale }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(String(body.detail ?? "HTTP " + response.status));
+      }
+      setVerdict(null);
+      setPendingAction(null);
+      setAudit(null);
+      setFixRecap(null);
+      await refresh();
+      if (actionType === "DELETE") {
+        setSelected(null); setSel(null); setTraceability(null);
+      } else if (selectedBeforeApply) {
+        await select(selectedBeforeApply);
+      }
+    } catch (cause) {
+      setError("Application impossible : " + (cause instanceof Error ? cause.message : String(cause)));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const setRootStatus = async (declared: boolean) => {
+    if (!sel) return;
+    const path = "/api/lynx/requirements/" + encodeURIComponent(sel.id) + "/root-status";
+    const response = await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ declared, rationale: declared ? "Racine métier confirmée par la revue RPP" : "Rattachement à revoir" }) });
+    if (!response.ok) { setError("Qualification de la racine impossible."); return; }
     await refresh();
-    setApplying(false);
+    await select(sel.id);
   };
 
   const sendFeedback = async (correct: boolean) => {
     if (!verdict || !pendingAction || feedbackDone) return;
-    setFeedbackDone(true);
-    await fetch(`${API_BASE}/api/lynx/feedback`, {
+    const response = await apiFetch("/api/lynx/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -245,6 +276,11 @@ export function Requirements({ focusReq }: {
         verdict: verdict.verdict, message: verdict.message, correct,
       }),
     }).catch(() => null);
+    if (!response?.ok) {
+      setError("Envoi du retour impossible : " + (response ? "HTTP " + response.status : "API indisponible"));
+      return;
+    }
+    setFeedbackDone(true);
   };
 
   const runAudit = async () => {
@@ -254,7 +290,9 @@ export function Requirements({ focusReq }: {
     setAuditProgress(null);
     setFixRecap(null);
     try {
-      await streamPost("/api/lynx/audit", { deep }, (ev) => {
+      await streamPost("/api/lynx/audit", {
+        deep, req_ids: auditTargeted && impactScope.length ? impactScope : null,
+      }, (ev) => {
         if (ev.type === "progress") setAuditProgress([Number(ev.done), Number(ev.total)]);
         else if (ev.type === "report") setAudit(ev as unknown as AuditReport);
         else if (ev.type === "error") setError(`Audit : ${String(ev.message)}`);
@@ -292,7 +330,7 @@ export function Requirements({ focusReq }: {
 
   /** Applique les corrections cochées à la matrice réelle. */
   const applyBatchFix = async (items: { req_id: string; texte: string }[]) => {
-    const res = await fetch(`${API_BASE}/api/lynx/audit/fix/apply`, {
+    const res = await apiFetch(`/api/lynx/audit/fix/apply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
@@ -304,6 +342,7 @@ export function Requirements({ focusReq }: {
     setFixRecap(null);
     setAudit(null); // la matrice a changé : l'audit précédent ne vaut plus
     await refresh();
+    if (selected) await select(selected);
   };
 
   /** Génération descendante : l'agent propose des filles auto-auditées sur
@@ -317,38 +356,22 @@ export function Requirements({ focusReq }: {
       ...(verdict?.findings.map((f) => f.msg) ?? []),
     ];
     try {
-      const res = await fetch(`${API_BASE}/api/lynx/correct`, {
+      const res = await apiFetch(`/api/lynx/correct`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ req_id: sel.id, problems }),
       });
-      setSuggestion(await res.json());
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(body.detail ?? "HTTP " + res.status));
+      setSuggestion(body);
     } catch (e) {
       setSuggestion({ error: String(e) });
     }
     setSuggesting(false);
   };
 
-  const upload = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const fd = new FormData();
-    Array.from(files).forEach((f) => fd.append("files", f));
-    const res = await fetch(`${API_BASE}/api/lynx/corpus/upload`, { method: "POST", body: fd })
-      .catch(() => null);
-    if (res?.ok) {
-      setSelected(null);
-      setVerdict(null);
-      setAudit(null);
-      setFixRecap(null);
-      await refresh();
-    } else {
-      setError("Import impossible : JSON de matrice invalide.");
-    }
-    if (fileRef.current) fileRef.current.value = "";
-  };
-
-  if (error && !corpus) return <Banner tone="bad">{error}</Banner>;
-  if (!corpus)
+  if (error && !ready) return <Banner tone="bad">{error}</Banner>;
+  if (!ready)
     return (
       <p className="flex items-center gap-2 text-xs text-fg-muted">
         <Spinner /> Chargement de la matrice…
@@ -361,11 +384,12 @@ export function Requirements({ focusReq }: {
     <div className="flex flex-col gap-5">
       {error && <Banner tone="bad">{error}</Banner>}
 
-      {/* Barre d'état : santé, modèle, profondeur — import à droite. */}
+      <div className={section === "catalogue" ? "contents" : "hidden"}>
+      {/* Barre d'état : santé du moteur et profondeur d'analyse. */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-muted">
         <span className="flex items-center gap-1.5">
           <Dot tone={llmOk ? "good" : "warn"} />
-          <span className="font-mono tabular-nums">{corpus.length}</span> exigences
+          <span className="font-mono tabular-nums">{total}</span> exigences
           <span className="text-fg-faint">·</span>
           {llmOk ? "agents IA prêts" : "LLM indisponible — règles seules"}
         </span>
@@ -375,12 +399,18 @@ export function Requirements({ focusReq }: {
             <select
               value={model}
               onChange={async (e) => {
-                setModel(e.target.value);
-                await fetch(`${API_BASE}/api/lynx/model`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ model: e.target.value }),
+                const previous = model;
+                const next = e.target.value;
+                const response = await apiFetch("/api/lynx/model", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ model: next }),
                 }).catch(() => null);
+                if (!response?.ok) {
+                  setModel(previous);
+                  setError("Changement de modèle impossible : " + (response ? "HTTP " + response.status : "API indisponible"));
+                  return;
+                }
+                setModel(next);
               }}
               className="rounded-md border border-edge bg-surface-2 px-2 py-1 font-mono text-[11px] text-foreground focus:outline-none"
             >
@@ -396,52 +426,20 @@ export function Requirements({ focusReq }: {
           Analyse approfondie (IA)
           <Hint text="Décoché : seules les règles déterministes tournent (instantané, sans LLM)." />
         </label>
-        <span className="ml-auto flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".json" multiple hidden
-                 onChange={(e) => upload(e.target.files)} />
-          <button onClick={() => fileRef.current?.click()} className={btnGhost}>
-            Importer (JSON)
-          </button>
-          <button
-            onClick={async () => {
-              await fetch(`${API_BASE}/api/lynx/corpus/reset`, { method: "POST" }).catch(() => null);
-              setSelected(null); setVerdict(null); setAudit(null); setFixRecap(null);
-              await refresh();
-            }}
-            title="Abandonne la matrice de travail et recharge la matrice d'origine."
-            className={btnGhost}
-          >
-            Réinitialiser
-          </button>
-        </span>
       </div>
 
-      {/* La scène : graphe (2D par niveaux, ou 3D en couches) + inspecteur. */}
+      {/* Vue fonctionnelle unifiée : catalogue rapide + inspecteur complet. */}
       <div className="grid gap-4 xl:grid-cols-[5fr_2fr]">
-        <div className="relative">
-          <div className="absolute right-2 top-2 z-10 flex overflow-hidden rounded-lg border border-edge bg-surface-2 text-[11px]"
-               role="group" aria-label="Vue du graphe">
-            {(["2d", "3d"] as const).map((v) => (
-              <button key={v} onClick={() => setGraphView(v)}
-                      className={`cursor-pointer px-2.5 py-1 transition-colors ${
-                        graphView === v ? "bg-accent/20 text-foreground" : "text-fg-faint hover:text-foreground"}`}>
-                {v.toUpperCase()}
-              </button>
-            ))}
-          </div>
-          {graphView === "3d" ? (
-            <ReqGraph3D corpus={corpus} selected={selected} impacted={impacted}
-                        flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select}
-                        niveaux={niveaux} />
-          ) : (
-            <ReqGraph corpus={corpus} selected={selected} impacted={impacted}
-                      flaggedSev={flaggedSev} mentioned={mentioned} onSelect={select}
-                      niveaux={niveaux} />
-          )}
-        </div>
+        <ReqExplorer selected={selected} onSelect={select} impactedIds={impactScope}
+                     queueItems={queueItems} refreshToken={catalogRevision}
+                     auditStates={auditStates} />
 
         <aside className="rounded-xl border border-edge bg-surface p-4 xl:max-h-[calc(100vh-17rem)] xl:min-h-[620px] xl:overflow-y-auto">
-          {!sel ? (
+          {selectionLoading ? (
+            <div className="flex h-full min-h-40 items-center justify-center gap-2 text-xs text-fg-muted">
+              <Spinner /> Chargement de la fiche…
+            </div>
+          ) : !sel ? (
             <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 text-center">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden
                    className="text-fg-faint">
@@ -451,7 +449,7 @@ export function Requirements({ focusReq }: {
                 <path d="M11 7 7 16M13 7l4 9" stroke="currentColor" strokeWidth="1.2" />
               </svg>
               <p className="text-xs text-fg-muted">
-                Sélectionnez une exigence dans le graphe
+                Sélectionnez une exigence dans le catalogue
               </p>
               <p className="text-[11px] text-fg-faint">
                 pour l&apos;inspecter, la modifier, la relier ou la corriger.
@@ -466,25 +464,76 @@ export function Requirements({ focusReq }: {
                 <p className="mt-0.5 font-mono text-base text-foreground">{sel.id}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-faint">
                   <span className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: couleurNiveau(sel.niveau, maxNiveau(corpus ?? [])) }} />
+                        style={{ background: couleurNiveau(sel.niveau, 5) }} />
                   L{sel.niveau} · {sel.domaine ?? "Général"} · test {sel.test_status ?? "PENDING"}
                 </p>
+                <p className="mt-1 text-[10px] text-fg-faint">Source : <span className="text-fg-muted">{sel.source || "non renseignée"}</span></p>
+              {!!sel.occurrences?.length && <details className="chat-details mt-2"><summary>Provenance · {sel.occurrences.length} occurrence(s)</summary><ul className="mt-2 space-y-1 text-[11px] text-fg-muted">{sel.occurrences.map((occurrence, index) => <li key={index} className="rounded border border-edge p-2"><span className="font-mono text-foreground">{occurrence.source || "source inconnue"}</span>{occurrence.section && <span> · section {occurrence.section}{occurrence.section_title ? " — " + occurrence.section_title : ""}</span>}{occurrence.row && <span> · ligne {occurrence.row}{occurrence.column ? ", colonne " + occurrence.column : ""}</span>}</li>)}</ul></details>}{sel.arbitration && <p className="mt-2 rounded border border-good/30 bg-good/5 p-2 text-[10px] text-fg-muted">Formulation arbitrée par {sel.arbitration.decided_by || "un réviseur"} · source retenue : {sel.arbitration.selected_source || sel.source || "inconnue"} · {sel.arbitration.rationale}</p>}
+              {!sel.parent_id && <button className={(sel.root_declared ? btnGhost : btnPrimary) + " mt-2"} onClick={() => void setRootStatus(!sel.root_declared)}>{sel.root_declared ? "Rouvrir le rattachement" : "Confirmer comme racine métier"}</button>}
               </div>
-              <textarea
-                ref={editRef}
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                rows={4}
-                className={`${inputCls} w-full leading-relaxed`}
-              />
-              <button
-                onClick={() => analyze({ action_type: "UPDATE", target_id: sel.id,
-                                         new_text: editText })}
-                disabled={running}
-                className={`${btnPrimary} w-full`}
-              >
-                Analyser la modification
-              </button>
+              <TraceabilityPanel selected={sel} traceability={traceability}
+                                 loading={selectionLoading} onSelect={select} />
+              {selectedQueue && (
+                <section className="rounded-lg border border-warn/30 bg-warn/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-warn">À traiter</p>
+                    <span className="font-mono text-[10px] text-fg-faint">{selectedQueue.issues.length} constat(s)</span>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {selectedQueue.issues.map((issue) => (
+                      <div key={issue.code}>
+                        <p className="text-xs font-medium text-foreground">{issue.label}</p>
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-fg-muted">{issue.action}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {editing ? (
+                <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
+                  <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-accent-bright">Modification en préparation</p>
+                  <textarea ref={editRef} value={editText} onChange={(e) => setEditText(e.target.value)}
+                            rows={6} className={inputCls + " w-full leading-relaxed"} />
+                  <p className="mt-1 text-[10px] text-fg-faint">La baseline ne change qu’après analyse du verdict et confirmation.</p>
+                  <div className="mt-3 flex gap-2">
+                    <button onClick={() => { setEditing(false); setEditText(sel.texte ?? ""); }}
+                            disabled={running} className={btnGhost + " flex-1"}>Annuler</button>
+                    <button onClick={() => analyze({ action_type: "UPDATE", target_id: sel.id, new_text: editText })}
+                            disabled={running || editText.trim() === (sel.texte ?? "").trim()}
+                            className={btnPrimary + " flex-1"}>
+                      {running ? "Analyse…" : "Analyser"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-edge bg-surface-2 p-3">
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{sel.texte || "(énoncé vide)"}</p>
+                  <button onClick={() => { setEditing(true); setTimeout(() => editRef.current?.focus(), 50); }}
+                          className={btnPrimary + " mt-3 w-full"}>Modifier cette exigence</button>
+                </div>
+              )}
+              {(running || verdict) && pendingAction?.target_id === sel.id && (
+                <div className="rounded-lg border border-edge bg-surface-2 p-3">
+                  <div className="flex items-center gap-2">
+                    {running ? <Spinner /> : <Dot tone={verdict?.verdict === "VALIDE" ? "good" : verdict?.verdict === "BLOQUANT" ? "bad" : "warn"} />}
+                    <span className="text-xs font-semibold" style={{ color: verdict?.verdict ? VERDICT_COLOR[verdict.verdict] : undefined }}>
+                      {running ? "Analyse d’impact en cours" : verdict?.verdict}
+                    </span>
+                    {!!verdict?.impacted.length && <span className="ml-auto font-mono text-[10px] text-fg-faint">{verdict.impacted.length} impactée(s)</span>}
+                  </div>
+                  {!running && verdict?.findings.slice(0, 2).map((finding, index) => (
+                    <p key={index} className="mt-2 text-[11px] leading-relaxed text-fg-muted">{finding.msg}</p>
+                  ))}
+                  {!running && verdict && (
+                    <div className="mt-3 flex gap-2">
+                      <button onClick={() => { setVerdict(null); setPendingAction(null); }} className={btnGhost + " flex-1"}>Annuler</button>
+                      <button onClick={apply} disabled={applying || (blocked && !rationale.trim())} className={btnPrimary + " flex-1"}>
+                        {applying ? "Application…" : blocked ? "Justifier plus bas" : "Appliquer"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => analyze({ action_type: "DELETE", target_id: sel.id })}
@@ -573,7 +622,7 @@ export function Requirements({ focusReq }: {
                       </button>
                     </p>
                   ))}
-                  <LinkForm sel={sel} corpus={corpus} disabled={running} onLink={analyze} />
+                  <LinkForm sel={sel} disabled={running} onLink={analyze} />
                 </div>
               </details>
 
@@ -716,8 +765,20 @@ export function Requirements({ focusReq }: {
           </div>
         )}
       </div>
+      </div>
 
-      {/* L'audit : jauge + défauts détaillés, conformes comptés. */}
+      {section === "quality" && <>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-fg-faint">Contrôle démontrable</p>
+          <h1 className="text-xl font-semibold text-foreground">Audit de la baseline</h1>
+          <p className="mt-1 max-w-3xl text-xs text-fg-muted">Les contrôles structurels ne valent pas audit sémantique. Une exigence reste « non auditée » tant qu’un audit explicite n’a pas abouti.</p>
+        </div>
+        <span className="font-mono text-xs text-fg-faint">{total} exigences actives</span>
+      </header>
+
+      {/* L'audit : constats démontrés et exigences explicitement non auditées. */}
+      {impactScope.length > 0 && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-accent/30 bg-accent/5 px-4 py-2 text-xs text-fg-muted"><span><span className="font-mono text-accent-bright">{impactScope.length}</span> exigences dans le dernier périmètre d’impact</span><label className="ml-auto flex cursor-pointer items-center gap-1.5"><input type="checkbox" checked={auditTargeted} onChange={(e) => setAuditTargeted(e.target.checked)} className="accent-(--accent)" />Limiter le prochain audit à ce périmètre et son voisinage</label></div>}
       <AuditPanel
         auditRunning={auditRunning}
         auditProgress={auditProgress}
@@ -725,7 +786,7 @@ export function Requirements({ focusReq }: {
         deep={deep}
         setDeep={setDeep}
         onRun={runAudit}
-        onSelect={select}
+        onSelect={(id) => lynxNav ? lynxNav.openRequirement(id) : void select(id)}
         llmOk={llmOk}
         fixing={fixing}
         fixProgress={fixProgress}
@@ -735,6 +796,7 @@ export function Requirements({ focusReq }: {
         onApplyFix={applyBatchFix}
         onCloseRecap={() => setFixRecap(null)}
       />
+      </>}
     </div>
   );
 }

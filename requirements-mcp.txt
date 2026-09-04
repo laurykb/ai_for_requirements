@@ -1,0 +1,4 @@
+# Extension optionnelle : serveur MCP en ligne de commande (`rag_mcp_server.py`).
+# Non requise par l'application web ni par le paquet produit hors ligne minimal.
+# Le SDK 2.x a supprimé `mcp.server.fastmcp`, utilisé par rag_mcp_server.py.
+mcp>=1.0.0,<2.0.0

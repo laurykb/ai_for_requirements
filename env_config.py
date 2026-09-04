@@ -133,8 +133,8 @@ def get_config() -> Dict[str, Any]:
     # --------------------- PATHS (relatifs au projet) -------------------
     paths_config = {
         "PROJECT_ROOT": str(_PROJECT_ROOT),
-        "DATA_DIR": str(_PROJECT_ROOT / "data"),
-        "CHROMA_PATH": str(_PROJECT_ROOT / "data" / "chroma_db"),
+        "DATA_DIR": _resolve_project_path(os.environ.get("DATA_DIR", "data")),
+        "CHROMA_PATH": _resolve_project_path(os.environ.get("CHROMA_PATH", "data/chroma_db")),
         "VOCAB_SAVE_DIR": str(_PROJECT_ROOT / "data" / "vocab_save"),
         "VOCAB_JSON_PATH": str(_PROJECT_ROOT / "data" / "vocab_save" / "vocab.json"),
         "MODELS_DIR": str(_PROJECT_ROOT / "models"),

@@ -65,6 +65,19 @@ def test_query_with_multi_document_source_filter():
     assert fake.last_kwargs["where"] == {"source": {"$in": ["a.md", "b.md"]}}
 
 
+def test_versioned_lynx_query_targets_only_active_version(monkeypatch):
+    from core.reserved_sources import LYNX_BASELINE_SOURCE
+    monkeypatch.setattr("core.source_versions.active_version", lambda source: "v-active")
+    fake = FakeChromaCollection(_CHROMA_RES)
+    ChromaVectorStore(collection_name="t", collection=fake).query(
+        [0.0], n_results=2, source_filter=LYNX_BASELINE_SOURCE
+    )
+    assert fake.last_kwargs["where"] == {"$and": [
+        {"source": {"$eq": LYNX_BASELINE_SOURCE}},
+        {"ingest_version": {"$eq": "v-active"}},
+    ]}
+
+
 def test_query_without_source_filter_excludes_reserved_sources():
     """Sans filtre, la recherche balaie tout SAUF les sources réservées
     (baseline LynX) : elles n'appartiennent pas au monde RAG."""

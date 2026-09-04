@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pickle
 
 from indexing.chunking import decoupe_semantic_md
 from indexing.embedding import index_chroma, build_embeddings
@@ -14,7 +13,7 @@ from env_config import (COLLECTION_NAME, AUTO_KEYWORDS, AUTO_QUESTIONS,
 
 from nlp.vocab_builder import save_vocab, build_vocab
 from nlp.chunk_enhancer import enhance_chunks, build_raptor_summaries
-from indexing.store_mongo import save_chunks_to_mongo
+from indexing.store_mongo import replace_source_chunks, save_chunks_to_mongo
 from utils.logging_config import get_logger
 
 logger = get_logger("rag.ingest")
@@ -60,7 +59,8 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
                     num_keywords: int = None, num_questions: int = None,
                     enhancement_model: str = None, chunking_mode: str = None,
                     raptor_summaries: bool = None,
-                    progress_callback=None):
+                    progress_callback=None, ingest_version: str | None = None,
+                    content_hash: str | None = None):
     """
     Pipeline d'ingestion complet :
     - Découpe en chunks (mode naive ou technical)
@@ -119,6 +119,15 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
                 "conversion échouée. Les index existants n'ont pas été modifiés."
             )
         stats["num_chunks"] = len(docs)
+        source_name = Path(md_path).name
+        if ingest_version:
+            for doc in docs:
+                original_id = str(doc.metadata.get("id") or doc.metadata.get("chunk_idx"))
+                doc.metadata["id"] = f"{ingest_version}:{original_id}"
+                doc.metadata["ingest_version"] = ingest_version
+                doc.metadata["content_hash"] = content_hash or ""
+            stats["version"] = ingest_version
+            stats["content_hash"] = content_hash
         stats["chunking_mode"] = chunking_mode
         logger.info("%d chunks générés à partir de %s (mode: %s)", len(docs), md_path, chunking_mode)
         print_chunk_stats(docs)
@@ -249,31 +258,27 @@ def ingest_markdown(md_path: str, output_dir: str | None = None,
         _ = index_chroma(ids, texts, metadatas, embeddings,
                          collection_name=COLLECTION_NAME,
                          clean_collection=False,
-                         replace_source=Path(md_path).name)
+                         replace_source=source_name)
         logger.info("Indexation vector store terminée")
         
         _notify_progress(progress_callback, "Sauvegarde MongoDB...", 85)
         
         # 7) Sauvegarde MongoDB
-        save_chunks_to_mongo(docs)
+        if ingest_version:
+            replace_source_chunks(docs, source_name, ingest_version)
+        else:
+            save_chunks_to_mongo(docs)
         logger.info("Chunks sauvegardés dans MongoDB")
         
         _notify_progress(progress_callback, "Construction index BM25...", 88)
         
         # 8) Index BM25 (enrichi avec keywords+questions)
         bm25_tuple = build_bm25_index(indexable_docs)
-        # Sauvegarde MongoDB (multi-document)
-        save_bm25_to_mongo(bm25_tuple, source_doc=Path(md_path).name)
-        # Sauvegarde .pkl (fallback global - conservé pour compatibilité)
-        _bm25_pkl = Path(__file__).resolve().parent.parent / "data" / "bm25_index.pkl"
-        _bm25_pkl.parent.mkdir(parents=True, exist_ok=True)
-        # Écriture atomique : un pickle tronqué (process tué / disque plein pendant
-        # le dump) casserait le chargement BM25 au démarrage (UnpicklingError/EOFError).
-        _bm25_tmp = _bm25_pkl.with_name(_bm25_pkl.name + ".tmp")
-        with open(_bm25_tmp, "wb") as f:
-            pickle.dump(bm25_tuple, f)
-        _bm25_tmp.replace(_bm25_pkl)
-        logger.info("Index BM25 sauvegardé (MongoDB + pkl)")
+        # Un index par document est conservé dans MongoDB ; le chargement les
+        # fusionne. Une seconde copie pickle serait ambiguë et non atomique avec
+        # la base, notamment après plusieurs ingestions.
+        save_bm25_to_mongo(bm25_tuple, source_doc=source_name)
+        logger.info("Index BM25 sauvegardé dans MongoDB")
 
         _notify_progress(progress_callback, "Termine", 100)
         
@@ -295,4 +300,3 @@ if __name__ == "__main__":
         exit(1)
 
     ingest_markdown(md_file)
-

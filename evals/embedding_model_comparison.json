@@ -1,0 +1,679 @@
+{
+  "source": "cds_mistral_anssi_thales-clean.md",
+  "documents": 770,
+  "questions": 30,
+  "models": {
+    "bge-m3:latest": {
+      "dimension": 1024,
+      "keyword_hit_rate": 0.7222,
+      "rows": [
+        {
+          "question": "Quel est le niveau d'évaluation EAL de la TOE Mistral ?",
+          "keyword_hit_rate": 0.6666666666666666,
+          "top_indices": [
+            81,
+            622,
+            46,
+            757,
+            555
+          ]
+        },
+        {
+          "question": "Quelle est la version du boîtier Mistral TRC7535 ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            46,
+            701,
+            81,
+            73,
+            692
+          ]
+        },
+        {
+          "question": "Quel est le niveau de résistance des fonctions de sécurité de la TOE ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            261,
+            622,
+            745,
+            83,
+            735
+          ]
+        },
+        {
+          "question": "À quelle version des Critères Communs cette cible de sécurité est-elle conforme ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            109,
+            743,
+            113,
+            63,
+            744
+          ]
+        },
+        {
+          "question": "La TOE est-elle conforme à un Profil de Protection existant ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            278,
+            745,
+            277,
+            275,
+            158
+          ]
+        },
+        {
+          "question": "Que désigne l'acronyme CGM dans le système Mistral ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            74,
+            73,
+            76,
+            69,
+            700
+          ]
+        },
+        {
+          "question": "Quels sont les deux produits de chiffrement du système Mistral ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            692,
+            46,
+            74,
+            81
+          ]
+        },
+        {
+          "question": "À quoi sert le Centre d'Élaboration des Clés (CEC) ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            76,
+            431,
+            165,
+            225,
+            335
+          ]
+        },
+        {
+          "question": "Quelle technologie le système Mistral utilise-t-il pour sécuriser les échanges sur les réseaux IP ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            73,
+            74,
+            81,
+            741,
+            701
+          ]
+        },
+        {
+          "question": "Pour quels types de réseaux le Mistral est-il principalement conçu ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            74,
+            692,
+            81,
+            82
+          ]
+        },
+        {
+          "question": "Quels moyens d'attaque sont cités dans la menace T.UNAUTHORIZED_ADMINISTRATOR_ACCESS ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            169,
+            748,
+            263,
+            179,
+            168
+          ]
+        },
+        {
+          "question": "Quelles exigences FCS_CKM sont des dépendances de FCS_IPSEC_EXT.1 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            318,
+            628,
+            329,
+            565,
+            627
+          ]
+        },
+        {
+          "question": "Quelle est la durée maximale configurable pour la durée de vie d'une SA IKEv2 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            321,
+            751,
+            467,
+            438,
+            437
+          ]
+        },
+        {
+          "question": "Quels mécanismes permettent de valider le statut de révocation d'un certificat ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            362,
+            457,
+            753,
+            360,
+            361
+          ]
+        },
+        {
+          "question": "Quelle version de TLS le serveur TLS impose-t-il et lesquelles rejette-t-il ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            476,
+            475,
+            334,
+            329,
+            325
+          ]
+        },
+        {
+          "question": "Que garantit l'hypothèse A.PHYSICAL_PROTECTION ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            137,
+            141,
+            220,
+            202,
+            279
+          ]
+        },
+        {
+          "question": "Quels objectifs de sécurité contrent la menace T.TOE_CAPTURE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            279,
+            276,
+            181,
+            278,
+            277
+          ]
+        },
+        {
+          "question": "Comment la TOE transmet-elle les données d'audit à une entité externe (FAU_STG_EXT.1) ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            424,
+            308,
+            590,
+            187,
+            306
+          ]
+        },
+        {
+          "question": "Que permet l'exigence FPT_TUD_EXT.1 concernant le firmware de la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            381,
+            540,
+            380,
+            605,
+            106
+          ]
+        },
+        {
+          "question": "Quels besoins de sécurité s'appliquent aux TSF data de la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            746,
+            482,
+            755,
+            125,
+            123
+          ]
+        },
+        {
+          "question": "À quoi servent les certificats de la TOE fournis par CSS_PKI ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            695,
+            77,
+            702,
+            76,
+            132
+          ]
+        },
+        {
+          "question": "Quel algorithme AES-GCM est spécifié pour IKEv1 selon la RFC 4106 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            320,
+            319,
+            467,
+            466,
+            440
+          ]
+        },
+        {
+          "question": "Quels objectifs contrent la menace T.WEAK_AUTHENTICATION_ENDPOINTS ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            178,
+            276,
+            278,
+            277,
+            261
+          ]
+        },
+        {
+          "question": "Comment s'appellent le réseau de confiance et le réseau non sûr dans l'architecture Mistral ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            74,
+            73,
+            94,
+            692,
+            154
+          ]
+        },
+        {
+          "question": "Quelle version du protocole IP la TOE prend-elle en charge ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            414,
+            80,
+            745,
+            81,
+            83
+          ]
+        },
+        {
+          "question": "Quels événements administratifs doivent être journalisés par la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            159,
+            681,
+            682,
+            680,
+            153
+          ]
+        },
+        {
+          "question": "Quelle politique la TOE applique-t-elle lors de l'import de données utilisateur via VPN (FDP_ITC.2/VPN) ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            482,
+            755,
+            483,
+            484,
+            485
+          ]
+        },
+        {
+          "question": "Quelle est la différence entre données permanentes et volatiles dans le stockage local de la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            688,
+            202,
+            201,
+            681,
+            746
+          ]
+        },
+        {
+          "question": "Que fournit FAU_STG_EXT.2/LocSpace lorsque le stockage local d'audit est plein ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            310,
+            425,
+            307,
+            591,
+            426
+          ]
+        },
+        {
+          "question": "Quelles dépendances cryptographiques a le client TLS FCS_TLSC_EXT.2 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            329,
+            334,
+            475,
+            325,
+            476
+          ]
+        }
+      ]
+    },
+    "qwen3-embedding:0.6b": {
+      "dimension": 1024,
+      "keyword_hit_rate": 0.6167,
+      "rows": [
+        {
+          "question": "Quel est le niveau d'évaluation EAL de la TOE Mistral ?",
+          "keyword_hit_rate": 0.6666666666666666,
+          "top_indices": [
+            81,
+            72,
+            622,
+            46,
+            757
+          ]
+        },
+        {
+          "question": "Quelle est la version du boîtier Mistral TRC7535 ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            46,
+            69,
+            720,
+            725,
+            632
+          ]
+        },
+        {
+          "question": "Quel est le niveau de résistance des fonctions de sécurité de la TOE ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            718,
+            36,
+            745,
+            716,
+            717
+          ]
+        },
+        {
+          "question": "À quelle version des Critères Communs cette cible de sécurité est-elle conforme ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            637,
+            563,
+            578,
+            564,
+            635
+          ]
+        },
+        {
+          "question": "La TOE est-elle conforme à un Profil de Protection existant ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            745,
+            735,
+            98,
+            742,
+            718
+          ]
+        },
+        {
+          "question": "Que désigne l'acronyme CGM dans le système Mistral ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            69,
+            74,
+            46,
+            737
+          ]
+        },
+        {
+          "question": "Quels sont les deux produits de chiffrement du système Mistral ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            74,
+            737,
+            46,
+            692
+          ]
+        },
+        {
+          "question": "À quoi sert le Centre d'Élaboration des Clés (CEC) ?",
+          "keyword_hit_rate": 0.5,
+          "top_indices": [
+            745,
+            296,
+            722,
+            566,
+            11
+          ]
+        },
+        {
+          "question": "Quelle technologie le système Mistral utilise-t-il pour sécuriser les échanges sur les réseaux IP ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            74,
+            81,
+            737,
+            46
+          ]
+        },
+        {
+          "question": "Pour quels types de réseaux le Mistral est-il principalement conçu ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            73,
+            74,
+            81,
+            72,
+            94
+          ]
+        },
+        {
+          "question": "Quels moyens d'attaque sont cités dans la menace T.UNAUTHORIZED_ADMINISTRATOR_ACCESS ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            748,
+            263,
+            169,
+            240,
+            747
+          ]
+        },
+        {
+          "question": "Quelles exigences FCS_CKM sont des dépendances de FCS_IPSEC_EXT.1 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            628,
+            627,
+            633,
+            114,
+            564
+          ]
+        },
+        {
+          "question": "Quelle est la durée maximale configurable pour la durée de vie d'une SA IKEv2 ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            321,
+            435,
+            751,
+            438,
+            322
+          ]
+        },
+        {
+          "question": "Quels mécanismes permettent de valider le statut de révocation d'un certificat ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            753,
+            362,
+            456,
+            434,
+            457
+          ]
+        },
+        {
+          "question": "Quelle version de TLS le serveur TLS impose-t-il et lesquelles rejette-t-il ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            334,
+            329,
+            332,
+            475,
+            476
+          ]
+        },
+        {
+          "question": "Que garantit l'hypothèse A.PHYSICAL_PROTECTION ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            294,
+            137,
+            303,
+            750,
+            300
+          ]
+        },
+        {
+          "question": "Quels objectifs de sécurité contrent la menace T.TOE_CAPTURE ?",
+          "keyword_hit_rate": 0.0,
+          "top_indices": [
+            745,
+            7,
+            11,
+            34,
+            192
+          ]
+        },
+        {
+          "question": "Comment la TOE transmet-elle les données d'audit à une entité externe (FAU_STG_EXT.1) ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            590,
+            308,
+            424,
+            306,
+            189
+          ]
+        },
+        {
+          "question": "Que permet l'exigence FPT_TUD_EXT.1 concernant le firmware de la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            540,
+            381,
+            380,
+            615,
+            378
+          ]
+        },
+        {
+          "question": "Quels besoins de sécurité s'appliquent aux TSF data de la TOE ?",
+          "keyword_hit_rate": 0.3333333333333333,
+          "top_indices": [
+            746,
+            125,
+            755,
+            34,
+            745
+          ]
+        },
+        {
+          "question": "À quoi servent les certificats de la TOE fournis par CSS_PKI ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            695,
+            745,
+            77,
+            746,
+            740
+          ]
+        },
+        {
+          "question": "Quel algorithme AES-GCM est spécifié pour IKEv1 selon la RFC 4106 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            320,
+            440,
+            467,
+            319,
+            708
+          ]
+        },
+        {
+          "question": "Quels objectifs contrent la menace T.WEAK_AUTHENTICATION_ENDPOINTS ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            5,
+            178,
+            733,
+            276,
+            240
+          ]
+        },
+        {
+          "question": "Comment s'appellent le réseau de confiance et le réseau non sûr dans l'architecture Mistral ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            74,
+            73,
+            94,
+            737,
+            81
+          ]
+        },
+        {
+          "question": "Quelle version du protocole IP la TOE prend-elle en charge ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            80,
+            745,
+            83,
+            99,
+            740
+          ]
+        },
+        {
+          "question": "Quels événements administratifs doivent être journalisés par la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            214,
+            12,
+            682,
+            752,
+            680
+          ]
+        },
+        {
+          "question": "Quelle politique la TOE applique-t-elle lors de l'import de données utilisateur via VPN (FDP_ITC.2/VPN) ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            481,
+            755,
+            482,
+            484,
+            483
+          ]
+        },
+        {
+          "question": "Quelle est la différence entre données permanentes et volatiles dans le stockage local de la TOE ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            746,
+            202,
+            686,
+            688,
+            9
+          ]
+        },
+        {
+          "question": "Que fournit FAU_STG_EXT.2/LocSpace lorsque le stockage local d'audit est plein ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            425,
+            426,
+            591,
+            310,
+            309
+          ]
+        },
+        {
+          "question": "Quelles dépendances cryptographiques a le client TLS FCS_TLSC_EXT.2 ?",
+          "keyword_hit_rate": 1.0,
+          "top_indices": [
+            325,
+            329,
+            327,
+            332,
+            328
+          ]
+        }
+      ]
+    }
+  }
+}

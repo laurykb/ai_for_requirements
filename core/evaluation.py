@@ -27,10 +27,22 @@ import re
 import time
 import types
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
-from utils.mongo import get_client
 from utils.logging_config import get_logger
 from env_config import RAGAS_JUDGE_CONCURRENCY
+from core.evaluation_metrics import (
+    context_precision_lexical,
+    context_recall_lexical,
+    exact_match,
+    f1_token,
+    keyword_hit_rate,
+    structured_axis_coverage,
+)
+from core.evaluation_store import (
+    aggregate_metrics,
+    load_eval_run_details,
+    load_eval_runs_from_mongo,
+    save_eval_run_to_mongo,
+)
 
 logger = get_logger("rag.eval")
 
@@ -47,95 +59,6 @@ def _parallel_map(fn, items, workers):
         return [fn(x) for x in items]
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(fn, items))
-
-
-# -----------------------------------------------------------------------------
-#  Helpers tokenisation
-# -----------------------------------------------------------------------------
-
-def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "").lower().strip())
-
-def _tokens(text: str) -> set:
-    return set(re.findall(r"\w+", _normalize(text), flags=re.UNICODE))
-
-
-# -----------------------------------------------------------------------------
-#  NIVEAU 1 - Métriques heuristiques (sans LLM)
-# -----------------------------------------------------------------------------
-
-def exact_match(generated: str, reference: str) -> float:
-    return float(_normalize(reference) in _normalize(generated))
-
-
-def f1_token(generated: str, reference: str) -> float:
-    gen_tok = _tokens(generated)
-    ref_tok = _tokens(reference)
-    if not ref_tok or not gen_tok:
-        return 0.0
-    common = gen_tok & ref_tok
-    precision = len(common) / len(gen_tok)
-    recall    = len(common) / len(ref_tok)
-    if precision + recall == 0:
-        return 0.0
-    return 2 * precision * recall / (precision + recall)
-
-
-def context_recall_lexical(chunks: list, reference: str) -> float:
-    if not reference or not chunks:
-        return 0.0
-    ref_tok = _tokens(reference)
-    covered = set()
-    for c in chunks:
-        covered |= _tokens(c.get("doc", ""))
-    if not ref_tok:
-        return 0.0
-    return len(ref_tok & covered) / len(ref_tok)
-
-
-def context_precision_lexical(chunks: list, reference: str, topk: int = 5) -> float:
-    if not reference or not chunks:
-        return 0.0
-    relevant = sum(
-        1 for c in chunks[:topk]
-        if f1_token(c.get("doc", ""), reference) > 0.1
-    )
-    return relevant / min(topk, len(chunks))
-
-
-def structured_axis_coverage(generated: str, expected_axes: list) -> Optional[float]:
-    """Part des axes structurés dont les faits obligatoires apparaissent.
-
-    Chaque axe est {name, keywords, min_hits?}. Cette métrique déterministe mesure
-    la couverture du contrat métier, indépendamment du style de rédaction.
-    """
-    if not expected_axes:
-        return None
-    blob = _normalize(generated)
-    covered = 0
-    for axis in expected_axes:
-        keywords = [str(k) for k in (axis.get("keywords") or []) if str(k).strip()]
-        minimum = int(axis.get("min_hits", len(keywords) or 1))
-        hits = sum(1 for keyword in keywords if _normalize(keyword) in blob)
-        if hits >= minimum:
-            covered += 1
-    return covered / len(expected_axes)
-
-
-def keyword_hit_rate(chunks: list, expected_keywords: list, topk: int = 10) -> Optional[float]:
-    """
-    Métrique de retrieval PURE (indépendante de la génération) :
-    fraction des mots-clés attendus présents dans les top-k chunks récupérés.
-    Mesure « le bon passage a-t-il été retrouvé ? » sans dépendre du LLM.
-    Retourne None si aucun mot-clé attendu n'est fourni.
-    """
-    if not expected_keywords:
-        return None
-    if not chunks:
-        return 0.0
-    blob = _normalize(" \n ".join(c.get("doc", "") for c in chunks[:topk]))
-    hits = sum(1 for kw in expected_keywords if _normalize(kw) in blob)
-    return hits / len(expected_keywords)
 
 
 # -----------------------------------------------------------------------------
@@ -657,74 +580,3 @@ def run_evaluation_batch(
         results.append(metrics)
 
     return results
-
-
-def aggregate_metrics(results: list) -> dict:
-    """Calcule les moyennes de toutes les métriques numériques (ignore les None)."""
-    keys = [
-        "keyword_hit_rate", "exact_match", "f1_token",
-        "context_recall", "context_precision",
-        "faithfulness", "answer_relevance", "answer_relevancy", "context_relevance",
-        "latency_s", "num_chunks_retrieved",
-    ]
-    ok = [r for r in results if r.get("status") == "ok"]
-    if not ok:
-        return {k: None for k in keys}
-    agg = {}
-    for k in keys:
-        vals = [r[k] for r in ok if r.get(k) is not None]
-        agg[k] = round(sum(vals) / len(vals), 4) if vals else None
-    return agg
-
-
-# -----------------------------------------------------------------------------
-#  MongoDB persistence
-# -----------------------------------------------------------------------------
-
-def save_eval_run_to_mongo(results: list, run_name: str,
-                           db_name: str = "ragdb",
-                           collection_name: str = "eval_runs",
-                           dataset: str | None = None, mode: str | None = None,
-                           breakdown: dict | None = None) -> str:
-    client = get_client()
-    col = client[db_name][collection_name]
-    doc = {
-        "run_name": run_name,
-        "dataset": dataset,
-        "mode": mode,
-        "breakdown": breakdown or {},
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "aggregate": aggregate_metrics(results),
-        "details": results,
-        "num_questions": len(results),
-    }
-    inserted = col.insert_one(doc)
-    return str(inserted.inserted_id)
-
-
-def load_eval_runs_from_mongo(db_name: str = "ragdb",
-                               collection_name: str = "eval_runs") -> list:
-    client = get_client()
-    col = client[db_name][collection_name]
-    runs = []
-    for r in col.find({}, {"details": 0}):
-        r["_id"] = str(r["_id"])
-        runs.append(r)
-    return sorted(runs, key=lambda x: x.get("timestamp", ""), reverse=True)
-
-
-def load_eval_run_details(run_id: str, db_name: str = "ragdb",
-                           collection_name: str = "eval_runs") -> Optional[dict]:
-    from bson import ObjectId
-    from bson.errors import InvalidId
-    try:
-        oid = ObjectId(run_id)
-    except (InvalidId, TypeError):
-        logger.warning("run_id invalide : %r", run_id)
-        return None
-    client = get_client()
-    col = client[db_name][collection_name]
-    r = col.find_one({"_id": oid})
-    if r:
-        r["_id"] = str(r["_id"])
-    return r

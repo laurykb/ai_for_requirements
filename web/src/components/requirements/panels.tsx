@@ -4,10 +4,11 @@
  * d'exigence fille et section Audit de la matrice. La logique (analyse,
  * audit) reste dans index.tsx et arrive par props. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Dot, Hint, Meter, Pill, Spinner, type Tone } from "@/components/ui";
-import { type Req } from "@/components/req-graph";
+import { type Req } from "@/components/req-explorer";
+import { getJSON } from "@/lib/api";
 import {
   DebateBadge, GlassBox, RoleChip, SEV_TONE, btnGhost, btnPrimary,
   type AuditReport, type FixItem, type FixProgress, type FixRecap,
@@ -27,14 +28,28 @@ const isSelectable = (it: FixItem) =>
   it.statut !== "echec_suggestion" && it.statut !== "inchangee";
 
 /** Formulaire d'ajout de lien DERIVE (mère au niveau N-1 ou fille au niveau N+1). */
-export function LinkForm({ sel, corpus, disabled, onLink }: {
-  sel: Req; corpus: Req[]; disabled: boolean;
+export function LinkForm({ sel, disabled, onLink }: {
+  sel: Req; disabled: boolean;
   onLink: (action: Record<string, unknown>) => void;
 }) {
   const [direction, setDirection] = useState<"mere" | "fille">("mere");
   const [other, setOther] = useState("");
-  const candidates = corpus.filter((r) =>
-    r.id !== sel.id && r.niveau === sel.niveau + (direction === "mere" ? -1 : 1));
+  const [search, setSearch] = useState("");
+  const [candidates, setCandidates] = useState<Req[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const targetLevel = sel.niveau + (direction === "mere" ? -1 : 1);
+    const timer = setTimeout(() => {
+      if (targetLevel < 0) { setCandidates([]); return; }
+      setLoading(true);
+      const params = new URLSearchParams({ level: String(targetLevel), page_size: "30" });
+      if (search.trim()) params.set("query", search.trim());
+      getJSON<{ items: Req[] }>("/api/lynx/requirements?" + params.toString())
+        .then((result) => setCandidates(result.items.filter((req) => req.id !== sel.id)))
+        .catch(() => setCandidates([])).finally(() => setLoading(false));
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [direction, search, sel.id, sel.niveau]);
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-edge pt-2">
       <select value={direction}
@@ -43,9 +58,12 @@ export function LinkForm({ sel, corpus, disabled, onLink }: {
         <option value="mere">Rattacher à une mère (L{sel.niveau - 1})</option>
         <option value="fille">Adopter une fille (L{sel.niveau + 1})</option>
       </select>
+      <input value={search} onChange={(e) => { setSearch(e.target.value); setOther(""); }}
+             placeholder="Rechercher un identifiant…"
+             className="min-w-44 rounded-md border border-edge bg-surface px-2 py-1 text-[11px] text-foreground" />
       <select value={other} onChange={(e) => setOther(e.target.value)}
               className="rounded-md border border-edge bg-surface px-2 py-1 font-mono text-[11px] text-foreground">
-        <option value="">choisir…</option>
+        <option value="">{loading ? "recherche…" : "choisir…"}</option>
         {candidates.map((r) => (
           <option key={r.id} value={r.id}>{r.id}</option>
         ))}
@@ -183,17 +201,18 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
           <div className="flex flex-wrap items-end gap-6">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-fg-faint">
-                Score de santé
+                Score de l’audit
               </p>
               <p className="font-mono text-3xl font-bold tabular-nums"
-                 style={{ color: audit.score >= 80 ? "var(--good)"
+                 style={{ color: !audit.score_meaningful ? "var(--fg-faint)"
+                          : audit.score >= 80 ? "var(--good)"
                           : audit.score >= 50 ? "var(--warn)" : "var(--bad)" }}>
-                {audit.score}
-                <span className="text-sm text-fg-faint">/100</span>
+                {audit.score_meaningful ? audit.score : "—"}
+                {audit.score_meaningful && <span className="text-sm text-fg-faint">/100</span>}
               </p>
             </div>
             <div className="min-w-44 flex-1">
-              <Meter label="Santé de la matrice" value={audit.score / 100} invert
+              <Meter label="Résultat de l’audit" value={audit.score / 100} invert
                      hint="100 − pénalités (BLOQUANT −9, ATTENTION −3)." />
             </div>
             <p className="text-[11px] text-fg-faint">
@@ -201,10 +220,17 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
               {deep ? ` · ${audit.n} audits IA` : ""} ▸ Score
             </p>
           </div>
+          {audit.degraded_reasons.length > 0 && (
+            <ul className="rounded-lg border border-warn/30 bg-warn/5 p-2 text-xs text-fg-muted">
+              {audit.degraded_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+            </ul>
+          )}
           {audit.flagged_ids.length === 0 ? (
             <p className="flex items-center gap-2 text-xs text-fg-muted">
-              <Dot tone="good" /> Aucune exigence signalée —{" "}
-              <span className="font-mono tabular-nums">{audit.n}</span> conformes.
+              <Dot tone={audit.n_non_audite ? "neutral" : "good"} />
+              {audit.n_non_audite
+                ? `Aucun défaut démontré · ${audit.n_non_audite} exigence(s) non auditée(s).`
+                : <><span className="font-mono tabular-nums">{audit.n}</span> exigence(s) auditée(s), aucun constat.</>}
             </p>
           ) : (
             <>
@@ -213,9 +239,9 @@ export function AuditPanel({ auditRunning, auditProgress, audit, deep, setDeep, 
                 <span className="font-mono tabular-nums">{audit.flagged_ids.length}</span>
                 exigence(s) en défaut —{" "}
                 <span className="font-mono tabular-nums">
-                  {audit.n - audit.flagged_ids.length}
+                  {Math.max(0, audit.n - audit.flagged_ids.length - audit.n_non_audite)}
                 </span>{" "}
-                conformes
+                auditée(s) sans constat
                 {audit.n_non_audite > 0 && ` · ${audit.n_non_audite} non auditées`}
               </p>
               <div className="space-y-1.5">

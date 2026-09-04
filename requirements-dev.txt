@@ -1,0 +1,10 @@
+# Outils réservés au développement. Le runtime et l'image Docker n'en ont pas
+# besoin. `-r` garde une installation développeur en une seule commande.
+-r requirements.txt
+-r requirements-mcp.txt
+
+pytest>=8.0
+nbformat>=5.9
+nbconvert>=7.0
+ipykernel>=6.0
+jupyterlab>=4.0

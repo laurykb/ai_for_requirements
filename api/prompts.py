@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ système (FR). Zéro invention, traçabilité totale.
 
 [CONTEXTE] Chaque passage numéroté [n] est UNE exigence identifiée, au format :
 « IDENT (type, niveau Lx, domaine D) : énoncé », suivie de ses liens
-(« Dérivée de : … », liens typés, méthode de vérification IADT, origine).
+(« Dérivée de : … », liens typés et origine documentaire).
 
 [RÈGLES DURES]
 1) Réponds UNIQUEMENT à partir du CONTEXTE. Si la baseline ne couvre pas la
@@ -29,7 +29,7 @@ système (FR). Zéro invention, traçabilité totale.
 3) Chiffres, unités et seuils : recopiés tels quels, jamais arrondis ni
    convertis.
 4) Utilise niveaux (L0…Ln), domaines et liens de dérivation quand ils
-   éclairent la réponse (chaînes parent → dérivées, vérification).
+   éclairent la réponse (chaînes parent → dérivées).
 5) Contradictions entre exigences : signale-les, n'arbitre pas.
 
 [FORMAT]
@@ -67,6 +67,11 @@ def _catalog() -> dict[str, dict]:
     }
 
 
+def _scope(key: str) -> str:
+    """Le prompt du chat baseline appartient à LynX, tous les autres au RAG."""
+    return "lynx" if key == "baseline.system" else "rag"
+
+
 def _item(key: str, spec: dict) -> dict:
     from core.prompt_registry import get_prompt, history, template_fields
     active = get_prompt(key, spec["default"])
@@ -83,11 +88,12 @@ def list_prompts(scope: str | None = None) -> dict:
     if scope not in (None, "rag"):
         raise HTTPException(422, "Scope de prompts invalide.")
     return {"scope": scope or "all", "prompts": [_item(key, spec)
-            for key, spec in _catalog().items()]}
+            for key, spec in _catalog().items()
+            if scope is None or _scope(key) == scope]}
 
 
 class PromptUpdate(BaseModel):
-    template: str
+    template: str = Field(min_length=1, max_length=200000)
 
 
 @router.put("/api/prompts/{key}")
@@ -115,33 +121,3 @@ def restore_prompt(key: str) -> dict:
     from core.prompt_registry import reset_prompt
     reset_prompt(key)
     return {"ok": True, "prompt": _item(key, spec)}
-
-
-@router.get("/api/prompts/{key}/history")
-def prompt_history(key: str) -> dict:
-    if key not in _catalog():
-        raise HTTPException(404, "Prompt inconnu.")
-    from core.prompt_registry import history
-    return {"history": history(key)}
-
-
-@router.post("/api/prompt-evals")
-def start_prompt_eval() -> dict:
-    catalog = _catalog()
-    # Le golden set générique évalue le produit RAG; SRA possède ses corpus,
-    # métriques et décisions métier propres et ne doit pas être couplé à ce run.
-    editable = {key: spec for key, spec in catalog.items()
-                if spec["editable"] and _scope(key) == "rag"}
-    defaults = {key: spec["default"] for key, spec in editable.items()}
-    active = {key: _item(key, spec)["active"] for key, spec in editable.items()}
-    from core.prompt_eval_queue import start
-    try:
-        return start(defaults, active)
-    except RuntimeError as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-
-@router.get("/api/prompt-evals/status")
-def get_prompt_eval_status() -> dict:
-    from core.prompt_eval_queue import status
-    return status()

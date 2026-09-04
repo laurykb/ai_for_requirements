@@ -30,7 +30,7 @@ test("chat RAG : composeur présent, périmètre et modes visibles", async ({ pa
 
 test("AI for Requirements : onglets en barre de menu, le Chat affiche l'espace baseline", async ({ page }) => {
   await page.goto("/requirements");
-  for (const tab of ["Matrice", "Exigences", "Chat", "Paramètres"]) {
+  for (const tab of ["Pilotage", "Conversion", "Exigences", "Audit", "Chat", "Suivi", "Paramètres"]) {
     await expect(page.getByRole("link", { name: tab, exact: true })).toBeVisible();
   }
   await page.getByRole("link", { name: "Chat", exact: true }).click();

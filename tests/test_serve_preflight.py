@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from serve import check_setup, collect_missing
+from serve import (
+    _ensure_app_ports_available,
+    check_setup,
+    collect_missing,
+    run_offline_bundle,
+)
 
 
 def _env(tmp_path, **extra):
@@ -107,3 +112,27 @@ def test_check_setup_ne_leve_jamais(tmp_path, monkeypatch):
     monkeypatch.setattr("serve.collect_missing", raising_collect)
     # Ne doit pas lever d'exception.
     assert check_setup() is None
+
+
+def test_lanceur_offline_installe_une_fois_puis_demarre(tmp_path, monkeypatch):
+    script = tmp_path / "deploy" / "offline.sh"
+    script.parent.mkdir()
+    script.touch()
+    calls = []
+    monkeypatch.setattr("serve.ROOT", tmp_path)
+    monkeypatch.setattr("serve.OFFLINE_INSTALLED", tmp_path / ".offline-installed")
+    monkeypatch.setattr("serve.subprocess.run", lambda command, **kwargs: calls.append(command))
+    run_offline_bundle()
+    assert calls[0][-1] == "install"
+    assert calls[1][-1] == "start"
+
+
+def test_ports_app_libres(monkeypatch):
+    monkeypatch.setattr("serve._port_open", lambda port: False)
+    assert _ensure_app_ports_available(8000, 3000) is None
+
+
+def test_port_web_occupe_est_explicite(monkeypatch):
+    monkeypatch.setattr("serve._port_open", lambda port: port == 3000)
+    with pytest.raises(RuntimeError, match=r"3000.*Aucun port de remplacement"):
+        _ensure_app_ports_available(8000, 3000)

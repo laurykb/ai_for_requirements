@@ -88,8 +88,10 @@ class OllamaClient:
         from utils.task_metrics import check_budget
         check_budget(self.task_id)
         t0 = time.perf_counter()
-        r = requests.post(f"{self.base_url}/api/generate",
-                          json=self._payload(prompt, False, stop, fmt=format), timeout=_TIMEOUT_S)
+        from utils.ollama_scheduler import slot
+        with slot(self.role):
+            r = requests.post(f"{self.base_url}/api/generate",
+                              json=self._payload(prompt, False, stop, fmt=format), timeout=_TIMEOUT_S)
         r.raise_for_status()
         data = r.json()
         if data.get("error"):
@@ -110,9 +112,11 @@ class OllamaClient:
         t0 = time.perf_counter()
         ttft_s = None
         chunks: list[str] = []
-        with requests.post(f"{self.base_url}/api/generate",
-                           json=self._payload(prompt, True, stop, fmt=format),
-                           stream=True, timeout=_TIMEOUT_S) as response:
+        from utils.ollama_scheduler import slot
+        with slot(self.role), requests.post(
+                f"{self.base_url}/api/generate",
+                json=self._payload(prompt, True, stop, fmt=format),
+                stream=True, timeout=_TIMEOUT_S) as response:
             response.raise_for_status()
             for line in response.iter_lines():
                 if cancel_event.is_set():
@@ -143,9 +147,11 @@ class OllamaClient:
         check_budget(self.task_id)
         t0 = time.perf_counter()
         ttft_s = None
-        with requests.post(f"{self.base_url}/api/generate",
-                           json=self._payload(prompt, True, stop),
-                           stream=True, timeout=_TIMEOUT_S) as r:
+        from utils.ollama_scheduler import slot
+        with slot(self.role), requests.post(
+                f"{self.base_url}/api/generate",
+                json=self._payload(prompt, True, stop),
+                stream=True, timeout=_TIMEOUT_S) as r:
             r.raise_for_status()
             for line in r.iter_lines():
                 if not line:

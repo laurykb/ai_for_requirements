@@ -47,6 +47,8 @@ export type Affirmation = {
  * garde ses marqueurs inline, rien n'est bloqué). */
 export type Attribution = {
   ok: boolean;
+  verification_level?: "markers_only" | "semantic";
+  semantic_support?: number | null;
   affirmations?: Affirmation[];
   n_affirmations?: number;
   n_sourcees?: number;
@@ -93,6 +95,7 @@ export type AskEvent =
   | { type: "observation"; text: string }
   | { type: "token"; text: string }
   | { type: "sources"; citations: Citation[] }
+  | { type: "persistence"; saved: boolean; message?: string | null }
   | { type: "coverage"; documents: DocumentCoverage; axes?: AxisCoverage }
   | ({ type: "attribution" } & Attribution)
   | { type: "eval"; faithfulness?: number; answer_relevance?: number;
@@ -124,6 +127,7 @@ export type ChatMessage = {
   error?: string;
   /** Génération arrêtée volontairement (bouton Stop) — réponse partielle. */
   stopped?: boolean;
+  persistenceWarning?: string;
   /** Raisonnement de l'agent ReAct (pensées/recherches), replié. */
   reasoning?: string | null;
   /** Routage affiché (mode Auto) : « RAG — raison ». */

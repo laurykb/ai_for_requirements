@@ -16,7 +16,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from .config import EMBED_CACHE_DB, EMBED_CACHE_DISK, EMBED_MODEL
+from .config import EMBED_CACHE_DB, EMBED_CACHE_DISK, EMBED_CACHE_DISK_MAX, EMBED_MODEL
 
 _lock = threading.Lock()
 _conn: Optional[sqlite3.Connection] = None
@@ -79,6 +79,7 @@ def put_many(items: Dict[str, List[float]]) -> None:
             conn.executemany(
                 "INSERT OR REPLACE INTO embeddings (key, model, dim, vec, created_at) "
                 "VALUES (?, ?, ?, ?, ?)", rows)
+            conn.execute("DELETE FROM embeddings WHERE key IN (SELECT key FROM embeddings ORDER BY created_at ASC LIMIT MAX(0, (SELECT COUNT(*) FROM embeddings) - ?))", (max(1, EMBED_CACHE_DISK_MAX),))
             conn.commit()
         except Exception:
             pass  # un cache qui échoue ne doit jamais casser l'appel

@@ -75,7 +75,7 @@ def test_eval_run_persists_dataset_mode_and_breakdown(monkeypatch):
         def __getitem__(self, _): return Col()
     class Client:
         def __getitem__(self, _): return DB()
-    monkeypatch.setattr(E, "get_client", lambda: Client())
+    monkeypatch.setattr("core.evaluation_store.get_client", lambda: Client())
     E.save_eval_run_to_mongo([], "r", dataset="space", mode="retrieval",
                              breakdown={"by_query_type": {}})
     assert captured["dataset"] == "space"

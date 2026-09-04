@@ -42,6 +42,7 @@ logger = get_logger("rag.router")
 # None -> on retombe sur GEN_MODEL (.env). Le résolveur paresseux ci-dessous le lit à
 # chaque génération, donc le changement est immédiat pour les requêtes suivantes.
 _GENERATE_OVERRIDE: str | None = None
+_ROLE_OVERRIDES: dict[str, str] = {}
 
 
 def set_generate_model(name: str | None) -> None:
@@ -55,21 +56,40 @@ def get_generate_model() -> str:
     return _GENERATE_OVERRIDE or GEN_MODEL
 
 
+def set_role_models(models: dict[str, str]) -> None:
+    """Applique un arsenal de modèles au process courant.
+
+    Les valeurs vides retirent l'override. L'embedding reste volontairement hors
+    de ce mécanisme : le changer exige une réindexation du corpus.
+    """
+    unknown = set(models) - set(_ROLE_MODELS)
+    if unknown:
+        raise ValueError("Rôles LLM inconnus : " + ", ".join(sorted(unknown)))
+    for role, model in models.items():
+        value = str(model).strip()
+        if value:
+            _ROLE_OVERRIDES[role] = value
+        else:
+            _ROLE_OVERRIDES.pop(role, None)
+    if "generate" in models:
+        set_generate_model(models["generate"])
+
+
 # Table de routage : rôle -> modèle. Résolveurs paresseux (lambda) pour refléter la
 # config courante au moment de l'appel plutôt que figer à l'import.
 _ROLE_MODELS = {
-    "rewrite":  lambda: REWRITER_MODEL,
-    "agent":    lambda: AGENT_MODEL,
+    "rewrite":  lambda: _ROLE_OVERRIDES.get("rewrite", REWRITER_MODEL),
+    "agent":    lambda: _ROLE_OVERRIDES.get("agent", AGENT_MODEL),
     # Planificateur multi-hop du mode agent : plan JSON + révision (PLANNER_MODEL,
     # défaut = AGENT_MODEL).
-    "planner":  lambda: PLANNER_MODEL,
-    "extract":  lambda: EXTRACTION_MODEL,
-    "synthesize": lambda: SYNTHESIS_MODEL,
-    "generate": lambda: _GENERATE_OVERRIDE or GEN_MODEL,
-    "judge":    lambda: JUDGE_MODEL,
+    "planner":  lambda: _ROLE_OVERRIDES.get("planner", PLANNER_MODEL),
+    "extract":  lambda: _ROLE_OVERRIDES.get("extract", EXTRACTION_MODEL),
+    "synthesize": lambda: _ROLE_OVERRIDES.get("synthesize", SYNTHESIS_MODEL),
+    "generate": lambda: _ROLE_OVERRIDES.get("generate", _GENERATE_OVERRIDE or GEN_MODEL),
+    "judge":    lambda: _ROLE_OVERRIDES.get("judge", JUDGE_MODEL),
     # ENHANCEMENT_MODEL est l'override explicite (historique, .env) ; à défaut on
     # réutilise le modèle de réécriture (léger, sans « thinking »), inchangé.
-    "enhance":  lambda: ENHANCEMENT_MODEL or REWRITER_MODEL,
+    "enhance":  lambda: _ROLE_OVERRIDES.get("enhance", ENHANCEMENT_MODEL or REWRITER_MODEL),
 }
 
 # Hyperparamètres par défaut par rôle - reproduisent le tuning qui était dispersé

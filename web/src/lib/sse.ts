@@ -4,8 +4,39 @@
  * l'appelant le détecte (`done` jamais reçu) et affiche un état dégradé au
  * lieu de pendre. Toute ligne non-JSON est ignorée sans casser le flux. */
 
-import { API_BASE } from "@/lib/api";
+import { apiFetch, requireOk } from "@/lib/api";
 import type { AskEvent } from "@/lib/types";
+
+export async function streamSSE<T>(
+  path: string,
+  init: RequestInit,
+  onEvent: (event: T) => void,
+): Promise<void> {
+  const res = await requireOk(await apiFetch(path, init), path);
+  if (!res.body) throw new Error(`${path} → réponse vide`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice(6)) as T);
+        } catch {
+          // Une trame isolée malformée ne doit pas interrompre le flux.
+        }
+      }
+    }
+  }
+}
 
 export async function streamAsk(
   body: {
@@ -21,35 +52,10 @@ export async function streamAsk(
   onEvent: (ev: AskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/ask`, {
+  return streamSSE<AskEvent>("/api/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
-  });
-  if (!res.ok || !res.body) throw new Error(`/api/ask → HTTP ${res.status}`);
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // Les trames SSE sont séparées par une ligne vide.
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data: ")) continue;
-        try {
-          onEvent(JSON.parse(line.slice(6)) as AskEvent);
-        } catch {
-          // ligne malformée : ignorée, le flux continue
-        }
-      }
-    }
-  }
+  }, onEvent);
 }

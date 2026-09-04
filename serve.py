@@ -11,6 +11,9 @@ Lance tout d'un coup : MongoDB + Ollama, puis l'application.
     MONGO_BIN      chemin de mongod (défaut : `mongod` du PATH)
     MONGO_DBPATH   dossier de données Mongo (défaut : ./data/mongodb)
     OLLAMA_BIN     chemin d'ollama (défaut : `ollama` du PATH)
+
+Le déploiement Docker hors ligne utilise le point d'entrée unique
+`deploy/offline.sh` décrit dans `docs/INSTALLATION_HORS_LIGNE.md`.
 """
 import os
 import sys
@@ -21,6 +24,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+OFFLINE_INSTALLED = ROOT / ".offline-installed"
 
 try:
     from dotenv import load_dotenv
@@ -44,6 +48,21 @@ def _resolve(name: str, env_var: str) -> str | None:
 
 def _spawn(cmd: list[str], env: dict | None = None) -> None:
     subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def is_offline_bundle() -> bool:
+    return (ROOT / "images.tar").is_file() and (ROOT / "deploy" / "offline.sh").is_file()
+
+
+def run_offline_bundle() -> None:
+    """Point d'entrée simple du paquet transféré sur la machine hors ligne."""
+    script = ROOT / "deploy" / "offline.sh"
+    if not OFFLINE_INSTALLED.is_file():
+        print("Première installation : vérification, images et modèles locaux...")
+        subprocess.run(["bash", str(script), "install"], cwd=ROOT, check=True)
+    print("Démarrage de l'application complète...")
+    subprocess.run(["bash", str(script), "start"], cwd=ROOT, check=True)
+    print("Démarrage hors ligne terminé.")
 
 
 def start_mongo() -> None:
@@ -71,8 +90,8 @@ def start_ollama() -> None:
     # FLASH_ATTENTION=0 : évite des NaN de bge-m3 sur certains GPU. NUM_PARALLEL=1
     # et KEEP_ALIVE=5m : adaptés à une VRAM contrainte (évite de pinner un modèle).
     env = {**os.environ, "OLLAMA_FLASH_ATTENTION": "0",
-           "OLLAMA_NUM_PARALLEL": os.environ.get("OLLAMA_NUM_PARALLEL", "4"),
-           "OLLAMA_MAX_LOADED_MODELS": os.environ.get("OLLAMA_MAX_LOADED_MODELS", "4"),
+           "OLLAMA_NUM_PARALLEL": os.environ.get("OLLAMA_NUM_PARALLEL", "1"),
+           "OLLAMA_MAX_LOADED_MODELS": os.environ.get("OLLAMA_MAX_LOADED_MODELS", "1"),
            "OLLAMA_SCHED_SPREAD": os.environ.get("OLLAMA_SCHED_SPREAD", "1"),
            "OLLAMA_KEEP_ALIVE": os.environ.get("OLLAMA_KEEP_ALIVE", "15m")}
     print("Ollama : démarrage...")
@@ -86,6 +105,18 @@ def _wait(port: int, name: str, timeout: int = 30) -> None:
             return
         time.sleep(1)
     print(f"  {name} : pas prêt après {timeout}s (l'app démarre quand même).")
+
+
+def _ensure_app_ports_available(api_port: int, web_port: int) -> None:
+    """Garantit que cette application conserve ses URL dédiées."""
+    occupied = [str(port) for port in (api_port, web_port) if _port_open(port)]
+    if occupied:
+        raise RuntimeError(
+            "Port(s) réservé(s) à AI for SSH export/LynX déjà occupé(s) : "
+            + ", ".join(occupied)
+            + ". Arrêtez l ancienne instance ou définissez API_PORT et WEB_PORT "
+              "dans .env. Aucun port de remplacement ne sera choisi silencieusement."
+        )
 
 
 # ─────────────────────────── Pre-flight (portabilité) ───────────────────────────
@@ -165,24 +196,50 @@ def check_setup():
 
 
 def run_web() -> None:
-    """Nouvelle interface : API FastAPI (:8000) + front Next.js (:3000).
+    """Interface export/LynX sur des ports fixes, indépendants de v3.
 
     L'API tourne en arrière-plan ; le front reste au premier plan pour que
     Ctrl+C arrête tout (l'API est tuée à la sortie).
     """
+    api_port = int(os.environ.get("API_PORT", "8000"))
+    web_port = int(os.environ.get("WEB_PORT", "3000"))
+    _ensure_app_ports_available(api_port, web_port)
     api = subprocess.Popen([sys.executable, "-m", "uvicorn", "api.main:app",
-                            "--port", "8000"], cwd=ROOT)
-    _wait(8000, "API")
-    print("\nFront Next.js : http://localhost:3000 (API : http://127.0.0.1:8000)\n")
+                            "--host", "127.0.0.1", "--port", str(api_port)], cwd=ROOT)
+    _wait(api_port, "API")
+    print(f"\nAI for SSH export / LynX : http://localhost:{web_port} "
+          f"(API : http://127.0.0.1:{api_port})\n")
     try:
-        # dev.sh charge nvm (Node >= 20) et fait `npm install` au premier lancement.
-        subprocess.run(["bash", str(ROOT / "web" / "dev.sh")])
+        env = {**os.environ, "PORT": str(web_port),
+               "INTERNAL_API_BASE": f"http://127.0.0.1:{api_port}"}
+        if os.environ.get("APP_MODE", "development").lower() == "production":
+            server = ROOT / "web" / ".next" / "standalone" / "server.js"
+            if not server.is_file():
+                raise RuntimeError(
+                    "Frontend de production absent. Préparez le paquet hors ligne "
+                    "avec deploy/offline.sh prepare DESTINATION."
+                )
+            node = _resolve("node", "NODE_BIN")
+            if not node:
+                raise RuntimeError("Node.js introuvable (PATH ou NODE_BIN dans .env).")
+            env.update({"NODE_ENV": "production", "HOSTNAME": "127.0.0.1"})
+            subprocess.run([node, str(server)], cwd=server.parent, env=env, check=True)
+        else:
+            # Mode développeur uniquement : peut installer les paquets npm manquants.
+            subprocess.run(["bash", str(ROOT / "web" / "dev.sh")], env=env, check=True)
     finally:
         api.terminate()
 
 
 def main() -> None:
+    if is_offline_bundle():
+        run_offline_bundle()
+        return
     start_mongo()
+    if (ROOT / "deploy" / "offline.sh").is_file() and not (ROOT / "web").is_dir():
+        raise RuntimeError(
+            "Paquet hors ligne incomplet : images.tar ou SHA256SUMS est absent."
+        )
     start_ollama()
     _wait(27017, "MongoDB")
     _wait(11434, "Ollama")
@@ -192,4 +249,16 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as exc:
+        print(f"\nDémarrage impossible : {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+    except subprocess.CalledProcessError as exc:
+        print(
+            f"\nÉchec du déploiement (étape: {exc.cmd[-1]}). "
+            "Consultez les messages ci-dessus puis lancez "
+            "`bash deploy/offline.sh diagnose`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(exc.returncode) from None

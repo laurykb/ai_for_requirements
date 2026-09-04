@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { API_BASE, getJSON, type SourcesResponse } from "@/lib/api";
+import { apiFetch, getJSON, type SourcesResponse } from "@/lib/api";
 import { Banner, Dot, Hint, Spinner, type Tone } from "@/components/ui";
 
 type Job = {
@@ -201,7 +201,7 @@ function DocSummary({ name }: { name: string }) {
         <button
           onClick={async () => {
             setState("loading");
-            const res = await fetch(`${API_BASE}/api/documents/${encodeURIComponent(name)}/summary`,
+            const res = await apiFetch(`/api/documents/${encodeURIComponent(name)}/summary`,
                                     { method: "POST" }).catch(() => null);
             setState(res?.ok ? await res.json() : { status: "error" });
           }}
@@ -290,7 +290,7 @@ function DocViewer({ name, highlight, onClose }: {
   );
 }
 
-function DocRow({ d, onDeleted }: { d: SourcesResponse["sources"][number]; onDeleted: () => void }) {
+function DocRow({ d, onDeleted, onError }: { d: SourcesResponse["sources"][number]; onDeleted: () => void; onError: (message: string) => void }) {
   const [confirm, setConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [viewer, setViewer] = useState<null | { highlight: string | null }>(null);
@@ -303,6 +303,12 @@ function DocRow({ d, onDeleted }: { d: SourcesResponse["sources"][number]; onDel
         <p className="text-sm text-foreground">
           {d.name} <span className="text-xs text-fg-faint">· {d.chunks} passages</span>
         </p>
+        {d.index && !d.index.in_sync && (
+          <span className="rounded-md border border-bad/40 bg-bad/10 px-2 py-1 text-[10px] text-bad"
+                title={d.index.degraded_reasons.join(" ")}>
+            Index incomplet · Mongo {d.index.mongo} · BM25 {d.index.bm25 ? "ok" : "absent"} · vecteurs {d.index.vectors}/{d.index.indexable}
+          </span>
+        )}
         {!confirm && (
           <button
             onClick={() => setViewer({ highlight: null })}
@@ -319,9 +325,14 @@ function DocRow({ d, onDeleted }: { d: SourcesResponse["sources"][number]; onDel
               disabled={deleting}
               onClick={async () => {
                 setDeleting(true);
-                await fetch(`${API_BASE}/api/documents/${encodeURIComponent(d.name)}`, {
+                const response = await apiFetch("/api/documents/" + encodeURIComponent(d.name), {
                   method: "DELETE",
                 }).catch(() => null);
+                if (!response?.ok) {
+                  onError("Suppression impossible : " + (response ? "HTTP " + response.status : "API indisponible"));
+                  setDeleting(false);
+                  return;
+                }
                 onDeleted();
               }}
               className="cursor-pointer rounded-md bg-bad/20 px-2 py-1 text-bad transition-colors hover:bg-bad/30"
@@ -359,14 +370,25 @@ export function Documents() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [active, setActive] = useState(false);
   const [docs, setDocs] = useState<SourcesResponse["sources"]>([]);
+  const [indexesInSync, setIndexesInSync] = useState<boolean | null>(null);
+  const [orphanVectors, setOrphanVectors] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refreshDocs = useCallback(() => {
     getJSON<SourcesResponse>("/api/sources")
-      .then((s) => setDocs(s.sources))
-      .catch(() => setDocs([]));
+      .then((s) => {
+        setDocs(s.sources);
+        setIndexesInSync(s.consistency_available ? Boolean(s.in_sync) : null);
+        setOrphanVectors((s.orphans ?? []).reduce((total, row) => total + row.vectors, 0));
+      })
+      .catch(() => {
+        setDocs([]);
+        setIndexesInSync(null);
+        setOrphanVectors(0);
+      });
   }, []);
 
   const refreshStatus = useCallback(async () => {
@@ -409,6 +431,7 @@ export function Documents() {
   const submit = async () => {
     if (!files.length || submitting) return;
     setSubmitting(true);
+    setError(null); setNotice(null);
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
     fd.append("nkw", String(params.nkw));
@@ -417,8 +440,13 @@ export function Documents() {
     fd.append("raptor", String(params.raptor));
     fd.append("enh_model", params.enh_model);
     try {
-      const res = await fetch(`${API_BASE}/api/documents`, { method: "POST", body: fd });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await apiFetch(`/api/documents`, { method: "POST", body: fd });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.detail ?? `HTTP ${res.status}`);
+      const skipped = (result.skipped ?? []) as Array<{ name: string; reason: string }>;
+      setNotice(skipped.length
+        ? `${result.added ?? 0} document(s) ajouté(s) · ${skipped.length} ignoré(s) : ${skipped.map((item) => item.name).join(", ")}`
+        : `${result.added ?? files.length} document(s) ajouté(s) à la file.`);
       setFiles([]);
       if (fileRef.current) fileRef.current.value = "";
       await refreshStatus();
@@ -434,6 +462,13 @@ export function Documents() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       {error && <Banner tone="bad">{error}</Banner>}
+      {notice && <Banner tone="neutral">{notice}</Banner>}
+      {indexesInSync === false && (
+        <Banner tone="bad">
+          Index documentaire dégradé : au moins une source n&apos;est pas complète dans MongoDB, BM25 et Chroma.
+          {orphanVectors > 0 ? ` ${orphanVectors} vecteur(s) orphelin(s) ont également été détectés.` : ""}
+        </Banner>
+      )}
 
       {/* Dépôt d'un lot. */}
       <section>
@@ -540,7 +575,8 @@ export function Documents() {
           {finished && (
             <button
               onClick={async () => {
-                await fetch(`${API_BASE}/api/ingest/clear`, { method: "POST" }).catch(() => null);
+                const response = await apiFetch("/api/ingest/clear", { method: "POST" }).catch(() => null);
+                if (!response?.ok) { setError("Nettoyage impossible : " + (response ? "HTTP " + response.status : "API indisponible")); return; }
                 refreshStatus();
               }}
               className="mt-2 cursor-pointer rounded-md border border-edge px-2 py-1 text-xs text-fg-faint transition-colors hover:text-foreground"
@@ -564,7 +600,7 @@ export function Documents() {
             </p>
           )}
           {docs.map((d) => (
-            <DocRow key={d.name} d={d} onDeleted={refreshDocs} />
+            <DocRow key={d.name} d={d} onDeleted={refreshDocs} onError={setError} />
           ))}
         </div>
       </section>

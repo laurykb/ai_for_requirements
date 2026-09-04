@@ -52,6 +52,8 @@ def _doc_to_record(doc):
         "req_id": doc.metadata.get("req_id"),
         "req_niveau": doc.metadata.get("req_niveau"),
         "req_domaine": doc.metadata.get("req_domaine"),
+        "ingest_version": doc.metadata.get("ingest_version"),
+        "content_hash": doc.metadata.get("content_hash"),
     }
 
 
@@ -63,6 +65,49 @@ def save_chunks_to_mongo(docs, collection_name="chunks"):
         col.update_one({"_id": record["_id"]}, {"$set": record}, upsert=True)
 
     logger.info("%d chunks enregistrés dans MongoDB.", len(docs))
+
+
+def replace_source_chunks(docs, source: str, version: str, collection_name="chunks"):
+    """Publie une version complète puis retire les anciennes occurrences.
+
+    Les identifiants étant versionnés, une erreur pendant la préparation peut
+    être annulée sans toucher à la version précédemment active.
+    """
+    col = _get_collection(collection_name)
+    new_ids = []
+    try:
+        for doc in docs:
+            record = _doc_to_record(doc)
+            new_ids.append(record["_id"])
+            col.replace_one({"_id": record["_id"]}, record, upsert=True)
+    except Exception:
+        if new_ids:
+            col.delete_many({"_id": {"$in": new_ids}})
+        raise
+    col.delete_many({"source": source, "ingest_version": {"$ne": version}})
+    logger.info("Version %s publiée pour %s (%d chunks).", version, source, len(docs))
+
+
+def prepare_source_chunks(docs, source: str, version: str, collection_name="chunks"):
+    """Écrit une version complète sans retirer la version actuellement active."""
+    col = _get_collection(collection_name)
+    ids = []
+    try:
+        for doc in docs:
+            record = _doc_to_record(doc)
+            ids.append(record["_id"])
+            col.replace_one({"_id": record["_id"]}, record, upsert=True)
+    except Exception:
+        if ids:
+            col.delete_many({"_id": {"$in": ids}})
+        raise
+    return len(ids)
+
+
+def delete_source_version(source: str, version: str, collection_name="chunks"):
+    return _get_collection(collection_name).delete_many(
+        {"source": source, "ingest_version": version}
+    ).deleted_count
 
 
 def save_query_to_mongo(query, collection_name="queries"):

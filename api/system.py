@@ -3,7 +3,8 @@ modèles Ollama (liste + changement à chaud), lecture/écriture du .env."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 from env_config import MONGO_DB
 
 from utils.mongo import get_client
@@ -78,12 +79,85 @@ def models() -> dict:
         vectors = get_vector_store().count()
     except Exception:
         pass
-    return {"models": names, "routing": routing, "vectors": vectors}
+    from env_config import EMBED_MODEL
+    embedding_models = [name for name in names if name == EMBED_MODEL or any(
+        marker in name.lower() for marker in ("embed", "bge-", "e5-")
+    )]
+    generation_models = [name for name in names if name not in embedding_models]
+    from utils.ollama_scheduler import snapshot as scheduler_snapshot
+    return {"models": names, "generation_models": generation_models,
+            "embedding_models": embedding_models, "routing": routing, "vectors": vectors,
+            "scheduler": scheduler_snapshot()}
 
 
 class ModelAction(BaseModel):
-    model: str
-    action: str  # "load" (épingle en VRAM + active à chaud) | "unload"
+    model: str = Field(min_length=1, max_length=200)
+    action: Literal["load", "unload"]
+
+
+class RoutingUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+    routing: dict[str, str] = Field(min_length=1, max_length=8)
+
+
+class ArsenalAction(RoutingUpdate):
+    action: Literal["load", "unload"]
+    embedding_model: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/api/models/routing")
+def apply_model_routing(body: RoutingUpdate) -> dict:
+    """Applique immédiatement une configuration de modèles par rôle."""
+    allowed = {"rewrite", "agent", "planner", "extract", "synthesize", "generate", "judge", "enhance"}
+    unknown = sorted(set(body.routing) - allowed)
+    if unknown:
+        raise HTTPException(422, "Rôles inconnus : " + ", ".join(unknown))
+    cleaned = {role: model.strip() for role, model in body.routing.items()}
+    if any(not model or len(model) > 200 for model in cleaned.values()):
+        raise HTTPException(422, "Chaque rôle doit désigner un modèle Ollama valide.")
+    from core.model_router import routing_table, set_role_models
+    set_role_models(cleaned)
+    return {"ok": True, "routing": routing_table()}
+
+
+@router.post("/api/models/arsenal")
+def manage_model_arsenal(body: ArsenalAction) -> dict:
+    """Charge ou décharge en bloc tous les modèles distincts de l'arsenal."""
+    routing_result = apply_model_routing(RoutingUpdate(routing=body.routing))
+    generation_models = list(dict.fromkeys(body.routing.values()))
+    import requests
+    from env_config import OLLAMA_HOST
+    from utils.ollama_scheduler import slot
+    completed, failures = [], []
+    keep = -1 if body.action == "load" else 0
+    for model in generation_models:
+        try:
+            with slot("generate"):
+                response = requests.post(
+                    f"{OLLAMA_HOST}/api/generate",
+                    json={"model": model, "keep_alive": keep}, timeout=600,
+                )
+            response.raise_for_status()
+            completed.append(model)
+        except Exception as exc:
+            failures.append({"model": model, "error": str(exc)})
+    try:
+        with slot("embed_ingest"):
+            response = requests.post(
+                f"{OLLAMA_HOST}/api/embed",
+                json={"model": body.embedding_model, "input": "", "keep_alive": keep},
+                timeout=600,
+            )
+        response.raise_for_status()
+        completed.append(body.embedding_model)
+    except Exception as exc:
+        failures.append({"model": body.embedding_model, "error": str(exc)})
+    result = {"ok": not failures, "action": body.action,
+              "models": list(dict.fromkeys(completed)), "failures": failures,
+              "routing": routing_result["routing"]}
+    if failures:
+        raise HTTPException(502, detail=result)
+    return result
 
 
 @router.post("/api/models/generate")
@@ -93,13 +167,21 @@ def set_generation_model(body: ModelAction) -> dict:
     import requests
     from env_config import OLLAMA_HOST
     try:
+        from env_config import EMBED_MODEL
+        if body.model == EMBED_MODEL or any(marker in body.model.lower() for marker in ("embed", "bge-", "e5-")):
+            raise HTTPException(422, "Un modèle d embedding ne peut pas générer de réponse.")
+        keep = -1 if body.action == "load" else 0
+        from utils.ollama_scheduler import slot
+        with slot("generate"):
+            response = requests.post(f"{OLLAMA_HOST}/api/generate",
+                                     json={"model": body.model, "keep_alive": keep}, timeout=600)
+        response.raise_for_status()
         if body.action == "load":
             from core.model_router import set_generate_model
             set_generate_model(body.model)
-        keep = -1 if body.action == "load" else 0
-        requests.post(f"{OLLAMA_HOST}/api/generate",
-                      json={"model": body.model, "keep_alive": keep}, timeout=30)
         return {"ok": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(502, f"Ollama : {e}")
 
@@ -129,18 +211,41 @@ def get_settings() -> dict:
 
 
 class EnvUpdates(BaseModel):
-    updates: dict[str, str]
+    updates: dict[str, str] = Field(min_length=1, max_length=64)
 
 _ENV_ALLOWED = set(_SETTABLE_KEYS)
+_NUMERIC_BOUNDS = {
+    "LLM_NUM_CTX": (2048, 262144), "NUM_CHUNKS": (1, 50),
+    "WEIGHT_SEMANTIC": (0, 1), "WEIGHT_BM25": (0, 1),
+    "CE_RELEVANCE_THRESHOLD": (0, 1), "AUTO_KEYWORDS": (0, 10),
+    "AUTO_QUESTIONS": (0, 10), "SELF_RAG_THRESHOLD": (0, 1),
+    "SELF_RAG_MAX_RETRIES": (0, 10), "CORPUS_MAP_CONCURRENCY": (1, 64),
+    "RAGAS_JUDGE_CONCURRENCY": (1, 64), "ENHANCE_MAX_WORKERS": (1, 64),
+}
+_BOOLEAN_KEYS = {"RAPTOR_SUMMARIES", "SELF_RAG_ENABLED"}
 
 
 @router.post("/api/settings")
 def save_settings(body: EnvUpdates) -> dict:
     """Écrit les réglages dans .env (liste blanche). Prend effet au prochain
     démarrage de l'API (comme dans le Streamlit)."""
-    updates = {k: v for k, v in body.updates.items() if k in _ENV_ALLOWED}
-    if not updates:
-        raise HTTPException(400, "Aucune clé autorisée dans la demande.")
+    unknown = sorted(set(body.updates) - _ENV_ALLOWED)
+    if unknown:
+        raise HTTPException(422, "Clés de réglage inconnues : " + ", ".join(unknown))
+    updates = {k: str(v).strip() for k, v in body.updates.items()}
+    for key, value in updates.items():
+        if len(value) > 10000 or "\n" in value or "\r" in value:
+            raise HTTPException(422, f"Valeur invalide pour {key}.")
+        if key in _BOOLEAN_KEYS and value.lower() not in {"true", "false", "1", "0", "yes", "no"}:
+            raise HTTPException(422, f"Booléen invalide pour {key}.")
+        if key in _NUMERIC_BOUNDS:
+            try:
+                number = float(value)
+            except ValueError as exc:
+                raise HTTPException(422, f"Nombre invalide pour {key}.") from exc
+            low, high = _NUMERIC_BOUNDS[key]
+            if not low <= number <= high:
+                raise HTTPException(422, f"{key} doit être compris entre {low} et {high}.")
     from pathlib import Path
     env_path = Path(__file__).resolve().parent.parent / ".env"
     lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []

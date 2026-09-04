@@ -1,8 +1,5 @@
 """Entrées principales pour interroger le pipeline RAG."""
 
-import os
-import pickle
-from pathlib import Path
 from typing import Optional, Tuple
 
 from utils.logging_config import get_logger
@@ -52,43 +49,19 @@ def _get_vector_store():
     return _vector_store
 
 
-# ---------- charger un index BM25 pre-calcule ----------
-def load_bm25_cache(path: str = "data/bm25_index.pkl") -> Optional[Tuple]:
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "rb") as f:
-            bm25_tuple = pickle.load(f)
-        if isinstance(bm25_tuple, tuple) and len(bm25_tuple) == 4:
-            return bm25_tuple
-    except Exception as e:
-        logger.warning("[bm25] Impossible de charger le cache BM25 : %s", e)
-    return None
-
-
-def _bm25_fallback_path() -> Path:
-    """Chemin du fallback BM25 local (format pkl historique)."""
-    return Path(__file__).resolve().parent.parent / "data" / "bm25_index.pkl"
-
-
 def _load_bm25(source_filter=None) -> Optional[Tuple]:
-    """Charge l'index BM25 GLOBAL fusionné (multi-document), avec fallback pkl.
+    """Charge l'index BM25 global fusionné depuis MongoDB.
 
     On charge toujours l'index « tous documents » : le filtrage par `source_filter`
     (un ou plusieurs documents) est appliqué plus bas, au niveau des scores, dans
     `bm25_search` - correct sur l'index global et identique quel que soit le nombre
-    de documents sélectionnés. `source_filter` est donc ignoré ici (gardé pour la
-    signature historique). Cache process-level : sans lui, l'index était re-téléchargé
-    et dé-picklé depuis Mongo à CHAQUE requête. Appeler clear_retrieval_caches()
-    après une ré-ingestion.
+    de documents sélectionnés. `source_filter` est donc ignoré ici. Le cache évite
+    de reconstruire l'index Mongo à chaque requête ; l'ingestion l'invalide.
     """
     if "__all__" in _bm25_cache:
         return _bm25_cache["__all__"]
 
-    bm25_tuple = load_bm25_from_mongo(source_doc=None)  # None = fusion de tous les index
-    if bm25_tuple is None:
-        bm25_tuple = load_bm25_cache(str(_bm25_fallback_path()))
-
+    bm25_tuple = load_bm25_from_mongo(source_doc=None)
     _bm25_cache["__all__"] = bm25_tuple
     return bm25_tuple
 

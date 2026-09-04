@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { API_BASE, getJSON } from "@/lib/api";
+import { apiFetch, getJSON } from "@/lib/api";
 import { useExpert } from "@/components/expert-toggle";
 import { Banner, Spinner } from "@/components/ui";
 
@@ -10,7 +10,6 @@ type PromptItem = {
   key: string; role: string; description: string; editable: boolean;
   default: string; active: string; overridden: boolean; variables: string[]; version: number;
 };
-type EvalStatus = { status: "idle" | "queued" | "running" | "success" | "error"; stage?: string };
 export type PromptGroup = "chat";
 
 const PROMPT_GROUPS: Array<{ id: PromptGroup; label: string; description: string }> = [
@@ -26,7 +25,6 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
   const [items, setItems] = useState<PromptItem[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
-  const [evalStatus, setEvalStatus] = useState<EvalStatus>({ status: "idle" });
   const [activeGroup, setActiveGroup] = useState<PromptGroup>(groups[0] ?? "chat");
   const promptScope = "rag";
 
@@ -41,17 +39,9 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
     return () => clearTimeout(timer);
   }, [load]);
 
-  useEffect(() => {
-    const poll = () => getJSON<EvalStatus>("/api/prompt-evals/status")
-      .then(setEvalStatus).catch(() => null);
-    void poll();
-    const timer = setInterval(poll, 5000);
-    return () => clearInterval(timer);
-  }, []);
-
   const act = async (item: PromptItem, reset = false) => {
     setStatus(null);
-    const res = await fetch(`${API_BASE}/api/prompts/${encodeURIComponent(item.key)}`, {
+    const res = await apiFetch(`/api/prompts/${encodeURIComponent(item.key)}`, {
       method: reset ? "DELETE" : "PUT",
       headers: { "Content-Type": "application/json" },
       body: reset ? undefined : JSON.stringify({ template: drafts[item.key] }),
@@ -65,17 +55,6 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
     await load();
   };
 
-  const startEval = async () => {
-    const res = await fetch(`${API_BASE}/api/prompt-evals`, { method: "POST" });
-    const body = await res.json().catch(() => ({ detail: "Réponse API invalide" }));
-    if (!res.ok) {
-      setStatus(`Évaluation impossible : `);
-      return;
-    }
-    setEvalStatus(body);
-    setStatus("Évaluation A/B lancée en arrière-plan.");
-  };
-
   if (!items) return <p className="flex gap-2 text-xs text-fg-muted"><Spinner /> Chargement…</p>;
   if (!expert) return <Banner tone="neutral">Activez le mode Expert pour inspecter et modifier les prompts.</Banner>;
   if (!items.length) return <Banner tone="bad">API des prompts indisponible.</Banner>;
@@ -86,8 +65,7 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
     <div className="mt-6 space-y-4">
       {status && <Banner tone="neutral">{status}</Banner>}
       <Banner tone="neutral">
-        Toute modification est versionnée et appliquée aux prochaines requêtes.
-        Validez-la ensuite sur le golden set RAG avant adoption.
+        Les modifications sont versionnées et appliquées aux prochaines requêtes.
       </Banner>
       {groups.length > 1 && <nav className="flex flex-wrap gap-2 rounded-xl border border-edge bg-surface/50 p-2" aria-label="Familles d’agents">
         {PROMPT_GROUPS.filter((item) => groups.includes(item.id)).map((item) => {
@@ -102,17 +80,6 @@ export function AgentsView({ groups = ["chat"] }: { groups?: PromptGroup[] }) {
         <h3 className="text-sm font-semibold text-foreground">{group.label}</h3>
         <p className="mt-1 text-xs text-fg-muted">{group.description}</p>
       </div>
-      {activeGroup === "chat" && <section className="rounded-xl border border-edge bg-surface/50 p-4">
-        <h3 className="text-sm font-semibold text-foreground">Validation A/B sur le golden set</h3>
-        <p className="mt-1 text-xs text-fg-muted">Compare les prompts par défaut aux versions actives avec les mêmes modèles et la politique adaptative.</p>
-        <div className="mt-3 flex items-center gap-3">
-          <button onClick={() => void startEval()} disabled={evalStatus.status === "running" || evalStatus.status === "queued"}
-            className="cursor-pointer rounded-lg border border-accent/60 px-3 py-1.5 text-xs text-accent-bright disabled:cursor-default disabled:opacity-50">
-            Lancer l&apos;évaluation A/B
-          </button>
-          <span className="text-xs text-fg-faint">{evalStatus.status}{evalStatus.stage ? ` · ${evalStatus.stage}` : ""}</span>
-        </div>
-      </section>}
       {visibleItems.map((item) => (
         <section key={item.key} className="rounded-xl border border-edge bg-surface/50 p-4">
           <div className="flex items-start justify-between gap-3">

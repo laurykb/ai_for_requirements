@@ -95,7 +95,8 @@ def build_requirement_documents(corpus: list[dict],
 
 
 def ingest_baseline(corpus: list[dict], progress_callback=None,
-                    source: str = LYNX_BASELINE_SOURCE) -> dict:
+                    source: str = LYNX_BASELINE_SOURCE,
+                    version: str | None = None) -> dict:
     """Pipeline complet baseline -> index (embeddings + HyPE + BM25 + Mongo).
 
     Même contrat de stats que `core.ingest.ingest_markdown` (status/message/
@@ -108,13 +109,20 @@ def ingest_baseline(corpus: list[dict], progress_callback=None,
             except Exception:
                 pass
 
-    stats: dict = {"n_exigences": len(corpus)}
+    stats: dict = {"n_exigences": len(corpus), "version_id": version}
+    vector_store = None
     try:
         _notify("Construction des chunks d'exigences...", 5)
         docs = build_requirement_documents(corpus, source=source)
         if not docs:
             raise ValueError("Baseline vide : aucune exigence à indexer.")
         stats["num_chunks"] = len(docs)
+        if version:
+            for doc in docs:
+                legacy_id = doc.metadata["id"]
+                doc.metadata["id"] = f"{version}::{legacy_id}"
+                doc.metadata["ingest_version"] = version
+                doc.metadata["content_hash"] = version
 
         hype_on, hype_nq = hype_policy(len(docs))
         if hype_on:
@@ -159,22 +167,50 @@ def ingest_baseline(corpus: list[dict], progress_callback=None,
         stats["embeddings_count"] = len(vecs)
 
         _notify("Indexation vector store...", 82)
-        index_chroma(ids, texts, metadatas, vecs, collection_name=COLLECTION_NAME,
-                     clean_collection=False, replace_source=source)
+        # Préparation : ajout versionné sans retirer ni rendre invisible la
+        # version active. Le registre ne basculera qu'après les trois écritures.
+        vector_store = index_chroma(ids, texts, metadatas, vecs,
+                                    collection_name=COLLECTION_NAME,
+                                    clean_collection=False, replace_source=None)
+        stats["vector_units"] = len(ids)
 
         _notify("Sauvegarde MongoDB...", 90)
-        from indexing.store_mongo import save_chunks_to_mongo
-        save_chunks_to_mongo(docs)
+        from indexing.store_mongo import prepare_source_chunks, save_chunks_to_mongo
+        if version:
+            stats["mongo_chunks"] = prepare_source_chunks(docs, source, version)
+        else:
+            save_chunks_to_mongo(docs)
+            stats["mongo_chunks"] = len(docs)
 
         _notify("Index BM25 de la baseline...", 95)
         from indexing.keyword_index import build_bm25_index, save_bm25_to_mongo
-        save_bm25_to_mongo(build_bm25_index(indexable), source_doc=source)
+        save_bm25_to_mongo(build_bm25_index(indexable), source_doc=source,
+                           ingest_version=version)
+        stats["bm25_chunks"] = len(indexable)
 
         _notify("Terminé", 100)
         stats["status"] = "success"
         stats["message"] = (f"Baseline indexée : {len(indexable)} exigence(s), "
                             f"HyPE {'activé' if hype_on else 'coupé'}")
     except Exception as e:
+        # Une préparation incomplète n'est jamais activée et est nettoyée sans
+        # toucher à la version encore servie aux utilisateurs.
+        if version:
+            try:
+                (vector_store or __import__("retrieval.vector_store", fromlist=["get_vector_store"])
+                 .get_vector_store()).delete_version(source, version)
+            except Exception:
+                logger.exception("Nettoyage Chroma impossible pour %s", version)
+            try:
+                from indexing.store_mongo import delete_source_version
+                delete_source_version(source, version)
+            except Exception:
+                logger.exception("Nettoyage Mongo impossible pour %s", version)
+            try:
+                from indexing.keyword_index import delete_bm25_version
+                delete_bm25_version(source, version)
+            except Exception:
+                logger.exception("Nettoyage BM25 impossible pour %s", version)
         stats["status"] = "error"
         stats["message"] = str(e)
         logger.exception("Échec de l'ingestion de la baseline : %s", e)
