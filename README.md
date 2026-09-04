@@ -1,202 +1,105 @@
-# AI for SSH — suite souveraine pour l'ingénierie de sécurité (PoC)
+# AI for Requirements — atelier souverain d’ingénierie des exigences
 
-**AI for SSH** réunit dans une **application 100 % locale** (aucune API externe) deux
-outils complémentaires pour le travail sur les dossiers de sécurité (ANSSI / Critères
-Communs). L'interface est un **front Next.js + API FastAPI** (`python serve.py`) :
+AI for Requirements est une application locale dédiée à la construction, la
+revue et l’exploitation d’une **baseline d’exigences**. Son cœur métier est
+**LynX** : un moteur hybride déterministe/LLM qui analyse la cohérence d’une
+arborescence, mesure l’impact des changements et produit des verdicts
+explicables.
 
-| Outil | Rôle | Documentation |
-|---|---|---|
-| **Outil RAG** (RAG documentaire) | Questions/réponses **sourcées** sur des cibles de sécurité : retrieval hybride, agent ReAct, serveur MCP, observabilité, **évaluation chiffrée**. | ce README |
-| **AI for Requirements** (LynX) | **Seconde lecture** d'une matrice de traçabilité d'exigences : un système multi-agents mesure en temps réel l'impact d'un ajout/modif/suppression et rend un **verdict unique** (VALIDE / ATTENTION / BLOQUANT). Onglet **Chat** : interroger la baseline d'exigences en langage naturel (moteur RAG complet, périmètre verrouillé sur l'arbre, réponses citant les identifiants d'exigences). | [`lynx/README.md`](lynx/README.md) |
+Le RAG est ici une brique de support : il sert à interroger la baseline et à
+citer précisément les exigences. Le produit principal reste l’atelier de
+gestion, de traçabilité et de vérification des exigences.
 
-Les deux outils partagent la même pile locale (Ollama : `mistral-small3.2` + `bge-m3`,
-MongoDB) et le même thème sombre. La page d'accueil propose **un bouton par outil**.
+## Parcours principaux
 
-> **Genèse — le merge.** AI for SSH est l'**unification de deux projets** auparavant
-> distincts : le RAG documentaire (dépôt `rag_project`) et **LynX / AI for Requirements**.
-> Le front Next.js sert les deux outils via l'API FastAPI (`api/rag.py`,
-> `api/lynx_api.py`, `api/lynx_chat.py`) — voir
-> [Intégration des deux outils](#intégration-des-deux-outils).
-
-> **Ce que c'est** : une implémentation de référence **réutilisable et multi-OS** qui
-> couvre l'essentiel de la feuille de route « AI Engineer » (RAG → agents → prod), avec
-> une discipline *mesure-avant-d'optimiser*. **Ce que ce n'est pas** : une plateforme
-> déployée à l'échelle. C'est un PoC abouti, pas un service en production (voir
-> [Limites assumées](#limites-assumées)).
-
----
-
-## Intégration des deux outils
-
-**UI cible (Next.js).** Le front `web/` parle à l'API FastAPI `api/` : l'Outil RAG passe
-par `api/rag.py`, l'**AI for Requirements** par `api/lynx_api.py` (qui wrappe `lynx/src`).
-RAG et LynX sont **deux applications distinctes** choisies à l'accueil (navigations
-séparées) — lancement : `python serve.py`.
-
-**UI legacy (Streamlit).** Retirée (migration terminée) — historique :
-`git log -- legacy/`. `lynx/app.py` (Streamlit standalone de LynX) reste
-utilisable ponctuellement avec `pip install streamlit streamlit-agraph`.
-
-Chaque outil garde sa propre **évaluation chiffrée** : RAG → `evals/` ; LynX →
-`lynx/eval/` (F1 micro 0.95 sur 196 cas) ; chat baseline →
-`evals/run_baseline_eval.py` (retrieval 12/12, abstention 3/3 sur le golden set).
-
----
-
-## Pourquoi ce projet se distingue
-
-La plupart des projets RAG s'arrêtent à « LangChain + une base vectorielle ». Ici, chaque
-brique est **activable**, **mesurée**, et **retirée quand la donnée ne la justifie pas** :
-
-- **Retrieval hybride** sémantique + BM25 + reranking cross-encoder, fusionnés par RRF,
-  avec option parent-child.
-- **Évaluation intégrée** (golden set + métriques type RAGAS) → décisions pilotées par la
-  donnée, y compris des **suppressions** (voir plus bas).
-- **Observabilité** (traces/spans souverains) qui a réellement servi à diagnostiquer (ex.
-  « la génération = ~85 % de la latence »).
-- **Agentique** : RAG-comme-outil, **serveur MCP**, **agent ReAct** streamé.
-- **Souveraineté** : tout tourne en local (Ollama + modèles auto-hébergés), zéro donnée
-  envoyée à un tiers.
-
-## Résultats mesurés
-
-**Qualité du retrieval** (golden set v2 de 30 Q/R ancrées dans le document,
-`python -m evals.run_eval --mode retrieval` ; dernier run archivé dans
-[`evals/last_eval.json`](evals/last_eval.json)) :
-
-| Métrique | Valeur |
+| Parcours | Finalité |
 |---|---|
-| hit@k (mots-clés attendus) | **0.64** |
-| context recall | **0.53** |
-| context precision | 0.29 |
+| Importer | Convertir des matrices DJEM XLS/XLSX, des baselines JSON ou des documents DOC/DOCX/ODT/TXT |
+| Arbitrer | Détecter les collisions, liens cassés et énoncés incomplets avant activation |
+| Versionner | Préparer un brouillon isolé, comparer, approuver et restaurer une baseline |
+| Analyser | Simuler un ajout, une modification, une suppression ou un remap |
+| Auditer | Contrôler la matrice ou le seul périmètre impacté, puis proposer des corrections |
+| Explorer | Parcourir la hiérarchie, les liens typés et la traçabilité |
+| Interroger | Questionner la baseline dans un chat dont les citations renvoient aux identifiants d’exigences |
 
-→ Le retrieval est **fonctionnel mais perfectible** : c'est le **maillon identifié comme
-prioritaire**, pas un acquis. La valeur du projet tient à la **démarche mesurée** (harnais
-d'éval reproductible + observabilité) qui rend ce diagnostic possible et non à un score
-brut. Les chiffres sont reproductibles ; ils ne sont pas figés dans le marbre.
+## Ce qui distingue LynX
 
-**Décisions pilotées par la mesure (ce qui a été retiré).** Le harnais a servi à
-*désactiver et supprimer* ce qui n'apportait rien sur ce corpus, pas seulement à ajouter :
+- Analyses structurelles et d’allocation déterministes.
+- Analyses sémantiques de pertinence, couverture, redondance et impact latent.
+- Verdict unique : **VALIDE**, **ATTENTION** ou **BLOQUANT**.
+- Boîte de verre montrant les entrées et sorties des agents.
+- Changements proposés avant application ; aucune correction silencieuse.
+- Baseline protégée par brouillons, comparaison, approbateur et motif
+  d’activation.
+- Exécution locale avec Ollama, MongoDB et Chroma.
 
-- **GraphRAG** : effet nul mesuré (deux fois) → **retiré entièrement** (builder + retriever
-  graphe, vue, toggles, config). Seule l'extraction d'entités (NER) reste, comme
-  enrichissement des chunks.
-- **Réécriture de requête LLM** : effet négatif + latence → **retirée** ; un simple
-  *trim* qui préserve les acronymes *verbatim* fait mieux (`nlp/query_rewriter.py`).
-- **Second backend vectoriel (Qdrant)** : jamais utilisé → **retiré** (dépendance
-  `qdrant-client` incluse). L'abstraction `VectorStore` reste (point d'extension), avec un
-  seul backend embarqué : **Chroma**.
-
-Résultat cumulé de ce ménage : **~-12 % de lignes**, non-régression du retrieval vérifiée.
-
-**Latence** (diagnostiquée via les traces) : la **génération domine (~85 %)** du temps sur
-GPU contraint (un modèle 8B + grand contexte déborde la VRAM → offload CPU). Leviers livrés :
-- *Mode rapide* (modèle plus léger + prompt épuré) : nettement plus court.
-- *Agent retrieve-only* (1 seule génération finale au lieu d'une par recherche).
-- *Streaming* : première pensée affichée en quelques secondes (ressenti type assistant
-  conversationnel).
-
-## Stack & techniques
-
-| Domaine | Ce qui est implémenté |
-|---|---|
-| Embeddings / Vector DB / RAG | retrieval hybride + RRF + rerank cross-encoder, RAPTOR, parent-child, abstraction `VectorStore` (backend Chroma), évaluation chiffrée |
-| Agents / MCP / Observabilité | tracing/spans, anti-injection, RAG-comme-outil, **serveur MCP**, **agent ReAct** streamé |
-| Prompt engineering | ancrage + citations, auto-correction (ex-Self-RAG), prompts détaillé/épuré |
-| Modèles | auto-hébergé (Ollama), **routage de modèles** par rôle |
+Les résultats d’évaluation et la méthode sont détaillés dans
+[`lynx/README.md`](lynx/README.md) et
+[`lynx/METHODOLOGIE.md`](lynx/METHODOLOGIE.md).
 
 ## Architecture
 
-Carte de lecture complète (couches, UI, points d'entrée, flux) :
-**[ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
-
 ```mermaid
 flowchart LR
-  subgraph Ingestion
-    A[PDF] -->|Docling| B[Markdown] --> C[Chunking + enrichissement LLM]
-    C --> D[Embeddings bge-m3]
-    C --> E[BM25]
-    C --> F[Entités nommées]
-    D --> G[(Vector store<br/>Chroma)]
-    E --> H[(MongoDB)]
-    F --> H
-  end
-  subgraph Requête
-    Q[Question] --> S[Retrieval parallèle<br/>sémantique + BM25]
-    G --> S
-    H --> S
-    S --> T[Fusion RRF] --> U[Rerank cross-encoder] --> V[Génération + citations]
-  end
+  A[Matrices et documents] --> B[Conversion et normalisation]
+  B --> C[Brouillon contrôlé]
+  C --> D[Arbitrage et comparaison]
+  D --> E[Baseline versionnée]
+  E --> F[Analyse d’impact LynX]
+  E --> G[Audit et correction assistée]
+  E --> H[Chat sourcé sur les exigences]
 ```
 
-Couches agentiques au-dessus : `tools/rag_tool.py` (RAG-comme-outil) → `rag_mcp_server.py`
-(MCP) → `core/agent.py` (ReAct streamé). Observabilité : `utils/tracing.py`.
+- `conversion/` : import et normalisation.
+- `lynx/src/` : modèle métier, orchestrateur, analyseurs, audit et traces.
+- `api/lynx_api.py` et `api/lynx_corpus.py` : cycle de vie de la baseline.
+- `api/lynx_chat.py` : index et chat réservés aux exigences.
+- `web/src/components/requirements/` : atelier de revue et d’audit.
+- `core/`, `retrieval/`, `indexing/` : socle RAG local partagé.
+
+Voir [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) pour la carte technique.
 
 ## Démarrage rapide
 
+Prérequis : Python 3.12, Node.js 20+, MongoDB et Ollama.
+
 ```bash
-# 1. Récupérer le code (USB) puis se placer à la racine du projet
-python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\Activate.ps1
-pip install -r requirements.txt                      # runtime RAG + LynX
-# Développement : pip install -r requirements-dev.txt
-# L'accélération GPU est gérée par Ollama ; le runtime Python reste portable.
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 python -m spacy download fr_core_news_sm
-ollama pull mistral-small3.2 && ollama pull bge-m3   # (+ llama3.2:3b en option pour le mode rapide)
+ollama pull mistral-small3.2
+ollama pull bge-m3
 cp .env.example .env
-python serve.py            # démarre MongoDB + Ollama + le front Next.js + l'API FastAPI
+python serve.py
 ```
 
-Guide complet (modèles, GPU, gotchas par OS, **install hors-ligne / réseau
-restreint**) : **[SETUP_PORTABLE.md](docs/SETUP_PORTABLE.md)**.
-Prérequis runtime : **Ollama** + **MongoDB**.
+Interface : <http://localhost:3000>. API : <http://localhost:8000>.
 
-Livraison air-gap nettoyée et vérifiée : `deploy/offline.sh prepare DESTINATION`.
-Le guide unique est **[docs/INSTALLATION_HORS_LIGNE.md](docs/INSTALLATION_HORS_LIGNE.md)**.
+Pour un environnement isolé, utiliser `deploy/offline.sh prepare DESTINATION`
+et suivre
+[`docs/INSTALLATION_HORS_LIGNE.md`](docs/INSTALLATION_HORS_LIGNE.md).
 
-## Points d'entrée
+## Vérification
 
-| Commande | Rôle |
-|---|---|
-| `python serve.py` | API FastAPI (`:8000`) + front Next.js (`:3000`) |
-| `python -m evals.run_eval --mode retrieval` | évaluation chiffrée (retrieval) |
-| `python -m core.agent "…"` | agent ReAct en CLI |
-| `python rag_mcp_server.py` | serveur MCP (stdio) |
-| `python diagnostic.py` | état des services + routage + vector store |
-| `python -m pytest` | suite backend hors ligne (le total courant est affiché par pytest) |
-
-## Structure
-
-```text
-api/         backend FastAPI (UI cible) : rag, sessions, documents, system, lynx_api
-web/         front Next.js 16 (UI cible) — RAG et LynX, navigations séparées
-lynx/        AI for Requirements : moteur multi-agents (src/) + prompts (skills/)
-core/        orchestration (ask, ingest, llm_answer, agent, planner, model_router, self_rag)
-retrieval/   retrieval hybride, fusion RRF, rerank, vector_store (abstraction Chroma)
-indexing/    chunking, embeddings, BM25, persistance Mongo
-nlp/         trim de requête, NER, enrichissement de chunks
-evals/       harnais d'évaluation + golden set
-utils/       tracing, sécurité, logging
-env_config.py  config portable centralisée
+```bash
+python -m pytest
+(cd lynx && python -m eval.run_eval --fast)
+(cd web && npm run lint && npm run build)
 ```
 
-## Limites assumées
+## Limites
 
-C'est un **PoC de référence**, à prendre comme tel :
+- PoC mono-poste : authentification, autorisations et multi-tenant ne sont pas
+  encore fournis.
+- Les verdicts sémantiques dépendent du modèle local et restent soumis à la
+  validation de l’ingénieur.
+- Les sources hétérogènes peuvent demander un arbitrage pendant l’import ; la
+  baseline active n’est jamais remplacée avant validation.
 
-- **Corpus de démo** : le **multi-document est supporté** (un index BM25 par document
-  fusionné en index global, filtrage par périmètre via le multiselect de l'UI), mais
-  n'a été éprouvé qu'avec un document ingéré à la fois. Le passage à un corpus à grande
-  échelle (nombreux documents, gros volumes) n'est pas encore validé.
-- **Retrieval perfectible** : hit@k ~0.64 sur le golden set courant — le chantier
-  d'amélioration prioritaire (chunking, pondération hybride, reranking) est ouvert.
-- **Génération** : le LLM local est le maillon faible en qualité (français parfois
-  imparfait) ; l'exactitude prime sur la vitesse pour des docs de sécurité.
-- **Latence** : élevée sur petit GPU (offload CPU). Le vrai correctif est l'infra (GPU
-  dédié ou modèle hébergé) ; le code (routage, streaming, abstractions) y est déjà prêt.
-- **Couche de service** : une **API FastAPI** (`api/`) + un **front Next.js** (`web/`) —
-  la migration depuis Streamlit est terminée ; conteneur / auth / multi-tenant
-  restent hors périmètre du PoC (mono-poste souverain).
+## Documentation
 
-## Licence / contexte
-
-Projet personnel d'apprentissage (AI Engineer). Documents ANSSI publics.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — composants et flux.
+- [`docs/SETUP_PORTABLE.md`](docs/SETUP_PORTABLE.md) — installation portable.
+- [`docs/INSTALLATION_HORS_LIGNE.md`](docs/INSTALLATION_HORS_LIGNE.md) — livraison air-gap.
+- [`lynx/README.md`](lynx/README.md) — moteur LynX et évaluation.

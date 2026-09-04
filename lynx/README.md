@@ -8,7 +8,7 @@ remontée du V, par les tests) ou par relecture humaine (RPP).
 
 100 % local et open-source, sans clé API.
 
-> **Intégré à [AI for SSH](../README.md)** (aux côtés du RAG documentaire), tout en
+> **Intégré à [AI for Requirements](../README.md)** (aux côtés du RAG documentaire), tout en
 > restant **utilisable en standalone** : l'app hôte importe `lynx/app.py` sans modifier
 > son code. La nouvelle UI Next.js expose LynX via l'API FastAPI `api/lynx_api.py`.
 

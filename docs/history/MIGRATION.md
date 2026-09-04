@@ -1,4 +1,4 @@
-# Fiche d'export & migration — AI for SSH
+# Fiche d’export & migration — AI for Requirements
 
 Tout ce qu'il faut pour **rejouer le projet sur un autre PC** ou préparer une
 **migration** (autre OS, autre GPU, conteneur, serveur). Objectif : exhaustif et

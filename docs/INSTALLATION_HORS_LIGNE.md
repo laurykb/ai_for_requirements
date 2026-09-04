@@ -1,4 +1,4 @@
-# AI for SSH hors ligne — guide unique
+# AI for Requirements hors ligne — guide unique
 
 Le livrable contient quatre images Docker (frontend, API, MongoDB et Ollama),
 tous les modèles Ollama et les données présents sur la machine source, la

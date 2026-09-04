@@ -1,30 +1,21 @@
-# web/ — AI for SSH (interface cible)
+# Interface AI for Requirements
 
-Front **Next.js (App Router) + Tailwind, TypeScript**, servi par défaut avec
-`python serve.py`. Il regroupe les interfaces RAG et LynX autour du kit partagé
-`src/components/ui.tsx`. L’ancienne interface Streamlit a été retirée ; le front
-Next.js est l’unique interface maintenue.
-
-## Lancer en local
-
-Prérequis : Node ≥ 20 (installé via nvm : `nvm use default`).
+Front Next.js 16 de l’atelier d’ingénierie des exigences. Il expose l’import et
+l’activation d’une baseline, l’exploration de l’arbre, l’analyse d’impact,
+l’audit/correction LynX et le chat sourcé sur les exigences.
 
 ```bash
-python serve.py   # depuis la racine : Mongo + Ollama + API :8000 + front :3000
+# depuis la racine
+python serve.py
+
+# ou uniquement le front
+cd web
+npm install
+npm run dev
 ```
 
-ou, front seul (sans l'API) :
-
-```bash
-bash dev.sh             # depuis web/ — équivaut à npm run dev
-```
-
-Ouvre <http://localhost:3000>. L'API est attendue sur `http://127.0.0.1:8000`
-(surchargable via `NEXT_PUBLIC_API_BASE` dans `.env.local`). Première fois :
-`npm install` (réseau requis une fois ; les fonts Google sont self-hostées au
-build par `next/font`, rien ne sort de la machine au runtime).
-
-## Vérifications
+Interface : <http://localhost:3000>. API attendue :
+<http://127.0.0.1:8000>, configurable avec `NEXT_PUBLIC_API_BASE`.
 
 ```bash
 npm run lint
